@@ -206,13 +206,68 @@ search        命令行全文检索
 
 ## 八、附件格式覆盖
 
+解析器**按文件头认格式，不只看扩展名** —— 这些站点的扩展名会说谎：
+实测有标为 `.docx` 的文件，文件头是 `d0cf11e0`（OLE2 老式文档），
+按扩展名交给 python-docx 必然报错。那不是"文件坏了"，是工具选错了。
+
 | 格式 | 状态 | 说明 |
 |---|---|---|
 | `.pdf` | ✅ 可用 | pymupdf 抽文本层；**扫描件**返回 `no_text_layer` 而非报错 |
-| `.xlsx` | ✅ 可用 | openpyxl |
-| `.xls` | ✅ 可用 | xlrd（税务申报表大量使用） |
-| `.docx` | ✅ 可用 | python-docx |
-| `.doc` / `.wps` / `.et` | ❌ 不支持 | 如实标记 `unsupported`，不假装成功 |
+| `.xlsx` / `.docx` | ✅ 可用 | openpyxl / python-docx（ZIP 容器） |
+| `.xls` | ✅ 可用 | xlrd（OLE2 容器，税务申报表大量使用） |
+| `.doc` / `.wps` / `.et` | ❌ 不支持 | 老式 OLE2 文档，如实标 `unsupported`，不假装成功 |
+| 扩展名与内容不符 | ⚙️ 自动纠正 | `.doc` 实为 ZIP → 按 docx 解析；`.docx` 实为 OLE2 → 标 unsupported |
 
-`no_text_layer`（扫描件）与 `failed`（解析器异常）必须区分：前者打开看一眼就行，
-后者要改代码。
+三种状态必须分清：`no_text_layer`（扫描件，打开看一眼就行）、
+`failed`（解析器异常，要改代码）、`unsupported`（**我们读不了，不是文件坏了**）。
+
+## 九、部署与对外访问
+
+**这个应用跑在你自己的机器上，不上云。** 不是懒得部署，而是三个核心都依赖本机：
+SQLite 政策库（约 200MB，每日在本机更新）、抓取调度器（要访问政府网站）、
+客户资料（绝不能出本机）。
+
+### 不要部署到 Cloudflare Workers / Pages
+
+实测过，会失败：
+
+```
+Executing user deploy command: npx wrangler deploy
+✗ [ERROR] Could not detect a directory containing static files (e.g. html, css and js)
+```
+
+深层原因：Workers 是 JS/TS 边缘运行时 —— 跑不了 Python/FastAPI，没有文件系统，
+放不下 SQLite 政策库。**要让它上云，就得先把数据库搬出去，
+而那正是本项目第一条边界禁止的事。**
+
+### 正确的对外方式：Cloudflare Tunnel
+
+本机服务只监听 `127.0.0.1`，由 `cloudflared` 反向代理出一个 HTTPS 地址。
+数据始终在你本机的进程里，Cloudflare 只转发加密流量。
+
+**临时地址（零配置，每次重启会变）**
+
+```
+启动对外访问.bat
+```
+
+**固定地址（需要一个托管在 Cloudflare 的域名）**
+
+```bash
+cloudflared tunnel login                      # 浏览器里选你的域名
+cloudflared tunnel create taxassist           # 记下输出的隧道 ID
+cloudflared tunnel route dns taxassist 你的域名
+# 再写 ~/.cloudflared/config.yml：
+#   tunnel: <隧道ID>
+#   credentials-file: <隧道ID>.json
+#   ingress:
+#     - hostname: 你的域名
+#       service: http://127.0.0.1:8765
+#     - service: http_status:404
+cloudflared tunnel run taxassist
+```
+
+之后地址永久不变，服务仍只在本机。
+
+**对外暴露前请确认三件事**：已启用 HTTPS、已限制来源、
+已向公司 IT/风险部门确认对外暴露的合规性。
