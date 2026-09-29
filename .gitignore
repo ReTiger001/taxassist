@@ -40,6 +40,7 @@ src/*.egg-info/
 
 # 工具二进制：体积大，各人按 docs 自行下载
 tools/*.exe
+tools/*.msi
 
 # 内部交接文档：含真实公网地址、账号名等运行现场信息
 docs/交接状态.md
