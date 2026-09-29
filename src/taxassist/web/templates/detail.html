@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% from "_macros.html" import effect_badge, source_mark %}
+{% block title %}{{ p.title }} · 税务智能知识助手{% endblock %}
+{% block body %}
+
+<div class="card">
+  <div class="dhead">
+    <h1 class="dtitle">{{ p.title }}</h1>
+    <div class="meta">
+      <span><b>文号</b>
+        {% if p.p_doc_no_full %}<span class="docno">{{ p.p_doc_no_full }}</span>
+          {% if p.p_doc_no_confidence != 'high' %}<span class="badge b-mut">重建·{{ p.p_doc_no_confidence }}</span>{% endif %}
+        {% else %}<span class="d">未识别到完整文号</span>{% endif %}
+      </span>
+      <span><b>成文日期</b>{{ p.cwrq or '—' }}</span>
+      {% if p.p_effective_date %}<span><b>施行日期</b>{{ p.p_effective_date }}</span>{% endif %}
+      {% if p.pub_date %}<span><b>发布日期</b>{{ p.pub_date }}</span>{% endif %}
+      <span><b>发文机关</b>{{ p.pub_name or '—' }}</span>
+      <span><b>栏目</b>{{ p.o_column or '—' }}</span>
+      <span><b>效力</b>{{ effect_badge(p.p_effect_status) }}{{ source_mark(p.p_effect_source) }}</span>
+    </div>
+  </div>
+
+  <div class="note">
+    <b>效力判定依据：</b>{{ p.p_effect_reason or '未记录' }}
+    {% if p.p_effect_evidence %}<div style="margin-top:4px">证据：{{ p.p_effect_evidence }}</div>{% endif %}
+    {% if p.p_effect_source == 'default' %}
+      <div style="margin-top:6px;color:var(--accent)">
+        ⚠ 这是系统推定，不是官方确认。用于申报或对外出具意见前，请自行核实现行有效性。
+      </div>
+    {% endif %}
+    {% if p.p_review_state == 'needs_review' %}
+      <div style="margin-top:6px;color:var(--warn-fg)">此条已进入待人工确认队列。</div>
+    {% endif %}
+  </div>
+
+  {% if p.content %}
+    <div class="body">{{ p.content }}</div>
+  {% else %}
+    <div class="empty">
+      该条暂无正文。可能原因：源站该页无正文（如视频/图解类），或详情页尚未抓取。<br>
+      可执行 <code>python -m taxassist enrich --limit 50</code> 补抓。
+    </div>
+  {% endif %}
+</div>
+
+<h2>附件（{{ attachments|length }}）</h2>
+<div class="card">
+  {% if attachments %}
+  <table>
+    <thead><tr><th>文件名</th><th style="width:60px">格式</th><th style="width:130px">解析状态</th><th style="width:90px">文本量</th></tr></thead>
+    <tbody>
+    {% for a in attachments %}
+      <tr>
+        <td><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.filename }}</a></td>
+        <td class="d">.{{ a.ext }}</td>
+        <td>
+          {% if a.parse_status == 'ok' %}<span class="badge b-ok">已解析</span>
+          {% elif a.parse_status == 'no_text_layer' %}<span class="badge b-warn">扫描件·需OCR</span>
+          {% elif a.parse_status == 'unsupported' %}<span class="badge b-mut">格式不支持</span>
+          {% else %}<span class="badge b-bad">{{ a.parse_status }}</span>{% endif %}
+        </td>
+        <td class="d">{{ a.text_len }} 字</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+    <div class="empty">无附件记录。若源站确实带附件，请执行 <code>python -m taxassist enrich</code> 后重试。</div>
+  {% endif %}
+</div>
+
+{% if citations or repealed %}
+<h2>引用与废止关系</h2>
+<div class="card pad">
+  {% if citations %}
+    <div style="font-weight:600;margin-bottom:6px">本文引用（{{ citations|length }}）</div>
+    <ul class="plain">
+    {% for c in citations %}
+      <li>
+        {% if c.target_title and c.dst_doc_uid %}
+          <a href="/policy/{{ c.dst_doc_uid }}">{{ c.target_title[:70] }}</a>
+          {{ effect_badge(c.target_effect) }}
+        {% else %}
+          {{ c.dst_doc_no or '（未能识别）' }}
+          <span class="badge b-mut">未匹配到库内文件</span>
+        {% endif %}
+        <span class="sub">— {{ c.evidence }}</span>
+      </li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+  {% if repealed %}
+    <div style="font-weight:600;margin:14px 0 6px;color:var(--accent)">本文被以下文件废止</div>
+    <ul class="plain">
+    {% for r in repealed %}
+      <li>
+        <a href="/policy/{{ r.src_doc_uid }}">{{ r.src_title[:70] }}</a>
+        <span class="docno">{{ r.src_doc_no_full or '' }}</span>
+        <span class="badge b-mut">相似度依据：{{ r.confidence }}</span>
+        <div class="sub">{{ r.evidence }}</div>
+      </li>
+    {% endfor %}
+    </ul>
+  {% endif %}
+</div>
+{% endif %}
+
+<h2>溯源</h2>
+<div class="card pad">
+  <div><b>官方原文：</b>
+    {% if p.url %}<a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
+    {% else %}—{% endif %}</div>
+  {% if p.snapshot_url %}
+    <div style="margin-top:6px"><b>官方快照：</b>
+      <a href="{{ p.snapshot_url }}" target="_blank" rel="noopener">{{ p.snapshot_url }}</a></div>
+  {% endif %}
+  <div style="margin-top:6px"><b>首次抓取：</b>{{ p.first_seen_at[:19].replace('T',' ') }}
+    ｜ <b>最近抓取：</b>{{ p.last_seen_at[:19].replace('T',' ') }}
+    ｜ <b>累计抓取：</b>{{ p.fetch_count }} 次
+    {% if p.last_changed_at %}｜ <b>内容变更于：</b>{{ p.last_changed_at[:19].replace('T',' ') }}{% endif %}
+  </div>
+  {% if snapshots %}
+    <div style="margin-top:10px"><b>本机归档快照（{{ snapshots|length }}）：</b>
+      <ul class="plain" style="margin-top:4px">
+      {% for s in snapshots %}
+        <li><span class="d">{{ s.fetched_at[:19].replace('T',' ') }}</span>
+            {{ s.kind }}　<span class="sub">{{ s.rel_path }}{% if s.size_bytes %} · {{ (s.size_bytes/1024)|round(1) }} KB{% endif %}</span></li>
+      {% endfor %}
+      </ul>
+    </div>
+  {% endif %}
+  {% if p.o_keywords %}<div style="margin-top:6px"><b>关键词：</b>{{ p.o_keywords }}</div>{% endif %}
+</div>
+
+{% endblock %}

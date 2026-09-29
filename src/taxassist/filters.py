@@ -1,0 +1,272 @@
+"""相关性过滤：把与实务判断无关的内容挪出第一视野。
+
+======================================================================
+为什么必须做（实测数据，不是臆测）
+======================================================================
+
+30 天窗口抓到的 50 条内容里：
+
+- 真正可执行的政策文件：**3 条**（政策法规栏目，带正式文号）
+- 其余 47 条：税法小课堂、一图了解、漫画、视频、办税小知识、案例曝光……
+
+不做过滤，首页和简报页会被科普内容占满。实测第一次打开界面时，
+那 3 条政策公告被压在 20 条"税法小课堂"下面 —— 这样的工具，
+你会在两周内关掉不再打开。
+
+======================================================================
+设计原则：过滤 ≠ 丢弃
+======================================================================
+
+所有内容都**照常入库、照常可检索**。过滤只做两件事：
+
+1. 给内容打分类标签（实质政策 / 解读 / 新闻科普 / 其他）
+2. 默认排序时把实质政策前置
+
+这样即使分类判断错了，代价也只是"少看一眼解读"，
+而不会是把一份公告永远埋掉 —— 后者在这个场景里是不可接受的。
+"""
+from __future__ import annotations
+
+import re
+
+from .config import NATIONWIDE
+
+# 分类
+SUBSTANTIVE = "实质政策"
+INTERPRETATION = "解读"
+NEWS = "新闻/科普"
+OTHER = "其他"
+
+# 栏目 → 是否实质政策文件
+# 权威政策栏目：这些栏目的内容由源站做过分类，可以整体视为实质政策。
+#
+# **"地方政策"不在其中** —— 那是省级列表页整页抓取时我们自己起的栏目名，
+# 内容混杂（解读、答记者问、问答、科普都在里面）。把整个栏目视为实质政策，
+# 会把大量非文件内容排到最前面：实测广东 25 条里有 11 条因此被误判，
+# 结果首页几乎被广东占满，而真正的全国政策文件只有 3 条。
+_SUBSTANTIVE_COLUMNS = frozenset({
+    "政策法规", "财税文件", "行政法规", "国务院文件",
+    "税务规范性文件", "部门规章", "其他文件",
+})
+
+# 文件体裁后缀：用来识别**没有正式文号的地方政策文件**
+# （省级文件多数不带"XX公告20XX年第N号"式文号，广东 28 条全部无文号）
+_DOC_GENRE_SUFFIXES = (
+    "的通知", "的公告", "的决定", "的办法", "的规定", "的意见",
+    "的批复", "的复函", "实施细则",
+)
+
+# 标题特征词：实测这些词几乎只出现在科普/新闻稿里
+_NEWS_TITLE_RE = re.compile(
+    r"(小课堂|一图了解|图解|漫画|视频|便利贴|我来讲|有回应|办税小知识|"
+    r"小贴士|曝光|案例|访谈|直播预告|征期日历|温馨提示|热点问答|"
+    r"注意！|注意啦|收藏！|速看|提醒！|手把手|了解一下|算一算|"
+    r"必看|秒get|看这里|话税收|热点问题|办税知识|第.{1,3}期|"
+    r"开学第一课|千万别踩|要点解答|答记者问)"
+)
+
+# 文件体裁后缀见上方的 _DOC_GENRE_SUFFIXES（原 _DOC_TITLE_RE 已合并进去，
+# 避免两套规则描述同一件事）
+
+
+def classify(row) -> str:
+    """给一条政策记录打分类标签。
+
+    ``row`` 为 ``sqlite3.Row`` 或 dict，需要含 ``o_column``、``p_doc_no_full``、
+    ``title`` 字段（缺失按空处理）。
+
+    判定顺序有意为之：**先看是否有正式文号**，因为文号是"这是一份可执行文件"
+    最硬的标志，比栏目名更可靠（有些解读也会挂在政策法规栏目下）。
+    """
+    def get(key: str):
+        try:
+            return row[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    column = (get("o_column") or "").strip()
+    doc_no = (get("p_doc_no_full") or "").strip()
+    title = (get("title") or "").strip()
+
+    # 0) 以问号结尾的标题必然是问答/科普，不是文件 ——
+    #    正式政策文件的标题不会写成问句（实测广东站混在"地方政策"栏目里的
+    #    "居民企业取得的投资收益，需不需要交企业所得税？"就属于此类）
+    if title.endswith(("？", "?")):
+        return NEWS
+    # 1) 有正式文号 → 实质政策（最可靠信号）
+    if doc_no:
+        return SUBSTANTIVE
+    # 2) 标题像科普/新闻（先判，避免「一图了解：《某公告》主要内容」被当成实质政策）
+    if _NEWS_TITLE_RE.search(title):
+        return NEWS
+    # 3) 解读 / 答记者问 —— **必须排在栏目判断之前**。
+    #    教训："地方政策"栏目里混着大量解读，先按栏目判就会把它们当成实质政策，
+    #    导致首页被解读与问答内容占满。
+    if column in ("政策解读", "政策指引") or "解读" in title or "答记者问" in title:
+        return INTERPRETATION
+    # 4) 权威政策栏目（源站分类可信）
+    if column in _SUBSTANTIVE_COLUMNS:
+        return SUBSTANTIVE
+    # 5) 标题是文件体裁 —— 无文号的地方政策文件靠这一条识别
+    if title.endswith(_DOC_GENRE_SUFFIXES):
+        return SUBSTANTIVE
+    return OTHER
+
+
+def is_substantive(row) -> bool:
+    return classify(row) == SUBSTANTIVE
+
+
+def classify_all(conn) -> dict[str, int]:
+    """给全库打分类标签并写入 meta 表旁的分组统计。
+
+    分类结果**不落库**（每次查询实时判断即可），避免"分类规则改了、
+    库里还是旧标签"这种不一致 —— 规则应当随时可调，标签不该是历史包袱。
+    """
+    stats: dict[str, int] = {}
+    for row in conn.execute(
+        "SELECT o_column, p_doc_no_full, title FROM policy"
+    ):
+        cat = classify(row)
+        stats[cat] = stats.get(cat, 0) + 1
+    return stats
+
+
+def substantive_first_sql(alias: str = "p") -> str:
+    """生成"实质政策优先"的 ORDER BY 片段。
+
+    集中在此处是为了让"什么算实质政策"只有一处定义。
+    三档优先级与 ``classify`` 保持一致：
+      0 = 有正式文号（最强信号）
+      1 = 权威政策栏目
+      2 = 标题是文件体裁（无文号的地方政策文件）
+      9 = 其余（解读、科普、新闻）
+    """
+    cols = ",".join(f"'{c}'" for c in sorted(_SUBSTANTIVE_COLUMNS))
+    genre = " OR ".join(
+        f"{alias}.title LIKE '%{suffix}'" for suffix in _DOC_GENRE_SUFFIXES
+    )
+    return (
+        f"CASE WHEN {alias}.p_doc_no_full IS NOT NULL AND {alias}.p_doc_no_full <> '' THEN 0 "
+        f"WHEN {alias}.o_column IN ({cols}) THEN 1 "
+        f"WHEN ({genre}) THEN 2 "
+        f"ELSE 9 END"
+    )
+
+
+# ---------------------------------------------------------------- 税种
+
+# 税种关键词表。刻意用"标题 + 关键词 + 标签"匹配，而不是依赖源站分类字段：
+# 实测源站的 xxgk_taxPolicy 多为 ["税收政策"] 这类粗分类，填不出具体税种。
+#
+# 用法上有一处坑必须处理：**"土地增值税"包含"增值税"**。
+# 直接子串匹配会把每一份土地增值税文件同时算作增值税文件，
+# 按税种筛选时就会串味 —— 见 extract_tax_types 里的遮蔽处理。
+TAX_TYPE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "增值税": ("增值税",),
+    "土地增值税": ("土地增值税",),
+    "企业所得税": ("企业所得税",),
+    "个人所得税": ("个人所得税", "个税"),
+    "消费税": ("消费税",),
+    "印花税": ("印花税",),
+    "房产税": ("房产税",),
+    "城镇土地使用税": ("城镇土地使用税", "土地使用税"),
+    "耕地占用税": ("耕地占用税",),
+    "契税": ("契税",),
+    "车船税": ("车船税",),
+    "车辆购置税": ("车辆购置税", "车购税"),
+    "资源税": ("资源税",),
+    "环境保护税": ("环境保护税", "环保税"),
+    "关税": ("关税",),
+    "出口退税": ("出口退税", "出口退（免）税", "出口货物退"),
+    "税收征管": ("征收管理", "税收征管", "纳税申报", "发票管理"),
+}
+
+# 遮蔽"土地增值税"，避免其内部子串被当成"增值税"
+_LAND_VAT_MASK = "\u0001"
+
+
+def _row_text(row) -> str:
+    def get(key: str):
+        try:
+            return row[key]
+        except (KeyError, IndexError, TypeError):
+            return None
+
+    return " ".join(x for x in (
+        get("title") or "", get("o_keywords") or "",
+        get("o_label") or "", get("o_tax_policy") or "",
+    ) if x)
+
+
+def extract_tax_types(row) -> list[str]:
+    """识别一条记录涉及的税种（可多个）。
+
+    长税种名先遮蔽再匹配短名，避免"土地增值税"被判成"增值税"。
+    """
+    text = _row_text(row)
+    if not text:
+        return []
+    masked = text.replace("土地增值税", _LAND_VAT_MASK)
+    found: list[str] = []
+    for tax, keywords in TAX_TYPE_KEYWORDS.items():
+        haystack = text if tax == "土地增值税" else masked
+        if any(kw in haystack for kw in keywords):
+            found.append(tax)
+    return found
+
+
+def tax_filter_sql(tax: str, alias: str = "p") -> tuple[str, list]:
+    """生成税种筛选的 SQL 片段与参数。未知税种返回空片段。"""
+    keywords = TAX_TYPE_KEYWORDS.get(tax)
+    if not keywords:
+        return "", []
+    clauses, params = [], []
+    for kw in keywords:
+        clauses.append(
+            f"({alias}.title LIKE ? OR IFNULL({alias}.o_keywords,'') LIKE ?"
+            f" OR IFNULL({alias}.o_tax_policy,'') LIKE ?)")
+        params += [f"%{kw}%", f"%{kw}%", f"%{kw}%"]
+    return "(" + " OR ".join(clauses) + ")", params
+
+
+def tax_type_counts(conn) -> dict[str, int]:
+    """全库按税种统计条数（供界面筛选下拉显示数量）。"""
+    counts: dict[str, int] = {}
+    for row in conn.execute(
+        "SELECT title, o_keywords, o_label, o_tax_policy FROM policy"
+    ):
+        for tax in extract_tax_types(row):
+            counts[tax] = counts.get(tax, 0) + 1
+    return counts
+
+
+# ---------------------------------------------------------------- 地区
+
+def region_counts(conn) -> list[tuple[str, int]]:
+    """按地区统计条数。
+
+    排序有意为之：**"全国"始终排在最前**，其余按条数倒序。
+    总局文件是判断基准，把它混在省份里按数量排会被地方转载挤下去。
+    """
+    rows = conn.execute(
+        "SELECT COALESCE(p_region, ?) r, COUNT(*) n FROM policy GROUP BY r",
+        (NATIONWIDE,),
+    ).fetchall()
+    return sorted(((r["r"], r["n"]) for r in rows),
+                  key=lambda x: (x[0] != NATIONWIDE, -x[1]))
+
+
+def region_filter_sql(region: str, alias: str = "p") -> tuple[str, list]:
+    """地区筛选 SQL 片段。空字符串 = 全部地区，返回空片段。"""
+    if not region:
+        return "", []
+    if region == NATIONWIDE:
+        # 历史数据或未识别地区一律归入"全国"，避免它们在任何筛选下都不出现
+        return f"(IFNULL({alias}.p_region, '{NATIONWIDE}') = '{NATIONWIDE}')", []
+    return f"({alias}.p_region = ?)", [region]
+
+
+def regions_present(conn) -> list[str]:
+    """库里实际存在的地区列表（全国优先）。"""
+    return [r for r, _ in region_counts(conn)]

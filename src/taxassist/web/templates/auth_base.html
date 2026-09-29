@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}登录 · 税务智能知识助手{% endblock %}</title>
+<style>
+/* 认证页独立布局：这一页的使用者还没进来，不需要导航与检索，
+   注意力只该集中在一件事上。色板与主界面同源，视觉不脱节。 */
+:root{
+  --paper:#f4f5f3; --card:#fff; --sunken:#eef0ec;
+  --ink:#1c2227; --ink-2:#4d5761; --ink-3:#78828c;
+  --line:#dfe2dc; --brand:#1b3a4b; --brand-2:#28556b;
+  --bad-bg:#f7e8e8; --bad-fg:#96272c;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;min-height:100vh}
+header.top{background:var(--brand);color:#fff;height:52px;display:flex;
+  align-items:center;padding:0 20px;flex:none}
+header.top .brand{color:#fff;font-size:14.5px;font-weight:600;letter-spacing:.3px;
+  text-decoration:none;white-space:nowrap}
+header.top .mode{font-size:10.5px;font-weight:400;letter-spacing:0;
+  background:rgba(255,255,255,.13);border:.5px solid rgba(255,255,255,.22);
+  border-radius:2px;padding:1px 5px;margin-left:8px;vertical-align:1.5px;
+  color:rgba(255,255,255,.8)}
+header.top .mode-out{background:rgba(255,214,145,.16);
+  border-color:rgba(255,210,130,.42);color:#ffd89a}
+main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:56px 20px}
+.box{width:100%;max-width:390px;background:var(--card);border:1px solid var(--line);
+  border-radius:3px;padding:26px 28px 24px}
+h1{font-size:17px;font-weight:600;margin:0 0 6px;letter-spacing:-.1px}
+.lede{font-size:12.5px;color:var(--ink-3);margin:0 0 18px;line-height:1.75}
+label{display:block;font-size:12px;color:var(--ink-2);margin:14px 0 5px;
+  font-weight:500;letter-spacing:.2px}
+input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:2px;
+  font-family:inherit;font-size:14px;background:var(--card);color:var(--ink)}
+input:focus{outline:none;border-color:var(--brand-2)}
+.hint{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.65}
+button{width:100%;margin-top:22px;padding:9px;border:0;border-radius:2px;
+  background:var(--brand);color:#fff;font-family:inherit;font-size:14px;
+  font-weight:500;cursor:pointer}
+button:hover{background:var(--brand-2)}
+.err{background:var(--bad-bg);color:var(--bad-fg);border:1px solid #e3cccc;
+  padding:10px 12px;border-radius:2px;font-size:12.5px;line-height:1.7;margin:0 0 18px}
+.alt{margin-top:20px;padding-top:15px;border-top:1px solid var(--line);
+  font-size:12.5px;color:var(--ink-3);line-height:1.8}
+.alt a{color:var(--brand-2);text-decoration:none}
+.alt a:hover{text-decoration:underline}
+code{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12px;
+  background:var(--sunken);border:1px solid var(--line);border-radius:2px;padding:1px 5px}
+</style>
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="/">税务智能知识助手<span
+     class="mode {{ 'mode-out' if exposed else '' }}">{{ '对外' if exposed else '本地' }}</span></a>
+</header>
+<main>
+  <div class="box">
+{% block body %}{% endblock %}
+  </div>
+</main>
+</body>
+</html>

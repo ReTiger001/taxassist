@@ -1,0 +1,178 @@
+"""省级税局静态列表页采集器。
+
+======================================================================
+适用形态（2026-09-29 实测）
+======================================================================
+
+列表页是**静态 HTML**，条目形如::
+
+    <a href="/gdsw/ssfggds/2026-09/22/content_a11c79b2....shtml">
+        广东省人民政府关于延续实施车辆车船税具体适用税额的通知
+    </a>2026-09-22
+
+标题在链接文本里，日期在其后的兄弟文本里。
+
+======================================================================
+**不适用**于上海这类 JS 异步加载站点
+======================================================================
+
+上海的首页与列表页都不含静态条目（实测详情链接数 = 0），只有老式 WAS 搜索接口。
+若把同一解析器硬套上去，会得到"抓取成功但零条目"的**假成功** ——
+比报错更危险，因为它看起来像"今天没有新政策"。
+本模块遇到"列表页无条目"时会**显式报错**，绝不返回空列表当成功。
+
+======================================================================
+已知限制（如实标注，不粉饰）
+======================================================================
+
+- 只解析**第一页**：分页结构因站而异，尚未适配。对日常增量够用
+  （每天新增通常不过几条），但首次全量导入会不全。
+- **不抓详情页正文**：省级站点详情页结构与总局不同，需另行适配；
+  当前入库的是标题、日期、链接与从标题抽取的文号。
+"""
+from __future__ import annotations
+
+import hashlib
+import logging
+import re
+from dataclasses import dataclass
+from urllib.parse import urljoin
+
+from lxml import html as LH
+
+from .collect.http import GuardedClient
+from .collect.normalize import extract_full_doc_no, norm_text
+from .db import now_iso
+
+log = logging.getLogger(__name__)
+
+_DATE_RE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
+
+
+class ListPageError(RuntimeError):
+    """列表页结构异常（无条目 / 结构变更）——必须显式失败，不可静默返回空。"""
+
+
+@dataclass(frozen=True)
+class ListPageAdapter:
+    """一个省级静态列表页的适配参数。"""
+
+    source_id: str
+    region: str
+    site_name: str
+    list_url: str
+    detail_href_re: str          # 详情链接的正则（用于把条目与导航链接区分开）
+    base_url: str
+    column: str = "地方政策"
+
+
+# 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
+# 再把 detail_href_re 按实际路径写进来 —— 不要凭猜测填。
+ADAPTERS: tuple[ListPageAdapter, ...] = (
+    ListPageAdapter(
+        source_id="gd_zcwj",
+        region="广东",
+        site_name="国家税务总局广东省税务局",
+        list_url="http://guangdong.chinatax.gov.cn/gdsw/zcwj/zcwj.shtml",
+        detail_href_re=r"/gdsw/[a-z]+/\d{4}-\d{2}/\d{2}/content_[0-9a-f]+\.shtml",
+        base_url="http://guangdong.chinatax.gov.cn",
+    ),
+)
+
+ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
+
+
+def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
+    """解析静态列表页，返回条目列表。
+
+    条目为空时抛 ``ListPageError``：零条目意味着"页面结构变了或不是静态页"，
+    必须让人知道，不能让它伪装成"今天没有新政策"。
+    """
+    doc = LH.fromstring(html_text)
+    pattern = re.compile(adapter.detail_href_re)
+    items: list[dict] = []
+    seen: set[str] = set()
+
+    for a in doc.xpath("//a[@href]"):
+        href = a.get("href") or ""
+        if not pattern.search(href):
+            continue
+        url = urljoin(adapter.base_url, href)
+        if url in seen:
+            continue
+        seen.add(url)
+
+        # 标题优先取 <a> 的 title 属性。
+        # 实测坑：广东列表页的 <a> 里除了标题 <font>，还嵌着"文件解读"图标的
+        # <em>，直接用 text_content() 会把解读标题拼到正文标题后面，得到
+        # "…公告关于《…公告》的解读" 这种畸形标题。
+        title = norm_text(a.get("title"))
+        if not title or len(title) < 6:
+            title = None
+            for child in a.iterchildren():
+                candidate = norm_text(child.text_content())
+                if candidate and len(candidate) >= 6:
+                    title = candidate
+                    break
+            if not title:
+                title = norm_text(a.text_content())
+        if not title or len(title) < 6:
+            continue
+
+        # 日期通常在链接之后的同级文本里（实测形态："标题</a>2026-09-22"）
+        parent_text = ""
+        parent = a.getparent()
+        if parent is not None:
+            parent_text = " ".join(parent.text_content().split())
+        m = _DATE_RE.search(parent_text) or _DATE_RE.search(url)
+        cwrq = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
+
+        items.append({
+            "url": url,
+            "title": title,
+            "cwrq": cwrq,
+            "doc_uid": f"{adapter.source_id}:" + hashlib.md5(url.encode()).hexdigest()[:16],
+        })
+
+    if not items:
+        raise ListPageError(
+            f"[{adapter.source_id}] 列表页未解析出任何条目：{adapter.list_url}。"
+            "页面可能已改版，或该站实际是 JS 异步加载（参见模块头部关于「假成功」的说明）。"
+            "请重跑 scripts/probe_source.py 复核后再改适配参数。"
+        )
+    return items
+
+
+def build_provincial_row(item: dict, adapter: ListPageAdapter) -> dict:
+    """把列表页条目转成 policy 表的一行。"""
+    doc_no = extract_full_doc_no(item.get("title"))
+    return {
+        "doc_uid": item["doc_uid"],
+        "url": item["url"],
+        "snapshot_url": None,
+        "url_md5": None,
+        "title": item["title"],
+        "o_column": adapter.column,
+        "o_site_name": adapter.site_name,
+        "o_label": "地方文件",
+        "p_region": adapter.region,          # 地区维度由采集器直接给出，可靠
+        "cwrq": item.get("cwrq"),
+        "pub_date": item.get("cwrq"),
+        "p_doc_no_full": doc_no,
+        "p_doc_no_confidence": "high" if doc_no else "low",
+        "pub_name": adapter.site_name,
+        "first_seen_at": now_iso(),
+        "last_seen_at": now_iso(),
+    }
+
+
+def fetch_list_page(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
+    """抓取并解析一个省级列表页。"""
+    resp = client.get(adapter.list_url)
+    resp.raise_for_status()
+    # 省级站点多为 UTF-8；gb18030 兜底避免个别站点乱码导致解析失败
+    try:
+        text = resp.content.decode("utf-8")
+    except UnicodeDecodeError:
+        text = resp.content.decode("gb18030", "replace")
+    return parse_list_page(text, adapter)
