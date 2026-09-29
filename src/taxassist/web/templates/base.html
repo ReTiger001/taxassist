@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}税务智能知识助手{% endblock %}</title>
+<style>
+/* =================================================================
+   设计方向：档案工作台
+   -----------------------------------------------------------------
+   证据：内容本身是公文（长标题、固定文号格式、机关署名）；使用者是税务师，
+   核心任务是从噪音里筛出真正要看的文件（实测 75 条里只有 20 条是实质政策）。
+   故：排版层级 > 彩色装饰；语义色只用于状态；直角、克制、无动效。
+   拒绝：深色仪表盘 + 彩色统计卡 + 圆角卡片网格 —— 那是 AI 生成界面的
+   标准长相，且与"公文"这一内容毫无关系。
+   ================================================================= */
+:root{
+  --paper:#f4f5f3; --card:#fff; --sunken:#eef0ec;
+  --ink:#1c2227; --ink-2:#4d5761; --ink-3:#78828c;
+  --line:#dfe2dc; --line-2:#eceee9;
+  --brand:#1b3a4b; --brand-2:#28556b;
+  --ok-bg:#e6efe7; --ok-fg:#2f6b3f; --ok-bar:#4a8a5c;
+  --warn-bg:#f7efe0; --warn-fg:#8f5a10; --warn-bar:#c08a2e;
+  --bad-bg:#f7e8e8; --bad-fg:#96272c; --bad-bar:#b8443f;
+  --mut-bg:#eceeea; --mut-fg:#5f6a73; --mut-bar:#a8b0b6;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased}
+a{color:var(--brand-2);text-decoration:none}
+a:hover{text-decoration:underline}
+.wrap{max-width:1200px;margin:0 auto;padding:0 20px}
+/* ---------------- 顶栏 ---------------- */
+.top{background:var(--brand);color:#fff;border-bottom:1px solid rgba(0,0,0,.22)}
+.top .wrap{display:flex;align-items:center;gap:24px;height:52px}
+.brand{color:#fff;font-size:14.5px;font-weight:600;letter-spacing:.3px;
+  white-space:nowrap;flex:none}
+.brand:hover{text-decoration:none;color:#fff}
+.local{font-size:10.5px;font-weight:400;letter-spacing:0;
+  background:rgba(255,255,255,.13);border:.5px solid rgba(255,255,255,.22);
+  border-radius:2px;padding:1px 5px;margin-left:8px;vertical-align:1.5px;
+  color:rgba(255,255,255,.8)}
+/* 对外暴露时徽章必须变样：这个站一旦在公网上，还标着"本地"就是在骗使用者 */
+.mode-out{background:rgba(255,214,145,.16);border-color:rgba(255,210,130,.42);
+  color:#ffd89a}
+.top nav{display:flex;gap:20px;font-size:13.5px;flex:none;white-space:nowrap}
+.top nav a{color:rgba(255,255,255,.72);white-space:nowrap;padding:2px 0;
+  border-bottom:1.5px solid transparent}
+.top nav a:hover{color:#fff;text-decoration:none;border-bottom-color:rgba(255,255,255,.45)}
+.quick{margin-left:auto;display:flex;gap:0;flex:1;min-width:0;justify-content:flex-end}
+.quick input{width:100%;max-width:280px;min-width:120px;padding:5px 10px;
+  border:1px solid rgba(255,255,255,.18);border-right:0;border-radius:2px 0 0 2px;
+  font-size:13px;font-family:inherit;background:rgba(255,255,255,.1);color:#fff}
+.quick input::placeholder{color:rgba(255,255,255,.5)}
+.quick input:focus{outline:none;background:rgba(255,255,255,.16);
+  border-color:rgba(255,255,255,.4)}
+.quick button{padding:5px 14px;border-radius:0 2px 2px 0;
+  background:rgba(255,255,255,.16);color:#fff;font-size:13px;font-family:inherit;
+  cursor:pointer;flex:none;border:1px solid rgba(255,255,255,.18)}
+.quick button:hover{background:rgba(255,255,255,.26)}
+/* 当前账号：对外暴露的站点必须让人随时看见"我是谁"，否则共用一台电脑时
+   会以为还在别人的会话里 */
+.who,.who-login{flex:none;white-space:nowrap;margin-left:auto;font-size:12.5px}
+.who{display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.72)}
+.who-name{font-weight:600;color:#fff}
+.who a,.who-login{color:rgba(255,255,255,.6);text-decoration:none}
+.who a:hover,.who-login:hover{color:#fff;text-decoration:underline}
+.quick+.who,.quick+.who-login{margin-left:16px}
+@media (max-width:900px){.top .wrap{gap:14px}.top nav{display:none}}
+/* 窄屏顶栏改为两行：品牌与账号一行、检索框独占一行。
+   挤在一行的后果实测过：490px 宽下"对外"徽章直接压在品牌文字上，
+   检索框也被推得叠在一起 —— 顶栏是每页都出现的东西，不能这里塌。 */
+@media (max-width:760px){
+  .top .wrap{flex-wrap:wrap;height:auto;padding-top:9px;padding-bottom:9px;row-gap:9px}
+  .brand{order:1}
+  .who,.who-login{order:2;margin-left:auto}
+  .quick{order:3;flex:1 0 100%}
+  .quick+.who,.quick+.who-login{margin-left:auto}
+}
+/* ---------------- 布局 ---------------- */
+main{padding:24px 20px 48px}
+h1{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.1px}
+h2{font-size:11.5px;font-weight:600;margin:26px 0 9px;color:var(--ink-3);
+  letter-spacing:.9px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:3px}
+.pad{padding:16px 18px}
+/* 窄屏：表格无法优雅地塞进手机宽度，让卡片容器自己横向滚动，
+   而不是让整页被撑破（页面级横向滚动是最糟的窄屏体验）。 */
+@media (max-width:760px){
+  .card{overflow-x:auto}
+  .card table{min-width:560px}
+  /* 日期列不让换行时，16 个字符撑破固定列宽会把相邻列压在一起（后台表格实测）。
+     宁可折成两行，也不要叠字。 */
+  .d{white-space:normal}
+}
+/* ---------------- 摘要条（取代六个等大方盒） ----------------
+   统计不该是六个一样的盒子：需要注意的数字（尚未生效、待确认）
+   才配得上一个底色。 */
+.bar{display:flex;align-items:stretch;background:var(--card);
+  border:1px solid var(--line);border-radius:3px;overflow:hidden}
+.bar .cell{padding:13px 18px;border-right:1px solid var(--line-2);flex:1;min-width:0}
+.bar .cell:last-child{border-right:0}
+.bar .n{font-size:21px;font-weight:600;line-height:1.2;
+  font-variant-numeric:tabular-nums;letter-spacing:-.3px}
+.bar .k{font-size:11.5px;color:var(--ink-3);margin-top:1px;letter-spacing:.2px}
+.bar .cell.flag{background:var(--warn-bg)}
+.bar .cell.flag .n{color:var(--warn-fg)}
+.bar .cell.flag-alert{background:var(--bad-bg)}
+.bar .cell.flag-alert .n{color:var(--bad-fg)}
+@media (max-width:760px){
+  .bar{flex-wrap:wrap}
+  .bar .cell{flex:1 0 33%;border-bottom:1px solid var(--line-2)}
+}
+/* ---------------- 表格：行的可扫描性是核心 ----------------
+   table-layout:fixed 配合 th 上的宽度：列宽由表头决定，长标题只在
+   自己的列内换行，不会把整张表撑出横向滚动条（实测踩过：广东那些
+   超长文件标题会把表格撑到视口之外）。 */
+table{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}
+th{text-align:left;font-weight:600;color:var(--ink-3);font-size:11.5px;
+  letter-spacing:.5px;padding:8px 12px;background:var(--sunken);
+  border-bottom:1px solid var(--line);white-space:nowrap}
+td{padding:9px 12px;border-bottom:1px solid var(--line-2);vertical-align:top;
+  overflow-wrap:break-word}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:#fafbf9}
+.d{color:var(--ink-3);white-space:nowrap;font-variant-numeric:tabular-nums}
+.docno{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;
+  font-size:12px;color:var(--ink-2);background:var(--sunken);
+  border:1px solid var(--line-2);border-radius:2px;padding:1px 5px;
+  white-space:nowrap;letter-spacing:-.2px}
+/* 系统重建的文号：虚线边框 + 淡色，与从官方原文提取的真实文号区分开 */
+.docno-recon{border-style:dashed;color:var(--ink-3);background:transparent}
+.docno-recon sup{color:var(--warn-fg);font-size:9px}
+.tt{font-weight:500;color:var(--ink);line-height:1.45}
+a.tt:hover{color:var(--brand-2);text-decoration:none}
+.sub{font-size:12px;color:var(--ink-3);margin-top:3px;line-height:1.4}
+/* 行首效力色条：扫一眼就知道哪条要留意 */
+.row-tag{display:inline-block;width:3px;height:14px;border-radius:1px;
+  vertical-align:-3px;margin-right:8px}
+/* ---------------- 状态徽章与来源标记 ----------------
+   产品的诚实性设计：使用者必须一眼分清"官方原文这么标的"
+   与"本系统推的"。官方=实心深色块；推定=虚线描边。 */
+.badge{display:inline-block;font-size:11px;padding:1px 6px;border-radius:2px;
+  white-space:nowrap;line-height:1.65;font-weight:500}
+.b-ok{background:var(--ok-bg);color:var(--ok-fg)}
+.b-warn{background:var(--warn-bg);color:var(--warn-fg)}
+.b-bad{background:var(--bad-bg);color:var(--bad-fg)}
+.b-mut{background:var(--mut-bg);color:var(--mut-fg)}
+.src{display:inline-block;font-size:10.5px;padding:0 4px;border-radius:2px;
+  margin-left:5px;line-height:1.7;vertical-align:1px}
+.src-official{background:var(--brand);color:#fff;font-weight:500}
+.src-default{background:transparent;color:var(--ink-3);border:1px dashed #b9c0c6}
+.src-inferred{background:transparent;color:var(--warn-fg);border:1px dashed #d0a95c}
+/* ---------------- 详情页 ---------------- */
+.dhead{padding:20px 22px 16px;border-bottom:1px solid var(--line)}
+.dtitle{font-size:19px;font-weight:600;line-height:1.5;margin:0 0 12px;
+  letter-spacing:-.2px}
+.meta{display:flex;flex-wrap:wrap;gap:7px 24px;font-size:13px;color:var(--ink-2)}
+.meta b{font-weight:600;color:var(--ink-3);font-size:11.5px;margin-right:5px;
+  letter-spacing:.4px}
+.body{white-space:pre-wrap;line-height:1.95;font-size:14.5px;padding:20px 22px;
+  max-width:78ch}
+.note{background:var(--sunken);border-left:3px solid var(--brand);
+  padding:12px 15px;font-size:13px;color:var(--ink-2);border-radius:0 2px 2px 0;
+  margin:0 22px 20px;line-height:1.7}
+ul.plain{margin:0;padding-left:18px}
+ul.plain li{margin:5px 0}
+.empty{color:var(--ink-3);font-size:13px;padding:18px 22px;line-height:1.7}
+.day{font-size:12.5px;font-weight:600;color:var(--ink-2);padding:8px 14px;
+  background:var(--sunken);border:1px solid var(--line);border-bottom:0;
+  border-radius:3px 3px 0 0;margin-top:20px;letter-spacing:.3px}
+.foot{color:var(--ink-3);font-size:11.5px;padding:20px;border-top:1px solid var(--line);
+  margin-top:36px;line-height:1.9}
+.err{background:var(--bad-bg);color:var(--bad-fg);padding:11px 15px;
+  border-radius:3px;font-size:13px;border:1px solid #e3cccc;line-height:1.7}
+.ok{background:var(--ok-bg);color:var(--ok-fg);padding:11px 15px;
+  border-radius:3px;font-size:13px;border:1px solid #cfe0d3;line-height:1.7;
+  margin-bottom:14px}
+.inline{display:inline}
+button.mini{padding:3px 9px;border:1px solid var(--line);border-radius:2px;
+  background:var(--card);color:var(--ink-2);font-family:inherit;font-size:12px;
+  cursor:pointer;margin:0 6px 2px 0}
+button.mini:hover{background:var(--sunken)}
+button.mini.danger{color:var(--bad-fg);border-color:#e3cccc}
+button.mini.danger:hover{background:var(--bad-bg)}
+.filters{display:flex;gap:8px;align-items:center;margin:16px 0;font-size:13px;
+  flex-wrap:wrap}
+.filters select,.filters input{padding:6px 9px;border:1px solid var(--line);
+  border-radius:2px;font-family:inherit;font-size:13px;background:var(--card);
+  color:var(--ink)}
+.filters select:focus,.filters input:focus{outline:none;border-color:var(--brand-2)}
+.filters button{padding:6px 16px;border:0;border-radius:2px;background:var(--brand);
+  color:#fff;font-family:inherit;font-size:13px;cursor:pointer;font-weight:500}
+.filters button:hover{background:var(--brand-2)}
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="/">税务智能知识助手<span
+       class="local {{ 'mode-out' if exposed else '' }}">{{ '对外' if exposed else '本地' }}</span></a>
+    {% if user or not exposed %}
+    <nav>
+      <a href="/">总览</a>
+      <a href="/daily">每日简报</a>
+      <a href="/search">检索</a>
+    </nav>
+    <form class="quick" action="/search" method="get">
+      <input type="search" name="q" value="{{ q or '' }}" placeholder="文号 / 标题 / 正文关键词"
+             aria-label="检索政策">
+      <button type="submit">搜索</button>
+    </form>
+    {% endif %}
+    {% if user %}
+    <div class="who">
+      {% if is_owner %}<a href="/admin">后台</a>{% endif %}
+      <span class="who-name">{{ user }}</span>
+      <a href="/logout">退出</a>
+    </div>
+    {% elif exposed %}
+    <a class="who-login" href="/login">登录</a>
+    {% elif is_owner %}
+    <a class="who-login" href="/admin">后台</a>
+    {% endif %}
+  </div>
+</header>
+<main class="wrap">
+{% block body %}{% endblock %}
+</main>
+<footer class="wrap foot">
+  数据来源：国家税务总局政策法规库 · 全部内容与判断保存在本机，未发生外部传输 ·
+  <b>判定来源</b>：<span class="src src-official">官方</span> 原文自带标注 ·
+  <span class="src src-default">推定</span> 本系统据现有证据推断，非官方确认
+</footer>
+</body>
+</html>

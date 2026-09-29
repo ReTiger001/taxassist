@@ -1,0 +1,48 @@
+{# 复用片段：效力徽章、行首色条、判定来源标记。
+   判定来源必须始终与效力状态一起显示——用户有权知道
+   "这是官方说的"还是"这是系统推的"，否则会产生虚假的确定感。
+   视觉上：官方 = 实心深色块；推定 = 虚线描边，两者不能混同。 #}
+
+{% macro effect_bar(status) -%}
+  {#- 行首色条：列表里扫一眼就知道哪条需要留意 -#}
+  {%- if status == '现行有效' -%}<span class="row-tag" style="background:var(--ok-bar)"></span>
+  {%- elif status == '尚未生效' -%}<span class="row-tag" style="background:var(--warn-bar)"></span>
+  {%- elif status == '已废止' -%}<span class="row-tag" style="background:var(--bad-bar)"></span>
+  {%- else -%}<span class="row-tag" style="background:var(--mut-bar)"></span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro effect_badge(status) -%}
+  {#- 未知状态一律显示中文「未判定」：库里可能是 'unknown'，
+      直接显示英文既像没做完，也容易被误读成某种专业状态 -#}
+  {%- if status == '现行有效' -%}<span class="badge b-ok">现行有效</span>
+  {%- elif status == '尚未生效' -%}<span class="badge b-warn">尚未生效</span>
+  {%- elif status == '已废止' -%}<span class="badge b-bad">已废止</span>
+  {%- elif status == '部分失效' -%}<span class="badge b-warn">部分失效</span>
+  {%- else -%}<span class="badge b-mut">未判定</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro source_mark(source) -%}
+  {%- if source == 'official' -%}<span class="src src-official" title="官方原文自带的时效标注">官方</span>
+  {%- elif source == 'inferred' -%}<span class="src src-inferred" title="据其他文件的废止声明推断，需人工确认">推定·据他文</span>
+  {%- elif source == 'default' -%}<span class="src src-default" title="未发现废止证据，系统推定有效，非官方确认">推定</span>
+  {%- elif source == 'manual' -%}<span class="src src-official" title="人工确认">人工</span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro docno_cell(no, confidence) -%}
+  {#- 文号必须标明来源：high = 从官方原文提取；其余 = 本系统按
+      「机关+年份+序号」重建，**不是原文文号**（原文形如「财税〔2013〕57号」）。
+      不标出来，使用者会把重建文号当真实文号用于正式引用。
+      实测：正文里不含文号，真实文号只能从详情页获取，故未抓详情页时必然为重建。 -#}
+  {%- if not no -%}<span class="d">—</span>
+  {%- elif confidence == 'high' -%}<span class="docno">{{ no }}</span>
+  {%- else -%}<span class="docno docno-recon"
+      title="系统重建的文号，不是原文文号；正式引用请以官方原文为准">{{ no }}<sup>*</sup></span>
+  {%- endif -%}
+{%- endmacro %}
+
+{% macro docno(no) -%}
+  {%- if no -%}<span class="docno">{{ no }}</span>{%- else -%}<span class="d">文号待补</span>{%- endif -%}
+{%- endmacro %}

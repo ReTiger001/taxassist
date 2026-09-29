@@ -1,0 +1,124 @@
+{% extends "base.html" %}
+{% block title %}后台 · 税务智能知识助手{% endblock %}
+{% block body %}
+<h1>后台</h1>
+<p class="lede" style="color:var(--ink-3);font-size:12.5px;margin:0 0 18px">
+  管理谁能访问本站。这里是唯一能改动数据的地方。</p>
+
+{% if msg %}<div class="ok">{{ msg }}</div>{% endif %}
+{% if err %}<div class="err">{{ err }}</div>{% endif %}
+
+<h2>账号 · {{ users|length }}</h2>
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:20%">账号</th><th style="width:13%">角色</th>
+        <th style="width:18%">创建</th><th style="width:20%">最后登录</th>
+        <th style="width:8%">次数</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for u in users %}
+      <tr>
+        <td><b>{{ u.username }}</b></td>
+        <td>
+          {% if u.role == 'owner' %}<span class="badge b-warn">超级管理员</span>
+          {% else %}<span class="badge b-mut">普通</span>{% endif %}
+        </td>
+        <td class="d">{{ u.created_at[:10] }}</td>
+        <td class="d">{{ u.last_login_at[:16].replace('T', ' ') if u.last_login_at else '从未登录' }}</td>
+        <td class="d">{{ u.login_count }}</td>
+        <td>
+          <form method="post" action="/admin/user/role" class="inline">
+            <input type="hidden" name="username" value="{{ u.username }}">
+            <input type="hidden" name="role"
+                   value="{{ 'member' if u.role == 'owner' else 'owner' }}">
+            <button class="mini">{{ '取消管理员' if u.role == 'owner' else '设为管理员' }}</button>
+          </form>
+          <form method="post" action="/admin/user/delete" class="inline"
+                onsubmit="return confirm('删除账号 {{ u.username }}？对方会立刻掉线。')">
+            <input type="hidden" name="username" value="{{ u.username }}">
+            <button class="mini danger">删除</button>
+          </form>
+        </td>
+      </tr>
+    {% endfor %}
+    {% if not users %}
+      <tr><td colspan="6" class="empty" style="padding:14px 12px">
+        还没有任何账号。生成一个邀请码，用它在本站注册第一个账号。</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<h2>发出邀请码</h2>
+<div class="card pad">
+  <form method="post" action="/admin/invite" class="filters" style="margin:0">
+    <input name="note" placeholder="发给谁，如：客户张三" style="max-width:260px">
+    <select name="days">
+      <option value="7">7 天有效</option>
+      <option value="30" selected>30 天有效</option>
+      <option value="90">90 天有效</option>
+      <option value="0">不过期</option>
+    </select>
+    <select name="role">
+      <option value="member" selected>普通成员</option>
+      <option value="owner">超级管理员</option>
+    </select>
+    <button type="submit">生成邀请码</button>
+  </form>
+  <p class="hint" style="color:var(--ink-3);font-size:12px;margin:10px 0 0;line-height:1.7">
+    一个邀请码只能注册一个账号。生成后把「网址 + 邀请码」发给对方，
+    让他在 <code>/register</code> 页面自己设账号与口令 —— 口令由对方设定，你不必也不该替他设。
+  </p>
+</div>
+
+<h2>邀请码记录 · {{ invites|length }}</h2>
+{% if invites %}
+<div class="card">
+  <table>
+    <thead>
+      <tr>
+        <th style="width:22%">邀请码</th><th style="width:11%">状态</th>
+        <th style="width:22%">备注</th><th style="width:22%">有效期</th><th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+    {% for i in invites %}
+      <tr>
+        <td><span class="docno">{{ i.display }}</span></td>
+        <td><span class="badge {{ 'b-ok' if i.state == '可用' else 'b-mut' }}">{{ i.state }}</span></td>
+        <td class="sub" style="margin:0">
+          {% if i.grants_role == 'owner' %}<span class="badge b-warn">管理员码</span>
+          {% else %}普通{% endif %}
+          {{ ('· ' + i.note) if i.note else '' }}</td>
+        <td class="d">
+          {{ i.expires_at[:10] if i.expires_at else '不过期' }}
+          {% if i.used_by %}
+            <div class="sub" style="margin:0">已由 {{ i.used_by }} 注册</div>
+          {% endif %}
+        </td>
+        <td>
+          {% if i.state == '可用' %}
+          <form method="post" action="/admin/invite/revoke" class="inline"
+                onsubmit="return confirm('吊销 {{ i.display }}？')">
+            <input type="hidden" name="code" value="{{ i.code }}">
+            <button class="mini danger">吊销</button>
+          </form>
+          {% else %}<span class="sub" style="margin:0">—</span>{% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="card"><div class="empty">还没有发出过邀请码。</div></div>
+{% endif %}
+
+<div class="note" style="margin-top:26px">
+  <b>要收回某人的访问权，删账号</b> —— 对方浏览器里的登录状态会立刻失效。<br>
+  <b>吊销邀请码只能挡住还没用过的码</b>；已经被拿去注册过的码，吊销它不会影响到那个账号。
+</div>
+{% endblock %}

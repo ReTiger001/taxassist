@@ -1,0 +1,35 @@
+{% extends "auth_base.html" %}
+{% block title %}注册 · 税务智能知识助手{% endblock %}
+{% block body %}
+<h1>用邀请码注册</h1>
+<p class="lede">一个邀请码只能注册一个账号。口令由你自己设定，本站保存的只是它的
+不可逆哈希值。</p>
+
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+<form method="post" action="/register">
+  <label for="code">邀请码</label>
+  <input id="code" name="code" value="{{ code or '' }}" placeholder="XXXX-XXXX-XXXX"
+         required autofocus autocapitalize="characters" spellcheck="false">
+  <div class="hint">大小写、连字符都可以不管，照抄即可。</div>
+
+  <label for="username">账号</label>
+  <input id="username" name="username" value="{{ username or '' }}" required
+         autocapitalize="none" spellcheck="false" autocomplete="username">
+  <div class="hint">3-32 位字母、数字、点、下划线或连字符，需以字母或数字开头。</div>
+
+  <label for="password">口令</label>
+  <input id="password" name="password" type="password" required
+         autocomplete="new-password">
+  <div class="hint">至少 {{ min_password }} 位。一句只有你记得的话，比
+    <code>Abc123!</code> 这类短口令更难猜。</div>
+
+  <label for="password2">再输一次口令</label>
+  <input id="password2" name="password2" type="password" required
+         autocomplete="new-password">
+
+  <button type="submit">注册并进入</button>
+</form>
+
+<div class="alt">已有账号？<a href="/login">直接登录</a>。</div>
+{% endblock %}

@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% from "_macros.html" import effect_badge, effect_bar, source_mark, docno_cell %}
+{% block title %}总览 · 税务智能知识助手{% endblock %}
+{% block body %}
+
+{% if health and health.bad_last_7d %}
+<div class="err" style="margin-bottom:16px">
+  <b>⚠ 近 7 天有 {{ health.bad_last_7d }} 次抓取未完整完成</b>
+  —— 这不等于"没有新政策"，可能只是抓取漏了。漏掉的政策不会自己出现，
+  请用命令行 <code>python -m taxassist status</code> 查看并重跑。
+  <ul class="plain" style="margin:8px 0 0">
+  {% for b in health.recent_bad %}
+    <li>{{ b.started_at[:19].replace('T', ' ') }} · {{ b.source_id }} ·
+        {{ b.status }}（抓 {{ b.fetched_count }}/{{ b.reported_total }}）
+        {% if b.error %}· {{ b.error[:90] }}{% endif %}</li>
+  {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if gap is not none and gap > 2 %}
+<div class="err" style="margin-bottom:16px">
+  <b>数据已落后 {{ gap }} 天</b>（最后完整抓取覆盖到 {{ health.last_window_end[:10] }}）。
+  若后台调度未运行，请手动执行 <code>python -m taxassist collect --days {{ gap + 7 }}</code>。
+</div>
+{% endif %}
+
+{# 摘要条：需要注意的数字才有底色，其余保持中性 #}
+<div class="bar">
+  <div class="cell"><div class="n">{{ stats.total }}</div><div class="k">政策总数</div></div>
+  <div class="cell"><div class="n">{{ stats.valid }}</div><div class="k">现行有效（含推定）</div></div>
+  <div class="cell{% if stats.repealed %} flag-alert{% endif %}">
+    <div class="n">{{ stats.repealed }}</div><div class="k">已废止</div></div>
+  <div class="cell{% if stats.pending %} flag{% endif %}">
+    <div class="n">{{ stats.pending }}</div><div class="k">尚未生效</div></div>
+  <div class="cell{% if stats.review %} flag-alert{% endif %}">
+    <div class="n">{{ stats.review }}</div><div class="k">待人工确认</div></div>
+  <div class="cell"><div class="n">{{ stats.relations }}</div><div class="k">引用/废止关系</div></div>
+  <div class="cell"><div class="n">{{ stats.attachments }}</div><div class="k">已解析附件</div></div>
+</div>
+
+{% if stats.last_fetch %}
+<p class="sub" style="margin-top:12px">
+  最近一次抓取：{{ stats.last_fetch.started_at[:19].replace('T', ' ') }}
+  —— 抓取状态请用命令行 <code>taxassist status</code> 查看（不完整的抓取会在此显式报警）
+</p>
+{% else %}
+<p class="sub" style="margin-top:12px">尚未执行过抓取：运行
+  <code>python -m taxassist collect --days 30</code></p>
+{% endif %}
+
+<h2>筛选</h2>
+<div class="card pad">
+  <div style="margin-bottom:11px">
+    <b style="font-size:11.5px;color:var(--ink-3);letter-spacing:.4px">按地区</b><br>
+    {% for name, n in regions %}
+      <a class="badge b-mut" style="margin:6px 8px 0 0;text-decoration:none"
+         href="/search?region={{ name }}">{{ name }} · {{ n }}</a>
+    {% endfor %}
+  </div>
+  <div>
+    <b style="font-size:11.5px;color:var(--ink-3);letter-spacing:.4px">按栏目</b><br>
+    {% for c in by_column %}
+      <a class="badge b-mut" style="margin:6px 8px 0 0;text-decoration:none"
+         href="/search?column={{ c.v }}">{{ c.v }} · {{ c.c }}</a>
+    {% endfor %}
+  </div>
+</div>
+
+<h2>最近政策</h2>
+<div class="card">
+  <table>
+    <thead><tr>
+      <th style="width:9%">成文日期</th>
+      <th>标题</th>
+      <th style="width:20%">文号</th>
+      <th style="width:7%">地区</th>
+      <th style="width:8%">栏目</th>
+      <th style="width:16%">效力</th>
+    </tr></thead>
+    <tbody>
+    {% for r in recent %}
+      <tr>
+        <td class="d">{{ r.cwrq or '—' }}</td>
+        <td><a class="tt" href="/policy/{{ r.doc_uid }}">{{ r.title }}</a></td>
+        <td>{{ docno_cell(r.p_doc_no_full, r.p_doc_no_confidence) }}</td>
+        <td class="d">{{ r.p_region or '全国' }}</td>
+        <td class="d">{{ r.o_column or '—' }}</td>
+        <td>{{ effect_bar(r.p_effect_status) }}{{ effect_badge(r.p_effect_status) }}{{ source_mark(r.p_effect_source) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}

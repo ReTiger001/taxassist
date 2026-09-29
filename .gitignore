@@ -1,0 +1,45 @@
+# 数据与归档目录：本地留存，不入库
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# 原始归档（政策原文快照，体积大）
+data/raw/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+.pytest_cache/
+
+# 客户资料：绝不入库（即使误放也不能被提交）
+clients/
+客户资料/
+*.xlsx
+*.xls
+!templates/*.xlsx
+
+# 日志
+logs/
+*.log
+
+# 编辑器
+.vscode/
+.idea/
+*.swp
+
+# Agent 会话记录：里面是完整对话与推理过程，公开仓库绝不能带
+.reasonix/
+
+# 测试与构建缓存
+.pytest_cache/
+src/*.egg-info/
+
+# 工具二进制：体积大，各人按 docs 自行下载
+tools/*.exe
+
+# 内部交接文档：含真实公网地址、账号名等运行现场信息
+docs/交接状态.md
