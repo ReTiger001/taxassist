@@ -448,6 +448,58 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         wait_ms=20000,
         timeout_ms=120000,
     ),
+    # 河北：三处关键，缺一处就"抓不到"。
+    # ① 入口在 **/hbsw/** 下 —— 根路径返回的是 60 字节的 JS 跳转页
+    #    （location.href="/hbsw/index.html"），直接抓根路径等于什么都没有；
+    # ② 它的证书与域名不匹配，所以用 **http**；
+    # ③ 列表条目**写在 <script> 里的 JS 字符串里** ——
+    #    ``var doctitle = '<a href="./202609/t...html">标题</a>'``，
+    #    再由 document.write 输出。lxml 看到的 script 内容是纯文本、不是
+    #    元素，所以 HTTP 直连版解析出来是 **0 条**（真实页面一个链接不少）。
+    #    必须用浏览器渲染成真 DOM 才能解析。
+    #    这个坑很隐蔽：页面字节数看着正常，正则也能搜到链接，只有 DOM 里没有。
+    ListPageAdapter(
+        source_id="hebei_zxwj",
+        region="河北",
+        site_name="国家税务总局河北省税务局",
+        list_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/",
+        detail_href_re=r"\./\d{6}/t\d+_\d+\.html",
+        base_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="hebei_zcjd",
+        region="河北",
+        site_name="国家税务总局河北省税务局",
+        list_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zcjd/",
+        detail_href_re=r"\./\d{6}/t\d+_\d+\.html",
+        base_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zcjd/",
+        needs_js=True,
+    ),
+    # 青海：**列表是 JS 渲染的** —— 同一份 HTML 用 HTTP 直连只拿到栏目壳
+    # （一个详情链接都没有），走浏览器渲染后才有 10-16 条。
+    # 它的证书同样与域名不匹配，所以用 http。
+    # 详情形如 /web/zxfg/202609/<32 位十六进制>.shtml。
+    ListPageAdapter(
+        source_id="qinghai_zxfg",
+        region="青海",
+        site_name="国家税务总局青海省税务局",
+        list_url="http://qinghai.chinatax.gov.cn/web/zxfg/xxgk_fdzd_list.shtml",
+        detail_href_re=r"/web/(?:zxfg|zcjd|zcfg)/\d{6}/[0-9a-f]{32}\.shtml",
+        base_url="http://qinghai.chinatax.gov.cn",
+        needs_js=True,
+        wait_ms=12000,
+    ),
+    ListPageAdapter(
+        source_id="qinghai_zcfg",
+        region="青海",
+        site_name="国家税务总局青海省税务局",
+        list_url="http://qinghai.chinatax.gov.cn/web/zcfg/zcwj.shtml",
+        detail_href_re=r"/web/(?:zxfg|zcjd|zcfg)/\d{6}/[0-9a-f]{32}\.shtml",
+        base_url="http://qinghai.chinatax.gov.cn",
+        needs_js=True,
+        wait_ms=12000,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}

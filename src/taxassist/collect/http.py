@@ -73,6 +73,13 @@ class GuardedClient:
             },
             timeout=timeout,
             follow_redirects=True,
+            # 不走系统代理。两个理由：
+            # ① 本机常年开着 Clash（127.0.0.1:7897），默认读环境变量就会把
+            #    抓取请求交给第三方节点 —— 与"数据不出本机"的边界相冲突；
+            # ② 代理会改内容：实测河北列表页直连 38286 字节、21 条详情链接，
+            #    走代理只有 34068 字节、一条都解析不出来，且看起来像"页面改版"。
+            # 抓的都是政府公开站点，直连即可达。
+            trust_env=False,
         )
         self._last_host_request: dict[str, float] = {}
 
