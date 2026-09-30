@@ -233,8 +233,12 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     """建立连接（自动建目录）。"""
     ensure_dirs()
     target = Path(path) if path else DB_PATH
-    conn = sqlite3.connect(str(target))
+    # busy_timeout：默认只等 5 秒，多个任务同时写库时经常不够 ——
+    # 实测正文翻译跑到第 440 条时崩于 "database is locked"（当时另一个
+    # 批量任务正持着写锁），白跑一场。给出 30 秒的等待窗口。
+    conn = sqlite3.connect(str(target), timeout=30)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout = 30000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 

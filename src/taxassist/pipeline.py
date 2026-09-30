@@ -168,15 +168,16 @@ def summarize(results: list[dict]) -> str:
 
 # ---------------------------------------------------------------- 详情页补充
 
-class _BrowserClient:
-    """给 fetch_detail 用的适配器：内部走真浏览器取页面。
+class _PrefetchedClient:
+    """给 fetch_detail 用的适配器：内容来自一次性并发预抓的页面字典。
 
     fetch_detail 只用到 ``client.get(url).content`` 与 ``raise_for_status()``，
-    所以这里做最小适配即可 —— 不必改它的签名，也不必给它加"是否用浏览器"的分支。
+    所以这里做最小适配即可 —— 解析逻辑一行都不用改。
 
-    为什么需要：省级站点（**含其详情页**）在加速乐 WAF 后面，普通 HTTP 一律 412。
-    这正是"20 个省 267 条政策全都没有正文"的原因 —— 列表页走了浏览器，
-    详情页却还在用普通 HTTP。
+    为什么这么绕：省级站点（**含其详情页**）在加速乐 WAF 后面，普通 HTTP 一律
+    412，必须走浏览器；但**逐条**新建浏览器是错的 —— 每条都要重过一遍 WAF
+    挑战，实测 8-10 秒/条、267 条要 40 多分钟而且会卡死。改成先并发抓完
+    （同域名共享 cookie，挑战每条域名只过一次）再逐条解析，快一两个数量级。
     """
 
     class _Resp:
@@ -188,10 +189,16 @@ class _BrowserClient:
         def raise_for_status(self) -> None:
             return None
 
-    def get(self, url: str, **_kw) -> "_BrowserClient._Resp":
-        from .collect.browser import fetch_html
+    def __init__(self, pages: dict[str, "str | BaseException"]) -> None:
+        self._pages = pages
 
-        return self._Resp(fetch_html(url))
+    def get(self, url: str, **_kw) -> "_PrefetchedClient._Resp":
+        item = self._pages.get(url)
+        if item is None:
+            raise RuntimeError(f"详情页未预取：{url}")
+        if isinstance(item, BaseException):
+            raise item
+        return self._Resp(item)
 
 
 def enrich_details(
@@ -222,20 +229,25 @@ def enrich_details(
         return {"requested": 0, "ok": 0, "failed": 0, "updated": 0,
                 "attachments": 0, "errors": []}
 
+    # 省级详情页也在同一套 WAF 后面，必须走浏览器。但**逐条**新建浏览器是
+    # 错的：每条都要重过一遍挑战，8-10 秒/条且会卡死。改成先并发抓完
+    # （同域名共享 cookie）再逐条解析 —— 解析逻辑一行不用改。
+    # 判据用 doc_uid 含冒号（省级源形如 "gd_zcwj:xxxx"），因为这里只取了
+    # doc_uid 与 url 两列，没有 p_region。
+    prov_urls = [r["url"] for r in rows if ":" in (r["doc_uid"] or "")]
+    prefetched = None  # 有省级条目时是 _PrefetchedClient
+    if prov_urls:
+        from .collect.browser import fetch_many
+
+        log.info("并发预抓 %d 个省级详情页…", len(prov_urls))
+        pages = fetch_many(prov_urls)
+        hit = sum(1 for v in pages.values() if not isinstance(v, BaseException))
+        log.info("预抓完成：成功 %d / 失败 %d", hit, len(pages) - hit)
+        prefetched = _PrefetchedClient(pages)
+
     with GuardedClient() as client:
-        browser_client = None
         for row in rows:
-            # 省级源的详情页也在同一套 WAF 后面，必须走浏览器 ——
-            # 这正是"20 个省 267 条政策全都没有正文"的根因：
-            # 列表页已经走了浏览器，详情页却还在用普通 HTTP。
-            # 判据用 doc_uid 含冒号（省级源形如 "gd_zcwj:xxxx"），
-            # 因为这里只取了 doc_uid 与 url 两列，没有 p_region。
-            if ":" in (row["doc_uid"] or ""):
-                if browser_client is None:
-                    browser_client = _BrowserClient()
-                use_client = browser_client
-            else:
-                use_client = client
+            use_client = prefetched if ":" in (row["doc_uid"] or "") else client
             try:
                 raw, detail = fetch_detail(use_client, row["url"])
             except Exception as e:  # noqa: BLE001 - 单条失败不影响整批
@@ -259,10 +271,70 @@ def enrich_details(
                 store.upsert_attachment(conn, row["doc_uid"], att)
                 attachments += 1
             conn.commit()
+            if ok % 50 == 0:
+                log.info("详情页进度 %d/%d（失败 %d）", ok, len(rows), failed)
 
     return {
         "requested": len(rows), "ok": ok, "failed": failed,
         "updated": updated, "attachments": attachments, "errors": errors,
+    }
+
+
+# ---------------------------------------------------------------- 快照重解析
+
+def reparse_details_from_snapshots(conn, *, limit: int = 0) -> dict:
+    """从磁盘上归档的详情页快照重新解析 —— **不联网**。
+
+    用途：解析器改进之后（比如补上了省级站的正文容器选择器、修掉了
+    "第一个命中就 break 会挡住真正文"的逻辑），把已经抓回来的页面重跑一遍
+    就该生效。为此重新抓 250 多个页面要几分钟，也白给对方站点添流量，
+    而原始 HTML 本来就在归档里（raw_snapshot 指向 data/raw 下的 gzip）。
+
+    同一个 doc_uid 会有多份快照（每次抓取都归档），只认最新那份。
+    """
+    import gzip
+    from pathlib import Path
+
+    from .collect.detail import parse_detail
+    from .config import RAW_DIR
+
+    rows = conn.execute(
+        "SELECT s.rel_path, s.doc_uid, p.url FROM raw_snapshot s "
+        "JOIN policy p ON p.doc_uid = s.doc_uid "
+        "WHERE s.kind = 'detail_html' ORDER BY s.id DESC"
+    ).fetchall()
+
+    seen: set[str] = set()
+    updated = failed = missing = 0
+    errors: list[str] = []
+    for rel, doc_uid, url in rows:
+        if doc_uid in seen:
+            continue
+        seen.add(doc_uid)
+        if limit and len(seen) > limit:
+            break
+        path = Path(RAW_DIR) / rel
+        if not path.exists():
+            missing += 1
+            continue
+        try:
+            raw = gzip.decompress(path.read_bytes()).decode("utf-8", "replace")
+        except Exception as e:  # noqa: BLE001 - 单条坏快照不该拖垮整批
+            failed += 1
+            errors.append(f"{doc_uid}: 快照读取失败 {type(e).__name__}")
+            continue
+        try:
+            detail = parse_detail(raw, base_url=url or "")
+            if store.apply_enrichment(conn, doc_uid, detail) == "updated":
+                updated += 1
+        except Exception as e:  # noqa: BLE001
+            failed += 1
+            errors.append(f"{doc_uid}: {type(e).__name__}: {e}")
+    conn.commit()
+
+    return {
+        "scanned": len(seen), "updated": updated, "failed": failed,
+        "missing": missing, "errors": errors[:20],
     }
 
 
