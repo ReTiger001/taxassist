@@ -300,6 +300,19 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="http://gansu.chinatax.gov.cn",
         needs_js=True,
     ),
+    # 以下三省（河北 sszc、重庆 zcwj、海南 zcwj）实测**栏目能打开但列表取不到条目**，
+    # 推测列表本身是二次异步加载（浏览器拿到的是壳）。适配器已撤下 ——
+    # 留着它们每天抓取都会记一条 failed，污染 fetch_log、掩盖真实故障。
+    # 要接需要先找到列表的 XHR 接口（浏览器开发者工具 → Network → XHR）。
+    ListPageAdapter(
+        source_id="nx_zcwj",
+        region="宁夏",
+        site_name="国家税务总局宁夏回族自治区税务局",
+        list_url="http://ningxia.chinatax.gov.cn/col/col10983/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://ningxia.chinatax.gov.cn",
+        needs_js=True,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
