@@ -20,6 +20,21 @@
   <div class="cell"><div class="n">{{ stats.attachments }}</div><div class="k">已解析附件</div></div>
 </div>
 
+{# 效力标记说明：客户问过"推定是什么意思"，说明只靠 tooltip 不够 —— 把依据
+   摊开讲，让人一眼看懂每个标记在说什么。 #}
+<details class="legend">
+  <summary>效力标记怎么看</summary>
+  <ul class="plain">
+    <li><b>官方标注</b> —— 政策原文自带时效标注，或官方废止目录点了名。最硬的一档。</li>
+    <li><b>据他文判定</b> —— 另一份文件里写明废止了它；依据原文可在详情页看到。</li>
+    <li><b>未发现废止</b> —— 库里没有任何文件说它废止。<b>这不等于官方确认有效</b>，
+        重要事项请核对原文。</li>
+  </ul>
+  <p class="sub" style="margin:8px 0 0">
+    库内不猜测政策有效性：没有证据就不写"已废止"，没有官方确认也不冒充"已确认"。
+  </p>
+</details>
+
 {% if stats.last_fetch %}
 <p class="sub" style="margin-top:12px">
   数据更新至 {{ stats.last_fetch.started_at[:10] }}
@@ -28,26 +43,38 @@
 
 <h2>筛选</h2>
 <div class="card pad">
-  <div style="margin-bottom:11px">
-    <b style="font-size:11.5px;color:var(--ink-3);letter-spacing:.4px">按地区</b><br>
-    {% for name, n in regions %}
-      <a class="badge b-mut" style="margin:6px 8px 0 0;text-decoration:none"
-         href="/search?region={{ name }}">{{ name }} · {{ n }}</a>
-    {% endfor %}
+  <div class="fblock">
+    <b class="flabel">按地区</b>
+    {# 按大区分组：分组名在左、标签在右，位置固定 —— 原先按条数倒序排，
+       广东排第几取决于它有多少条政策，等于每次都要重新找一遍。 #}
+    <div class="fgroups">
+      {% for g in region_groups %}
+        <div class="fgroup">
+          <span class="fglabel">{{ g.label }}</span>
+          <span class="fgitems">
+            {% for name, n in g.regions %}
+              <a class="chip" href="/search?region={{ name }}">{{ name }}<i>{{ n }}</i></a>
+            {% endfor %}
+          </span>
+        </div>
+      {% endfor %}
+    </div>
   </div>
-  <div>
-    <b style="font-size:11.5px;color:var(--ink-3);letter-spacing:.4px">按栏目</b><br>
-    {% for c in by_column %}
-      <a class="badge b-mut" style="margin:6px 8px 0 0;text-decoration:none"
-         href="/search?column={{ c.v }}">{{ c.v }} · {{ c.c }}</a>
-    {% endfor %}
+  <div class="fblock">
+    <b class="flabel">按栏目</b>
+    <div class="fgitems">
+      {% for c in by_column %}
+        <a class="chip" href="/search?column={{ c.v }}">{{ c.v }}<i>{{ c.c }}</i></a>
+      {% endfor %}
+    </div>
   </div>
-  <div style="margin-top:11px">
-    <b style="font-size:11.5px;color:var(--ink-3);letter-spacing:.4px">按效力</b><br>
-    {% for e in by_effect %}
-      <a class="badge b-mut" style="margin:6px 8px 0 0;text-decoration:none"
-         href="/search?effect={{ e.v }}">{{ e.v }} · {{ e.c }}</a>
-    {% endfor %}
+  <div class="fblock">
+    <b class="flabel">按效力</b>
+    <div class="fgitems">
+      {% for e in by_effect %}
+        <a class="chip" href="/search?effect={{ e.v }}">{{ e.v }}<i>{{ e.c }}</i></a>
+      {% endfor %}
+    </div>
   </div>
 </div>
 

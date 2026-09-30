@@ -95,7 +95,12 @@ _SUBSTANTIVE_FIRST = filters.substantive_first_sql("p")
 
 # 无需登录即可访问的路径：登录/注册页自身，加上浏览器自动请求的 favicon。
 # **只放这三个** —— 每多放一个，就是一处没有门锁的入口。
-PUBLIC_PATHS = frozenset({"/login", "/register", "/logout", "/favicon.ico"})
+#: 免登录可访问的路径。
+#:
+#: 介绍页放在这里是有意的：它不含任何政策数据，是给潜在使用者看的第一眼 ——
+#: "要登录才能看介绍"等于把人挡在门外，而第一眼被拦住的人不会再回来。
+PUBLIC_PATHS = frozenset({"/login", "/register", "/logout", "/favicon.ico",
+                          "/about"})
 
 
 def _is_local_request(request: Request) -> bool:
@@ -304,6 +309,7 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             health = scheduler.fetch_health(conn)
             gap = scheduler.days_since_last_success(conn)
             regions = filters.region_counts(conn)
+            region_groups = filters.region_groups(conn)
         finally:
             conn.close()
 
@@ -332,7 +338,8 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             request=request, name="index.html",
             context=ctx(request, stats=stats, recent=recent, by_column=by_column,
                         by_effect=by_effect,
-                        health=health, gap=gap, regions=regions))
+                        health=health, gap=gap, regions=regions,
+                        region_groups=region_groups))
 
     # ------------------------------------------------------------ 检索
 
@@ -632,6 +639,23 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         response = RedirectResponse("/", status_code=302)   # 注册完直接进去，不再让人登一次
         _set_session_cookie(response, request, token)
         return response
+
+    # ------------------------------------------------------------ 介绍页
+
+    @app.get("/about", response_class=HTMLResponse)
+    def about_page(request: Request):
+        """中英双语介绍页。
+
+        **不需要登录**：它不含任何政策数据，是给潜在使用者看的第一眼 ——
+        "要登录才能看介绍"等于把人挡在门外。双语切换在前端做（见模板里的
+        script），切换不刷新页面、不丢滚动位置。
+        """
+        me = getattr(request.state, "user", None)
+        return templates.TemplateResponse(
+            request=request, name="about.html",
+            context={"request": request, "user": me,
+                     "is_owner": bool(me and getattr(me, "role", "") == "owner"),
+                     "exposed": require_auth, "lang": "zh"})
 
     # ------------------------------------------------------------ 后台（账号管理）
     #

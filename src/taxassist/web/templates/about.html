@@ -1,0 +1,171 @@
+{% extends "base.html" %}
+{% block title %}{{ '介绍 · 税务智能知识助手' if lang != 'en' else 'About · Tax Policy Knowledge Assistant' }}{% endblock %}
+{% block body %}
+{#
+  中英双语介绍页。
+
+  为什么用前端切换而不是两个 URL：切换要"按一下就换"，不能整页刷新 ——
+  刷新会丢滚动位置，读长文时尤其烦。两套文本都写在 HTML 里，JS 只切显示。
+
+  文案要求：只写能证实的。覆盖率、局限、边界都照实写 ——
+  一个介绍页如果把"未发现废止"说成"已确认有效"，后面所有判断都不可信了。
+#}
+<div class="about-switch">
+  <button type="button" class="chip lang-btn" data-lang="zh">中文</button>
+  <button type="button" class="chip lang-btn" data-lang="en">English</button>
+</div>
+
+<div class="lang-block" data-lang="zh">
+  <h1>税务智能知识助手</h1>
+  <p class="lede">
+    一个<b>本地运行的税务政策检索库</b>：把国家税务总局与 31 个省级税务局的
+    政策文件收进本机，判定每份文件的现行效力，并让全文可检索。
+  </p>
+
+  <h2>它解决什么问题</h2>
+  <p>
+    查政策不难，难的是三件事：<b>文件散在 32 个站点</b>、<b>不知道哪份还有效</b>、
+    <b>附件里的正文搜不到</b>。本站针对这三件事：
+  </p>
+  <ul class="plain">
+    <li><b>一处检索</b> —— 标题、文号、正文一起搜，支持按地区、栏目、效力、年份筛。</li>
+    <li><b>效力判定且依据可溯</b> —— 每条效力结论都写明依据（官方标注 / 据他文判定 / 未发现废止），
+        依据原文可在详情页看到。</li>
+    <li><b>附件正文可检索</b> —— PDF、Word、Excel、压缩包里的正文都解析入库；
+        老式 .doc/.wps 通过本机 WPS 转换后解析。</li>
+  </ul>
+
+  <h2>数据边界</h2>
+  <p>
+    全部政策原文、译文、判定与附件都<b>保存在本机</b>，不上传任何第三方。
+    服务默认只监听 <code>127.0.0.1</code>；需要外部访问时经自建隧道（HTTPS）。
+  </p>
+
+  <h2>必须说清的局限</h2>
+  <ul class="plain">
+    <li><b>「未发现废止」不等于「官方确认有效」</b>。它表示库内没有任何文件说它废止。
+        政策库不可能收全所有废止公告，重要事项请核对原文。</li>
+    <li><b>施行日期覆盖约三分之一</b>。多数政策正文确实没写具体施行日期，这一项已接近原文可提取的上限。</li>
+    <li><b>译文为机器翻译</b>，仅供理解参考，不具备法律效力。</li>
+  </ul>
+
+  <h2>政策效力等级</h2>
+  <ul class="plain">
+    <li><span class="src src-official">官方标注</span> 政策原文自带时效标注，或官方废止目录点名 —— 最硬的一档。</li>
+    <li><span class="src src-inferred">据他文判定</span> 另一份文件写明废止了它，依据可查。</li>
+    <li><span class="src src-default">未发现废止</span> 库内无废止证据；不等于官方确认有效。</li>
+  </ul>
+</div>
+
+<div class="lang-block" data-lang="en" hidden>
+  <h1>Tax Policy Knowledge Assistant</h1>
+  <p class="lede">
+    A <b>locally-run searchable database of Chinese tax policy</b>: it collects
+    documents from the State Taxation Administration and all 31 provincial tax
+    bureaus, determines whether each document is still in force, and makes the
+    full text searchable.
+  </p>
+
+  <h2>The problem it solves</h2>
+  <p>
+    Finding a policy is easy. Three things are not: <b>documents are scattered
+    across 32 sites</b>, <b>you cannot tell which are still valid</b>, and
+    <b>text buried in attachments is invisible to search</b>.
+  </p>
+  <ul class="plain">
+    <li><b>One place to search</b> — titles, document numbers and body text together,
+        filterable by region, column, validity and year.</li>
+    <li><b>Validity with traceable evidence</b> — every determination states its basis
+        (official marking / inferred from another document / no repeal found), and the
+        source text is viewable on the detail page.</li>
+    <li><b>Attachments are searchable</b> — text inside PDF, Word, Excel and archives is
+        parsed and indexed; legacy .doc/.wps files are converted via local WPS.</li>
+  </ul>
+
+  <h2>Data boundary</h2>
+  <p>
+    All policy texts, translations, determinations and attachments are
+    <b>stored on this machine only</b> and never uploaded to any third party.
+    The service binds to <code>127.0.0.1</code> by default; external access goes
+    through a self-hosted tunnel over HTTPS.
+  </p>
+
+  <h2>Limitations we must state</h2>
+  <ul class="plain">
+    <li><b>"No repeal found" does not mean "officially confirmed valid".</b> It means no
+        document in this database repeals it. No policy database captures every repeal
+        notice — verify against the original text for anything consequential.</li>
+    <li><b>Effective dates cover about one third.</b> Most policies genuinely do not state
+        a specific effective date; this is close to the extraction ceiling.</li>
+    <li><b>Translations are machine-generated</b>, for comprehension only, with no legal force.</li>
+  </ul>
+
+  <h2>Validity levels</h2>
+  <ul class="plain">
+    <li><span class="src src-official">Official</span> — the document itself carries a
+        validity marking, or an official repeal catalogue names it. Strongest.</li>
+    <li><span class="src src-inferred">Inferred</span> — another document states it is
+        repealed; the evidence is traceable.</li>
+    <li><span class="src src-default">No repeal found</span> — no repeal evidence in this
+        database; not an official confirmation of validity.</li>
+  </ul>
+</div>
+
+<style>
+  /* 语言块与切换按钮：切换只切显示，不刷新页面 */
+  .about-switch{display:flex;gap:6px;margin:0 0 18px}
+  .lang-btn{cursor:pointer;font:inherit;font-size:12.5px}
+  .lang-btn[aria-pressed="true"]{border-color:var(--brand-2);color:var(--brand-2);
+    background:#f4f8fb}
+  .lang-block h2{font-size:13px;color:var(--ink-2);margin:22px 0 8px;
+    letter-spacing:.3px}
+  .lang-block .lede{font-size:14px;line-height:1.75;color:var(--ink-2)}
+  .lang-block ul.plain{padding-left:20px;margin:8px 0}
+  .lang-block ul.plain li{margin:6px 0;line-height:1.75}
+</style>
+
+<script>
+(function () {
+  // 执行时机很关键：这段脚本在 body 块里，而**页脚在它之后**才解析，
+  // 直接在这里查页脚元素会得到空集合 —— 实测踩过：按钮状态与语言块都切了，
+  // 页脚的三个标记却纹丝不动。所以整段逻辑等 DOM 解析完再跑。
+  function init() {
+    var blocks = document.querySelectorAll('.lang-block');
+    var btns = document.querySelectorAll('.lang-btn');
+
+    function show(lang) {
+      blocks.forEach(function (b) {
+        b.hidden = b.getAttribute('data-lang') !== lang;
+      });
+      btns.forEach(function (b) {
+        b.setAttribute('aria-pressed', String(b.getAttribute('data-lang') === lang));
+      });
+      try { localStorage.setItem('taxassist_lang', lang); } catch (e) {}
+      document.documentElement.lang = (lang === 'en') ? 'en' : 'zh-CN';
+      // 页脚的效力标记在 base.html 里（全站共用），也按语言换字 ——
+      // 否则英文介绍页底部会突兀地留着三个中文标记。
+      document.querySelectorAll('[data-zh][data-en]').forEach(function (el) {
+        el.textContent = el.getAttribute(lang === 'en' ? 'data-en' : 'data-zh');
+      });
+    }
+
+    btns.forEach(function (b) {
+      b.addEventListener('click', function () { show(b.getAttribute('data-lang')); });
+    });
+
+    var saved = null;
+    try { saved = localStorage.getItem('taxassist_lang'); } catch (e) {}
+    if (!saved) {
+      saved = (navigator.language || '').toLowerCase().indexOf('zh') === 0 ? 'zh' : 'en';
+    }
+    show(saved);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+</script>
+{% endblock %}
