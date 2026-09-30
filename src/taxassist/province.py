@@ -221,6 +221,82 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="http://shaanxi.chinatax.gov.cn",
         needs_js=True,
     ),
+    ListPageAdapter(
+        source_id="gx_zcwj",
+        region="广西",
+        site_name="国家税务总局广西壮族自治区税务局",
+        list_url="https://guangxi.chinatax.gov.cn/zcwj/",
+        # href 是相对路径 "./zxwj/202609/t20260930_440809.html"，
+        # 正则匹配 href 原文，不能带域名或上级路径（上海的教训）。
+        detail_href_re=r"zxwj/\d{6}/t\d+_\d+\.html",
+        base_url="https://guangxi.chinatax.gov.cn/zcwj/",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="yn_zcwj",
+        region="云南",
+        site_name="国家税务总局云南省税务局",
+        list_url="http://yunnan.chinatax.gov.cn/col/col3831/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://yunnan.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="gz_zcwj",
+        region="贵州",
+        site_name="国家税务总局贵州省税务局",
+        list_url="http://guizhou.chinatax.gov.cn/wjjb/",
+        # 贵州按"税种/子类"分两级目录（szfl/zzs = 税收法规/增值税）
+        detail_href_re=r"/wjjb/zcfgk/[a-z]+/[a-z]+/\d{6}/t\d+",
+        base_url="http://guizhou.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="sx_zcwj",
+        region="山西",
+        site_name="国家税务总局山西省税务局",
+        list_url="http://shanxi.chinatax.gov.cn/zcwj",
+        # 山西用 /web/detail/sx-{栏目}-{栏目}-{id} 形式，与其它省的 /art/ 不同
+        detail_href_re=r"/web/detail/sx-\d+-\d+-\d+",
+        base_url="http://shanxi.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="hlj_zcwj",
+        region="黑龙江",
+        site_name="国家税务总局黑龙江省税务局",
+        list_url="http://heilongjiang.chinatax.gov.cn/col/col7573/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://heilongjiang.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="jl_zcwj",
+        region="吉林",
+        site_name="国家税务总局吉林省税务局",
+        list_url="http://jilin.chinatax.gov.cn/col/col6311/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://jilin.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="nmg_zcwj",
+        region="内蒙古",
+        site_name="国家税务总局内蒙古自治区税务局",
+        list_url="http://neimenggu.chinatax.gov.cn/zcwj",
+        detail_href_re=r"zxwj/\d{6}/t\d+_\d+\.html",
+        base_url="http://neimenggu.chinatax.gov.cn/zcwj/",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="gs_zcwj",
+        region="甘肃",
+        site_name="国家税务总局甘肃省税务局",
+        list_url="http://gansu.chinatax.gov.cn/col/col4/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://gansu.chinatax.gov.cn",
+        needs_js=True,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
