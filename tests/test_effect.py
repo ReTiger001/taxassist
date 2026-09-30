@@ -107,6 +107,53 @@ def test_repeal_marks_target_as_repealed(conn):
     assert back[0]["src_doc_uid"] == "new"
 
 
+def test_self_repeal_detected_with_explicit_subject():
+    """正文载明本文被废止 —— 官方就是把失效依据写在正文里的。"""
+    ok, why = effect.detect_self_repealed(
+        "根据《中华人民共和国企业所得税暂行条例》（国务院令第137号），"
+        "自1994年1月1日起本法规全文废止。")
+    assert ok is True
+    assert "废止" in why
+
+
+def test_self_repeal_detected_without_subject():
+    """主语省略的写法（标题目即主语），实测比带主语的还多。"""
+    ok, _ = effect.detect_self_repealed(
+        "根据《国务院关于废止2000年底以前发布的部分行政法规的决定》"
+        "（国务院令第319号），全文废止")
+    assert ok is True
+
+
+def test_repealing_another_file_is_not_self_repeal():
+    """"《某办法》全文废止"指的是别人 —— 误判成自述会把现行文件标成已废止。"""
+    ok, _ = effect.detect_self_repealed("《财政部关于某事项的管理办法》全文废止")
+    assert ok is False
+
+
+def test_negation_is_respected_for_self_repeal():
+    ok, _ = effect.detect_self_repealed("本公告不废止现行有效的规定。")
+    assert ok is False
+
+
+def _policy(uid, title, **kw):
+    row = {"doc_uid": uid, "title": title, "url": f"http://x/{uid}",
+           "first_seen_at": "2026-01-01", "last_seen_at": "2026-01-01"}
+    row.update(kw)
+    return row
+
+
+def test_judge_marks_self_repealed_as_repealed(conn):
+    """走完整 judge 流程也要能判出来（不能只在单元测试里成立）。"""
+    store.upsert_policy(conn, _policy(
+        "old", "中华人民共和国国营企业所得税条例（草案）实施细则",
+        content="依据《财政部关于公布废止和失效的财政规章目录（第六批）的通知》"
+                "（财法字[1997]44号），本实施细则全文废止。"))
+    stats = effect.judge_effects(conn)
+    assert stats["by_source"].get("inferred", 0) >= 1
+    row = conn.execute("SELECT p_effect_status FROM policy WHERE doc_uid='old'").fetchone()
+    assert row["p_effect_status"] == "已废止", row["p_effect_status"]
+
+
 def test_citation_relation_recorded(conn):
     store.upsert_policy(conn, _policy("a", "甲公告", content="依据《乙公告》（国家税务总局公告2026年第9号）执行。"))
     store.upsert_policy(conn, _policy("b", "乙公告", p_doc_no_full="国家税务总局公告2026年第9号"))
