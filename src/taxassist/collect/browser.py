@@ -36,11 +36,17 @@ _CHALLENGE_WAIT_MS = 6000
 
 
 def fetch_html(url: str, *, timeout_ms: int = 45000,
-               wait_ms: int = _CHALLENGE_WAIT_MS) -> str:
+               wait_ms: int = _CHALLENGE_WAIT_MS,
+               use_nodriver: bool = False) -> str:
     """用真浏览器取页面 HTML。失败抛异常，由调用方记为 failed。
 
-    Playwright 是可选依赖：只用得到它的省级源才需要装。
+    ``use_nodriver=True`` 时改用 nodriver（undetected-chromedriver 作者的新作）。
+    两者反检测强度不同、覆盖面不重合 —— 实测西藏税局在 Playwright 下只返回
+    39 字节空壳，nodriver 能拿到 50009 字节。所以多发一个参数值得。
     """
+    if use_nodriver:
+        return _fetch_with_nodriver(url, wait_ms=wait_ms)
+
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as e:  # pragma: no cover - 环境相关
@@ -68,6 +74,56 @@ def fetch_html(url: str, *, timeout_ms: int = 45000,
 
     if not html or len(html) < 500:
         raise RuntimeError(f"页面内容过短（{len(html) if html else 0} 字节），可能仍被拦")
+    return html
+
+
+def _find_browser_binary() -> str:
+    """找一个可用的 Chromium。
+
+    nodriver 默认去找系统 Chrome，这台机器没装 —— 直接复用 Playwright
+    已下载的那份，不必再下一份浏览器（约 150MB）。
+    """
+    import os
+    from pathlib import Path
+
+    root = Path(os.environ.get("LOCALAPPDATA", "")) / "ms-playwright"
+    if root.exists():
+        for pattern in ("chromium-*/chrome-win64/chrome.exe",
+                        "chromium-*/chrome-win/chrome.exe"):
+            found = sorted(root.glob(pattern), reverse=True)
+            if found:
+                return str(found[0])
+    raise RuntimeError("找不到可用的 Chromium（nodriver 需要）")
+
+
+def _fetch_with_nodriver(url: str, *, wait_ms: int = _CHALLENGE_WAIT_MS) -> str:
+    """用 nodriver 取页面。
+
+    某些站点它比 Playwright 更能拿到内容 —— 实测西藏税局：Playwright 只返回
+    39 字节空壳，nodriver 拿到 50009 字节。两个浏览器栈的反检测强度不同，
+    覆盖面不重合，所以都留着。
+    """
+    import asyncio
+
+    try:
+        import nodriver as uc
+    except ImportError as e:  # pragma: no cover - 环境相关
+        raise RuntimeError("未安装 nodriver：pip install nodriver") from e
+
+    async def _run() -> str:
+        browser = await uc.start(headless=True,
+                                 browser_executable_path=_find_browser_binary())
+        try:
+            page = await browser.get(url)
+            await page.sleep(wait_ms / 1000)
+            return await page.get_content()
+        finally:
+            browser.stop()
+
+    html = asyncio.run(_run())
+    if not html or len(html) < 500:
+        raise RuntimeError(
+            f"页面内容过短（{len(html) if html else 0} 字节），可能仍被拦")
     return html
 
 
