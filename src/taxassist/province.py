@@ -112,6 +112,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="http://guangdong.chinatax.gov.cn/gdsw/zcwj/zcwj.shtml",
         detail_href_re=r"/gdsw/[a-z]+/\d{4}-\d{2}/\d{2}/content_[0-9a-f]+\.shtml",
         base_url="http://guangdong.chinatax.gov.cn",
+        # 注：站内检索（searchResult.html?siteCode=…&searchWord=…）在**浏览器**里
+        # 能拿到 29 条匹配本省正则的政策，但真实采集走 HTTP 直连只得到空壳、
+        # 一条也解析不出 —— 它的结果列表是 JS 渲染的。而本适配器的 needs_js
+        # 为 False（普通栏目页是静态的），fetch_list_pages 给每个子栏目套用
+        # 同一个 needs_js，两者无法共存，故不配该检索页。
     ),
     # 江苏：实测为静态列表页，详情 URL 形如 /art/2026/9/4/art_23636_13344.html，
     # 日期直接带在条目里。注意这个栏目是「本省文件 + 转载总局文件」混排 ——
@@ -138,6 +143,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="http://shandong.chinatax.gov.cn/col/col5/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://shandong.chinatax.gov.cn",
+        # 站内检索（汉王 jrobot），实测「个税」返回 12 条匹配本省正则的政策。
+        extra_urls=(
+            "http://shandong.chinatax.gov.cn/jrobot/search.do"
+            "?webid=1&q=%E4%B8%AA%E7%A8%8E&pos=title%2Ccontent&analyzeType=1&category=",
+        ),
         needs_js=True,
     ),
     ListPageAdapter(
@@ -212,6 +222,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="http://zhejiang.chinatax.gov.cn/col/col13296/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://zhejiang.chinatax.gov.cn",
+        # 站内检索（jsearchfront），实测「发票」返回 11 条匹配本省正则的政策。
+        extra_urls=(
+            "http://zhejiang.chinatax.gov.cn/searchfront/search.do"
+            "?websiteid=330100000000000&tpl=1&q=%E5%8F%91%E7%A5%A8",
+        ),
         needs_js=True,
     ),
     ListPageAdapter(
@@ -230,6 +245,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="http://anhui.chinatax.gov.cn/col/col9416/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://anhui.chinatax.gov.cn",
+        # 站内检索（汉王 jrobot），实测「社保」返回 35 条匹配本省正则的政策。
+        extra_urls=(
+            "http://anhui.chinatax.gov.cn/jrobot/search.do"
+            "?q=%E7%A4%BE%E4%BF%9D&pagemode=result&appid=&webid=39&style=1&ck=0&category=all",
+        ),
         needs_js=True,
     ),
     ListPageAdapter(
@@ -313,6 +333,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="http://heilongjiang.chinatax.gov.cn/col/col7573/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://heilongjiang.chinatax.gov.cn",
+        # 站内检索（jsearchfront），实测「发票」返回 23 条匹配本省正则的政策。
+        extra_urls=(
+            "http://heilongjiang.chinatax.gov.cn/jsearchfront/search.do"
+            "?websiteid=230000000000000&pg=&p=&tpl=&category=&q=%E5%8F%91%E7%A5%A8&submit=",
+        ),
         needs_js=True,
     ),
     ListPageAdapter(
@@ -354,6 +379,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="http://ningxia.chinatax.gov.cn/col/col10983/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://ningxia.chinatax.gov.cn",
+        # 站内检索（汉王 jrobot），实测「发票」返回 15 条匹配本省正则的政策。
+        extra_urls=(
+            "http://ningxia.chinatax.gov.cn/jrobot/search.do"
+            "?webid=17&pg=12&p=1&tpl=1&category=&q=%E5%8F%91%E7%A5%A8&pos=&od=&date=&date=",
+        ),
         needs_js=True,
     ),
     ListPageAdapter(
@@ -410,6 +440,9 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # 静态列表解析不出条目（实测 0 条），故只配了前者。
         extra_urls=(
             "https://xizang.chinatax.gov.cn/col/col5346/index.html",
+            # 站内检索（汉王 jrobot），实测「社保费」返回 20 条匹配本省正则的政策。
+            "https://xizang.chinatax.gov.cn/jrobot/search.do"
+            "?q=%E7%A4%BE%E4%BF%9D%E8%B4%B9&x=31&y=19&webid=1&pg=12&p=1&tpl=&category=xzsw",
         ),
     ),
     # 辽宁：**默认 6 秒的挑战等待不够** —— 那样只拿到空壳，看起来像"站点抓不到"。
@@ -422,6 +455,13 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="https://liaoning.chinatax.gov.cn/col/col2000/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="https://liaoning.chinatax.gov.cn",
+        # 站内检索（jsearchfront），实测「合规经营」返回 35 条匹配本省正则的政策。
+        # total=7124 是该检索的总条数 —— 辽宁全站政策量不小，这条路径值得保留。
+        extra_urls=(
+            "https://liaoning.chinatax.gov.cn/jsearchfront/search.do"
+            "?websiteid=210103020004000&searchid=10&pg=10&p=1&tpl=7&total=7124"
+            "&q=%E5%90%88%E8%A7%84%E7%BB%8F%E8%90%A5&pq=&oq=&eq=&pos=&begin=&end=",
+        ),
         needs_js=True,
         wait_ms=12000,
         timeout_ms=90000,
@@ -467,6 +507,12 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
                   "?fjdm=11200000000&lmdm=030001&downbz=null"),
         detail_href_re=r"\d{11}/\d{4}/\d{6}/\d{8}/\d+\.s?html?",
         base_url="https://tianjin.chinatax.gov.cn/",
+        # 站内检索走第三方（汉王 jpaas），实测「增值税」返回 **62** 条匹配本省
+        # 正则的政策 —— 是本次全量探测里最丰的一个，而天津原本只有 2 条。
+        extra_urls=(
+            "https://so.hanweb.com/api-gateway/jpaas-jsearch-web-server/search"
+            "?q=%E5%A2%9E%E5%80%BC%E7%A8%8E&serviceId=N1r3zjtvh9u2299aJ5j5E",
+        ),
         needs_js=True,
         wait_ms=20000,
         timeout_ms=120000,
