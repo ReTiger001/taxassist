@@ -24,10 +24,15 @@
 """
 from __future__ import annotations
 
+import os
 import tempfile
 from pathlib import Path
 
 import pytest
+
+# 单元测试不该依赖外部程序：解析老式文档时会尝试启动 WPS（要几秒、可能弹窗），
+# 这里统一禁用。要专门测转换本身时，在用例里 delenv 即可。
+os.environ.setdefault("TAXASSIST_NO_WPS", "1")
 
 
 @pytest.fixture

@@ -359,7 +359,10 @@ def fetch_attachments(conn, *, limit: int = 20, only_pending: bool = True) -> di
         "WHERE a.url IS NOT NULL AND a.url <> ''"
     )
     if only_pending:
-        sql += " AND a.parse_status = 'pending'"
+        # **也重试 unsupported**：解析器升级后（例如接通 WPS 处理老式文档），
+        # 当初"读不了"的文件应该再试一次 —— 否则修复永远不会生效，
+        # 那 1380 条会一直是 unsupported，而代码明明已经能解析它们了。
+        sql += " AND (a.parse_status = 'pending' OR a.parse_status = 'unsupported')"
     sql += " ORDER BY a.id LIMIT ?"
     rows = conn.execute(sql, (limit,)).fetchall()
 
