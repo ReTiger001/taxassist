@@ -287,6 +287,41 @@ button.mini.danger:hover{background:var(--bad-bg)}
 .filters button{padding:6px 16px;border:0;border-radius:2px;background:var(--brand);
   color:#fff;font-family:inherit;font-size:13px;cursor:pointer;font-weight:500}
 .filters button:hover{background:var(--brand-2)}
+/* 效力标记说明：客户问过"推定是什么意思"，说明只靠 tooltip 不够 ——
+   把依据摊开讲。用 <details> 折叠，不占首屏。 */
+.legend{margin:14px 0 0;font-size:12.5px;color:var(--ink-3);
+  border:1px solid var(--line);border-radius:3px;
+  padding:10px 14px;background:var(--sunken)}
+.legend summary{cursor:pointer;font-weight:600;color:var(--ink-2);
+  font-size:11.5px;letter-spacing:.4px}
+.legend summary::before{content:"▸ ";color:var(--ink-3)}
+.legend[open] summary::before{content:"▾ "}
+.legend ul{margin:9px 0 0;padding-left:18px}
+.legend li{margin:5px 0;line-height:1.7}
+.legend b{color:var(--ink-2)}
+/* 筛选区：地区按大区分组 —— 分组名在左、标签在右，位置固定所以好找。
+   标签用 .chip 而非 .badge：chip 是入口（可点），badge 是状态（只读），
+   两者视觉上要能区分开。 */
+.fblock{margin-bottom:14px}
+.fblock:last-child{margin-bottom:0}
+.flabel{display:block;font-size:11.5px;color:var(--ink-3);
+  letter-spacing:.4px;margin-bottom:7px}
+.fgroups{display:grid;gap:5px}
+.fgroup{display:flex;align-items:baseline;gap:10px}
+.fglabel{flex:0 0 32px;font-size:11px;color:var(--ink-3);
+  letter-spacing:.3px;text-align:right}
+.fgitems{display:flex;flex-wrap:wrap;gap:5px 6px;min-width:0}
+.chip{display:inline-flex;align-items:baseline;gap:5px;padding:2px 9px;
+  border:1px solid var(--line);border-radius:2px;background:#fff;
+  font-size:12.5px;color:var(--ink-2);text-decoration:none}
+.chip:hover{border-color:var(--brand-2);color:var(--brand-2)}
+.chip i{font-style:normal;font-size:11px;color:var(--ink-3);
+  font-variant-numeric:tabular-nums}
+.chip:hover i{color:var(--brand-2)}
+@media (max-width:760px){
+  .fgroup{flex-direction:column;gap:4px}
+  .fglabel{flex:none;text-align:left}
+}
 </style>
 </head>
 <body>
@@ -299,6 +334,7 @@ button.mini.danger:hover{background:var(--bad-bg)}
       <a href="/">总览</a>
       <a href="/daily">每日简报</a>
       <a href="/search">检索</a>
+      <a href="/about">介绍</a>
     </nav>
     <form class="quick" action="/search" method="get">
       <input type="search" name="q" value="{{ q or '' }}" placeholder="文号 / 标题 / 正文关键词"
@@ -324,8 +360,9 @@ button.mini.danger:hover{background:var(--bad-bg)}
 </main>
 <footer class="wrap foot">
   数据来源：国家税务总局政策法规库 · 全部内容与判断保存在本机，未发生外部传输 ·
-  <b>判定来源</b>：<span class="src src-official">官方</span> 原文自带标注 ·
-  <span class="src src-default">推定</span> 本系统据现有证据推断，非官方确认
+  <b>判定依据</b>：<span class="src src-official" data-zh="官方标注" data-en="Official">官方标注</span> 原文自带时效标注或官方目录点名 ·
+  <span class="src src-inferred" data-zh="据他文判定" data-en="Inferred">据他文判定</span> 依其他文件的废止声明 ·
+  <span class="src src-default" data-zh="未发现废止" data-en="No repeal found">未发现废止</span> 库内无废止证据，<b>非官方确认有效</b>
 </footer>
 </body>
 </html>

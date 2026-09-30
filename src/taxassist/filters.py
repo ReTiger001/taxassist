@@ -243,18 +243,60 @@ def tax_type_counts(conn) -> dict[str, int]:
 
 # ---------------------------------------------------------------- 地区
 
-def region_counts(conn) -> list[tuple[str, int]]:
-    """按地区统计条数。
+#: 地区分组：行政区划序 + 大区分组。
+#:
+#: 客户抱怨过"地区不好找"。根因是原先按**条数倒序**排：广东排第几取决于
+#: 它有多少条政策，而条数天天在变，等于每次都要重新找一遍。行政区划序是
+#: 固定的、人人熟悉的（华北→东北→华东→华中→华南→西南→西北），
+#: 位置一旦记住就不用再找。
+REGION_GROUPS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("总局", (NATIONWIDE,)),
+    ("华北", ("北京", "天津", "河北", "山西", "内蒙古")),
+    ("东北", ("辽宁", "吉林", "黑龙江")),
+    ("华东", ("上海", "江苏", "浙江", "安徽", "福建", "江西", "山东")),
+    ("华中", ("河南", "湖北", "湖南")),
+    ("华南", ("广东", "广西", "海南")),
+    ("西南", ("重庆", "四川", "贵州", "云南", "西藏")),
+    ("西北", ("陕西", "甘肃", "青海", "宁夏", "新疆")),
+)
 
-    排序有意为之：**"全国"始终排在最前**，其余按条数倒序。
-    总局文件是判断基准，把它混在省份里按数量排会被地方转载挤下去。
+
+def region_counts(conn) -> list[tuple[str, int]]:
+    """按地区统计条数，按**行政区划序**排列（"全国"最前）。
+
+    供检索页的地区下拉用 —— 下拉里分组标题反而碍事，所以这里是扁平列表。
+    总览页的筛选区用 region_groups()，那个带大区分组。
     """
     rows = conn.execute(
         "SELECT COALESCE(p_region, ?) r, COUNT(*) n FROM policy GROUP BY r",
         (NATIONWIDE,),
     ).fetchall()
+    rank = {name: i for i, (_, names) in enumerate(REGION_GROUPS) for name in names}
     return sorted(((r["r"], r["n"]) for r in rows),
-                  key=lambda x: (x[0] != NATIONWIDE, -x[1]))
+                  key=lambda x: (rank.get(x[0], len(rank)), x[0]))
+
+
+def region_groups(conn) -> list[dict]:
+    """按大区分组的地区统计，供总览页筛选区。
+
+    没有政策的分组不显示（避免一堆空标题）；不在分组表里的地区归到"其他"，
+    不静默丢弃 —— 将来站点新增了行政区，至少还看得见。
+
+    **键名用 ``regions`` 而不是 ``items``**：Jinja 里 ``g.items`` 会取到 dict
+    的 items **方法**（属性查找优先于键），模板里循环它直接 TypeError
+    （实测踩过）。这类名字与内置方法重名的键一律要避开。
+    """
+    counts = dict(region_counts(conn))
+    out: list[dict] = []
+    for label, names in REGION_GROUPS:
+        items = [(n, counts[n]) for n in names if n in counts]
+        if items:
+            out.append({"label": label, "regions": items})
+    known = {n for _, names in REGION_GROUPS for n in names}
+    rest = [(r, n) for r, n in counts.items() if r not in known]
+    if rest:
+        out.append({"label": "其他", "regions": sorted(rest)})
+    return out
 
 
 def region_filter_sql(region: str, alias: str = "p") -> tuple[str, list]:

@@ -24,10 +24,18 @@
 {%- endmacro %}
 
 {% macro source_mark(source) -%}
-  {%- if source == 'official' -%}<span class="src src-official" title="官方原文自带的时效标注">官方</span>
-  {%- elif source == 'inferred' -%}<span class="src src-inferred" title="据其他文件的废止声明推断，需人工确认">推定·据他文</span>
-  {%- elif source == 'default' -%}<span class="src src-default" title="未发现废止证据，系统推定有效，非官方确认">推定</span>
-  {%- elif source == 'manual' -%}<span class="src src-official" title="人工确认">人工</span>
+  {#- 这四个标记回答的是「这条效力判断有多硬」，不是「政策有没有效」。
+      原先写「推定」「官方」，客户看不懂在推什么 —— 我们从不猜测政策有效性，
+      default 的准确含义是「库里没有任何文件说它废止」，不等于"我们猜它有效"。
+      所以文案改成直说依据：官方标注 / 据他文判定 / 未发现废止。 -#}
+  {%- if source == 'official' -%}
+    <span class="src src-official" title="政策原文自带时效标注，或官方废止目录点名">官方标注</span>
+  {%- elif source == 'inferred' -%}
+    <span class="src src-inferred" title="据其他文件的废止声明判定；依据原文见详情页">据他文判定</span>
+  {%- elif source == 'default' -%}
+    <span class="src src-default" title="库内未发现任何废止证据。这不等于官方确认有效，重要事项请核对原文">未发现废止</span>
+  {%- elif source == 'manual' -%}
+    <span class="src src-official" title="人工核对后确认">人工确认</span>
   {%- endif -%}
 {%- endmacro %}
 
