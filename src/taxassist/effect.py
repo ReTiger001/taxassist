@@ -284,10 +284,17 @@ def detect_self_repealed(text: str | None) -> tuple[bool, str]:
         return True, norm_text(sentence)[:200] + (f"｜依据文号：{basis}" if basis else "")
     return False, ""
 def _normalise_doc_no(value: str | None) -> str:
-    """文号归一化，用于跨记录比对（去空白、统一括号、去"中华人民共和国"前缀）。"""
+    """文号归一化，用于跨记录比对。
+
+    去掉：空白、"中华人民共和国"前缀、把各种括号统一成半角圆括号，
+    以及**前导的"日"字** —— 实测正文里"…2026年9月3日 国家税务总局公告…"这种
+    写法会让抽出的文号带上日期的尾巴"日"（形如"日国家税务总局公告2016 年第38 号"），
+    而库里存的是干净文号，于是约 29% 本可关联的引用被判成了"悬空"。
+    """
     v = norm_text(value) or ""
     v = v.replace("中华人民共和国", "")
     v = re.sub(r"[\s\u3000]", "", v)
+    v = re.sub(r"^日+", "", v)
     for a, b in (("（", "("), ("）", ")"), ("〔", "("), ("〕", ")"), ("[", "("), ("]", ")")):
         v = v.replace(a, b)
     return v
