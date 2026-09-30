@@ -318,6 +318,10 @@ button.mini.danger:hover{background:var(--bad-bg)}
 .chip i{font-style:normal;font-size:11px;color:var(--ink-3);
   font-variant-numeric:tabular-nums}
 .chip:hover i{color:var(--brand-2)}
+/* 零条的行政区：灰化 + 虚线边。不隐藏 —— 客户要靠它把总数对上账，
+   而且"这个省一条都没有"本身就是有用的信息（说明地方性政策还没抓到）。 */
+.chip-empty{color:var(--ink-3);background:#fafbf9;border-style:dashed}
+.chip-empty i{color:var(--ink-3)}
 @media (max-width:760px){
   .fgroup{flex-direction:column;gap:4px}
   .fglabel{flex:none;text-align:left}
