@@ -100,6 +100,15 @@ class ListPageAdapter:
     # （实测河南/辽宁/广东都没有翻页控件），历史政策分散在按税种分的
     # 「政策法规库」子栏目里。所以一个源要能配多个列表页并合并去重。
     extra_urls: tuple[str, ...] = ()
+    # ---- POST JSON 接口源 ----
+    # 有的站列表页**只渲染第一页**，历史数据全在 AJAX 接口后面。
+    # 实测贵州政策法规库：页面渲染 15 条，而库里有 4934 条。
+    # 接口参数与字段名是从浏览器 network 里抓的（字段名是混淆的，每站不同），
+    # 所以由适配器逐项指定，不猜。
+    api_url: str = ""
+    api_body: dict | None = None          # 固定参数（含 customFilter 等）
+    api_pages: int = 0                    # 拉多少页；0 表示该源不用接口
+    api_fields: tuple[str, str, str] = ("", "", "")   # (标题, 链接, 日期) 字段名
 
 
 # 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
@@ -358,7 +367,49 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         #   f_202163742494   = 税种子类 ID（customFilter 里那个 value）
         # 不带 customFilter 会返回**全站**内容（含减税降费专题等），必须带上。
         #
-        # 下一步：给 adapter 加 json_api 支持 → 按页拉（4934 条 ÷ 50/页 ≈ 99 页）。
+        # 已接入下面的 api_* 配置。4934 条 ÷ 50/页 ≈ 99 页，取 110 留余量。
+        api_url="https://guizhou.chinatax.gov.cn/irs/front/list",
+        api_pages=110,
+        api_fields=("f_202163261554", "doc_pub_url", "save_time"),
+        api_body={
+            "pageSize": 50,
+            "tenantId": 71,
+            "tableName": "t_179d132472b",
+            "searchFields": [],
+            "isPage": True,
+            "sorts": [{"sortField": "save_time", "sortOrder": "DESC"}],
+            "customFilter": {
+                "operator": "or",
+                "properties": [
+                    {"property": "f_202163742494", "operator": "eq", "value": 5901201},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899601},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899600},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899602},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899603},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899604},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899605},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899606},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899607},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899608},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899609},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899610},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5992803},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899611},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899612},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899613},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899614},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899615},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899616},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899617},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899618},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899619},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899620},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899621},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5899622},
+                    {"property": "f_202163742494", "operator": "eq", "value": 5901201},
+                ],
+            },
+        },
         # ------------------------------------------------------------------
         base_url="http://guizhou.chinatax.gov.cn",
         needs_js=True,
@@ -854,6 +905,51 @@ def build_provincial_row(item: dict, adapter: ListPageAdapter) -> dict:
     }
 
 
+def _fetch_json_api(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
+    """按页拉 POST JSON 接口（页面只渲染第一页的站靠它拿全量）。
+
+    页数上限由适配器的 api_pages 控制；某页失败就停在那里并把已拿到的返回，
+    不假装拿到了全部 —— 缺多少由调用方的 fetch_log 去记。
+    """
+    if not adapter.api_url or not adapter.api_pages:
+        return []
+    title_f, url_f, date_f = adapter.api_fields
+    out: list[dict] = []
+    seen: set[str] = set()
+    for page in range(1, adapter.api_pages + 1):
+        body = dict(adapter.api_body or {})
+        body["pageNo"] = page
+        try:
+            data = client.post_json(adapter.api_url, body, max_retries=1)
+        except Exception as e:  # noqa: BLE001 - 翻页失败不该丢掉已拿到的
+            log.warning("接口翻页中断 %s page=%s: %s", adapter.source_id, page, e)
+            break
+        rows = (data.get("data") or {}).get("list") or []
+        if not rows:
+            break
+        for row in rows:
+            href = str(row.get(url_f) or "").strip()
+            title = norm_text(str(row.get(title_f) or ""))
+            if not href or not title or len(title) < 6:
+                continue
+            url = urljoin(adapter.base_url, href)
+            if url in seen:
+                continue
+            seen.add(url)
+            m = _DATE_RE.search(str(row.get(date_f) or "")) \
+                or _DATE_YMD_SLASH_RE.search(str(row.get(date_f) or ""))
+            cwrq = (f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+                    if m else None)
+            out.append({
+                "url": url,
+                "title": title,
+                "cwrq": cwrq,
+                "doc_uid": f"{adapter.source_id}:"
+                           + hashlib.md5(url.encode()).hexdigest()[:16],
+            })
+    return out
+
+
 def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
     """抓取适配器配置的**所有**列表页并合并去重。
 
@@ -869,6 +965,12 @@ def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[di
     seen: set[str] = set()
     out: list[dict] = []
     errors: list[str] = []
+
+    # 先走 JSON 接口：接口里的数据比页面全得多（贵州页面 15 条 / 接口 4934 条）
+    for item in _fetch_json_api(client, adapter):
+        if item["url"] not in seen:
+            seen.add(item["url"])
+            out.append(item)
     for url in urls:
         try:
             items = fetch_list_page(client, replace(adapter, list_url=url))

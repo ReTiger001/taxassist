@@ -9,6 +9,7 @@
 """
 from __future__ import annotations
 
+import json
 import logging
 import time
 from urllib.parse import urlencode
@@ -149,6 +150,44 @@ class GuardedClient:
         resp = self.get(url, params, **kw)
         resp.raise_for_status()
         return resp.json()
+
+    def post_json(self, url: str, payload: dict, *,
+                  max_retries: int | None = None) -> dict:
+        """POST JSON，带出网守卫、限速与重试。
+
+        为什么必须走这里而不是直接 httpx：出网守卫要检查**请求内容**
+        （严禁把客户信息发出去），POST 的报文体同样要过这一关 ——
+        绕开它等于给"客户数据不出本机"开一个后门。
+
+        重试策略与 get 一致：4xx 不重试（重试无意义），5xx/网络错误退避重试。
+        """
+        body = json.dumps(payload, ensure_ascii=False)
+        self._check_outbound(url, None, body)
+        retries = self.retries if max_retries is None else max_retries
+        last_err: Exception | None = None
+        for attempt in range(retries + 1):
+            self._throttle(url)
+            try:
+                resp = self._client.post(
+                    url, content=body.encode("utf-8"),
+                    headers={"Content-Type": "application/json"})
+                if resp.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"服务端错误 {resp.status_code}",
+                        request=resp.request, response=resp)
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:  # noqa: BLE001 - 需要统一重试判定
+                last_err = e
+                if isinstance(e, httpx.HTTPStatusError) and e.response is not None \
+                        and 400 <= e.response.status_code < 500:
+                    raise
+                if attempt < retries:
+                    backoff = RETRY_BACKOFF_SEC * (attempt + 1)
+                    log.warning("POST 失败（第 %d 次），%.1fs 后重试：%s",
+                                attempt + 1, backoff, e)
+                    time.sleep(backoff)
+        raise RuntimeError(f"POST 最终失败: {url} -> {last_err}")
 
     def close(self) -> None:
         self._client.close()
