@@ -56,6 +56,15 @@ _DATE_RE = re.compile(r"(20\d\d)-(\d{1,2})-(\d{1,2})")
 # 且它只用于排序与展示，不参与任何效力判断。
 _DATE_YM_RE = re.compile(r"(20\d\d)[-/年](\d{1,2})(?![-/月\d])")
 _DATE_MD_RE = re.compile(r"[\[\(（]\s*(\d{1,2})[-/月](\d{1,2})\s*[\]\)）]")
+# URL 里的完整日期。四川列表页只显示「月-日」（<span>09-28</span>），哪条
+# 正则都不认；但详情 URL 里有站点自己写的年月日：
+# /art/2026/9/28/art_19973_21901.html。比「补当年」准 —— 那是站点的事实，
+# 不是我们的推断。这条对江苏/黑龙江/宁夏等一切 /art/YYYY/M/D/ 站点兜底。
+_DATE_YMD_SLASH_RE = re.compile(r"(20\d\d)/(\d{1,2})/(\d{1,2})(?!\d)")
+# 裸「月-日」，无括号。山西/四川的 <span>09-28</span> 就是这种 ——
+# 两边都不带括号，_DATE_MD_RE 认不出。用前后边界（行首/空白/标签）限定，
+# 并在调用处校验 月≤12、日≤31，避免把 "3-5 个工作日" 这类当日期。
+_DATE_MD_BARE_RE = re.compile(r"(?:^|[\s>])(\d{1,2})[-/月](\d{1,2})(?:[\s<]|$)")
 
 
 class ListPageError(RuntimeError):
@@ -337,6 +346,30 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="http://hainan.chinatax.gov.cn",
         needs_js=True,
     ),
+    # 重庆：真实栏目在 /cqtax/ 下，**不是根路径**。
+    # 根路径首页能过 WAF（65790 字节）且里面有 ./zcwj/ 这类相对链接，但直接
+    # 访问 /zcwj/ 只回 220 字节的挑战页 —— WAF 只放行它认识的路径。
+    # 实测 /cqtax/zcwj/zxwj/ 与 /cqtax/zcwj/zcjd/ 各回 23KB 静态列表。
+    # base_url 必须写成列表页自身（带尾斜杠）：条目 href 是 ./202609/t…html，
+    # urljoin 要按列表页目录拼，写成裸域名会拼到根路径上去。
+    ListPageAdapter(
+        source_id="cq_zxwj",
+        region="重庆",
+        site_name="国家税务总局重庆市税务局",
+        list_url="https://chongqing.chinatax.gov.cn/cqtax/zcwj/zxwj/",
+        detail_href_re=r"\./\d{6}/t\d+_\d+\.html",
+        base_url="https://chongqing.chinatax.gov.cn/cqtax/zcwj/zxwj/",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="cq_zcjd",
+        region="重庆",
+        site_name="国家税务总局重庆市税务局",
+        list_url="https://chongqing.chinatax.gov.cn/cqtax/zcwj/zcjd/",
+        detail_href_re=r"\./\d{6}/t\d+_\d+\.html",
+        base_url="https://chongqing.chinatax.gov.cn/cqtax/zcwj/zcjd/",
+        needs_js=True,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
@@ -395,15 +428,28 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
         if not title or len(title) < 6:
             continue
 
-        # 日期搜索范围逐步放宽：父元素 → 链接文本（吉林的日期在 <a> 里，
-        # 不在父元素）→ URL（部分站把年月日编进路径）
+        # 日期搜索范围逐步放宽：父元素 → **不含链接的兄弟节点**
+        # → 链接文本（吉林的日期在 <a> 里，不在父元素）→ URL（部分站把年月日编进路径）
         parent_text = ""
         parent = a.getparent()
         if parent is not None:
             parent_text = " ".join(parent.text_content().split())
+            if not _DATE_RE.search(parent_text):
+                # 日期可能在兄弟节点里。实测重庆是
+                # ``<dl><dd><a>标题</a></dd><dd>2026-09-04</dd></dl>`` ——
+                # 父元素只有标题，日期在隔壁 <dd>。
+                # 只收**不含详情链接**的兄弟：含链接的是隔壁条目，
+                # 收进来就会给它安上别人的日期。
+                gp = parent.getparent()
+                if gp is not None:
+                    extra = [sib.text_content() for sib in gp.iterchildren()
+                             if sib is not parent and not sib.xpath(".//a[@href]")]
+                    joined = " ".join(extra).strip()
+                    if joined and len(joined) < 120:
+                        parent_text = f"{parent_text} {joined}"
         haystack = f"{parent_text} {_clean_title(title)} {url}"
 
-        m = _DATE_RE.search(haystack)
+        m = _DATE_RE.search(haystack) or _DATE_YMD_SLASH_RE.search(haystack)
         if m:
             cwrq = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
         else:
@@ -411,9 +457,13 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
             if m2:                                    # 只有年月（甘肃）
                 cwrq = f"{m2.group(1)}-{int(m2.group(2)):02d}-01"
             else:
-                m3 = _DATE_MD_RE.search(haystack)
-                # 只有月日（吉林），年份补当年 —— 这些都是补出来的，
-                # 只用于排序展示，不参与效力判断。
+                # 只有月日（吉林 [09-04]、山西与四川 <span>09-28</span>），
+                # 年份补当年 —— 这些都是补出来的，只用于排序展示，
+                # 不参与效力判断。
+                m3 = _DATE_MD_RE.search(haystack) or _DATE_MD_BARE_RE.search(haystack)
+                if m3 and not (1 <= int(m3.group(1)) <= 12
+                               and 1 <= int(m3.group(2)) <= 31):
+                    m3 = None                         # "3-5 个工作日" 之类
                 cwrq = (f"{date.today().year}-{int(m3.group(1)):02d}-{int(m3.group(2)):02d}"
                         if m3 else None)
 

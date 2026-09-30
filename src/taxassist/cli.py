@@ -122,6 +122,10 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("dedupe", help="清理跨源重复（同一文件被总局与省级站各抓一次）")
 
     b = sub.add_parser("backfill", help="从已有正文补全施行日期与文号（不联网）")
+    rp = sub.add_parser(
+        "reparse",
+        help="从归档的详情页快照重新解析正文（不联网；改进解析器后跑它）")
+    rp.add_argument("--limit", type=int, default=0, help="最多处理多少条（0=全部）")
     b.add_argument("--recheck-docno", action="store_true",
                    help="复核并修正被正文污染的文号（历史上贪婪匹配留下的，只动受污染的）")
     return p
@@ -601,6 +605,19 @@ def cmd_backfill(args) -> int:
     return 0
 
 
+def cmd_reparse(args) -> int:
+    """从归档快照重新解析详情页 —— 不联网，解析器改进后跑它即可生效。"""
+    conn = dbmod.connect()
+    dbmod.init_db(conn)
+    result = pipeline.reparse_details_from_snapshots(conn, limit=args.limit)
+    conn.close()
+    print(f"从快照重新解析：扫描 {result['scanned']} 条，更新 {result['updated']} 条，"
+          f"失败 {result['failed']} 条，快照缺失 {result['missing']} 条")
+    for err in result["errors"]:
+        print(f"    {err}")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_console()
@@ -636,6 +653,7 @@ def main(argv: list[str] | None = None) -> int:
         "cit-template": cmd_cit_template,
         "dedupe": cmd_dedupe,
         "backfill": cmd_backfill,
+        "reparse": cmd_reparse,
         "status": cmd_status,
         "search": cmd_search,
     }

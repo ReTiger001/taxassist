@@ -78,6 +78,12 @@ _NOISE_EXACT = frozenset({
 # 正文最低长度：低于此值视为"这个页面没有政策正文"，
 # 宁可不回写，也不要往库里塞界面噪音。
 MIN_BODY_CHARS = 30
+# 挑选正文容器时的门槛：太短的容器是界面元素，不是正文。
+# 实测吉林页面上有个内容很少的 TRS_Editor 空壳，排在真正文容器
+# （container content，821 字）前面 —— "第一个命中就 break"会把真正文挡在
+# 外面，这正是吉林 19 条里 16 条抓不到正文的原因。两个门槛语义不同：
+# 这个决定"拿哪个容器"，MIN_BODY_CHARS 决定"拿到的东西够不够格当正文"。
+_BODY_MIN_HINT = 100
 
 
 @dataclass
@@ -126,15 +132,40 @@ def parse_detail(html_text: str, base_url: str = "") -> DetailResult:
 
     # ---------------------------------------------------------- 正文
     body_el = None
+    fallback = None      # 所有选择器都没找到够量容器时的保底
+    # 正文容器。省级站与总局用的**不是一套模板** —— 这正是"20 个省 267 条
+    # 政策全都抓不到正文"的根因之一（另一个是详情页没走浏览器）。
+    # 实测 452 个省级详情页快照的覆盖：id="zoom" 164、content 105、con 51、
+    # TRS_Editor 42、article 39、container content 32、info-cont 11。
+    # id="zoom" 与 TRS_Editor 是中国政府站（TRS / 方正 CMS）的通用产物，
+    # 跨省命中率最高；content / con 最泛，所以放最后兜底。
     for xpath in (
+        '//*[@id="zoom"]',
+        '//*[contains(@class,"TRS_Editor")]',
         '//div[contains(@class,"article")]',
         '//div[contains(@class,"currency") and contains(@class,"cont")]',
         '//div[contains(@class,"detials")]',
+        '//div[contains(@class,"info-cont")]',
+        '//div[contains(@class,"container") and contains(@class,"content")]',
+        '//div[contains(@class,"content")]',
+        '//div[contains(@class,"con")]',
     ):
         els = doc.xpath(xpath)
-        if els:
-            body_el = max(els, key=lambda e: len(e.text_content()))
+        if not els:
+            continue
+        # 内容够量的优先。但**不能因为短就当作没找到** —— 短正文的政策
+        # 确实存在（上海的 138 字通知），而且吉林页面上那个空壳 TRS_Editor
+        # 恰恰证明了另一面：它在前面，真正文（container content，821 字）
+        # 在后面，所以这里不 break，继续往下试，同时留个保底。
+        good = [e for e in els
+                if len(" ".join(e.itertext()).strip()) >= _BODY_MIN_HINT]
+        if good:
+            body_el = max(good, key=lambda e: len(e.text_content()))
             break
+        if fallback is None:
+            fallback = max(els, key=lambda e: len(e.text_content()))
+    if body_el is None:
+        body_el = fallback
 
     if body_el is not None:
         paragraphs = _clean_paragraphs(body_el.xpath(".//p"))

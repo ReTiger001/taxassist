@@ -77,6 +77,116 @@ def fetch_html(url: str, *, timeout_ms: int = 45000,
     return html
 
 
+def fetch_many(
+    urls: "list[str] | tuple[str, ...]",
+    *,
+    concurrency: int = 5,
+    timeout_ms: int = 25000,
+    wait_ms: int = _CHALLENGE_WAIT_MS,
+    warm_wait_ms: int = 900,
+) -> dict[str, "str | BaseException"]:
+    """并发抓多个页面：**一个浏览器、按域名复用上下文**。
+
+    为什么不循环调 ``fetch_html``：那样每条都要新建一个 Chromium（1-2 秒）
+    并且每条都要重新过一遍 WAF 挑战（等 6 秒），实测 8-10 秒/条，267 条省级
+    详情页要跑 40 多分钟 —— 而且会卡死。
+
+    加速乐下发的 cookie 是**按域名**的，所以同省的所有详情页共用一个 context
+    即可：挑战每条域名只过一次，其余页面直接命中已放行的会话。这正是把
+    "一条一条慢慢过挑战"变成"几分钟抓完"的关键。
+
+    返回 ``{url: html}``；抓失败的 URL 映射到异常对象 —— **不抛异常**，
+    因为批量任务里一条坏链接不该让同批的其余条目拿不到正文。
+    """
+    import asyncio
+
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError as e:  # pragma: no cover - 环境相关
+        raise RuntimeError(
+            "未安装 playwright：pip install playwright 且 playwright install chromium"
+        ) from e
+
+    async def _load(page, url: str, wait: int) -> str:
+        await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+        await page.wait_for_timeout(wait)
+        return await page.content()
+
+    async def _grab(ctx, url: str, *, wait: int) -> str:
+        # 每一层都要有超时。没有它，一个连不上的域名会让整组（乃至整批）
+        # 无限期挂住 —— 实测就是这样卡死的：202 页跑了 15 分钟一条没落库。
+        page = await asyncio.wait_for(ctx.new_page(), timeout=20)
+        try:
+            html = await asyncio.wait_for(
+                _load(page, url, wait), timeout=timeout_ms / 1000 + 20)
+        except asyncio.TimeoutError:
+            raise RuntimeError(f"抓取超时（>{timeout_ms} ms）") from None
+        finally:
+            try:
+                await asyncio.wait_for(page.close(), timeout=5)
+            except Exception:  # noqa: BLE001 - 关页面失败不该掩盖真正的错误
+                pass
+        if not html or len(html) < 500:
+            raise RuntimeError(
+                f"页面内容过短（{len(html) if html else 0} 字节），可能仍被拦")
+        return html
+
+    async def _run() -> dict[str, "str | BaseException"]:
+        from urllib.parse import urlsplit
+
+        out: dict[str, "str | BaseException"] = {}
+        groups: dict[str, list[str]] = {}
+        for u in urls:
+            groups.setdefault(urlsplit(u).netloc, []).append(u)
+
+        async with async_playwright() as p:
+            browser = await p.chromium.launch(headless=True, args=[
+                "--disable-blink-features=AutomationControlled",
+            ])
+            try:
+                for netloc, group in groups.items():
+                    log.info("抓取 %s（%d 页）", netloc, len(group))
+                    ctx = await asyncio.wait_for(
+                        browser.new_context(
+                            user_agent=_UA, locale="zh-CN",
+                            viewport={"width": 1440, "height": 900}),
+                        timeout=30)
+                    try:
+                        # 同域名的第一条等满挑战时间（过挑战 + 拿 cookie），
+                        # 其余并发跑且只等很短 —— cookie 已经在 context 里了。
+                        head, rest = group[0], group[1:]
+                        try:
+                            out[head] = await _grab(ctx, head, wait=wait_ms)
+                        except BaseException as e:  # noqa: BLE001
+                            out[head] = e
+                        if rest:
+                            sem = asyncio.Semaphore(concurrency)
+
+                            async def one(u: str) -> None:
+                                async with sem:
+                                    try:
+                                        out[u] = await _grab(ctx, u, wait=warm_wait_ms)
+                                    except BaseException as e:  # noqa: BLE001
+                                        out[u] = e
+
+                            await asyncio.gather(*(one(u) for u in rest))
+                    finally:
+                        try:
+                            await ctx.close()
+                        except Exception:  # noqa: BLE001
+                            pass
+            finally:
+                try:
+                    await browser.close()
+                except Exception:  # noqa: BLE001
+                    pass
+        return out
+
+    if not urls:
+        return {}
+    return asyncio.run(_run())
+
+
 def _find_browser_binary() -> str:
     """找一个可用的 Chromium。
 
