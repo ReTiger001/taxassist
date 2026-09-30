@@ -289,9 +289,13 @@ def region_groups(conn) -> list[dict]:
     counts = dict(region_counts(conn))
     out: list[dict] = []
     for label, names in REGION_GROUPS:
-        items = [(n, counts[n]) for n in names if n in counts]
-        if items:
-            out.append({"label": label, "regions": items})
+        # **零条的行政区也列出来**（模板里灰化）。
+        # 起因是客户核对过："总数 5K，下面各省加起来怎么也对不上" —— 数字没错，
+        # 是湖北/贵州/北京当时各 0 条、被静默跳过，整行消失看起来像数据丢了。
+        # 把 0 显式列出来，"对不上"就变成"能对上"，而且零条本身就是有用信息
+        # （说明该省的地方性政策还没抓到）。
+        out.append({"label": label,
+                    "regions": [(n, counts.get(n, 0)) for n in names]})
     known = {n for _, names in REGION_GROUPS for n in names}
     rest = [(r, n) for r, n in counts.items() if r not in known]
     if rest:

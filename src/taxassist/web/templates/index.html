@@ -55,7 +55,11 @@
           <span class="fglabel">{{ g.label }}</span>
           <span class="fgitems">
             {% for name, n in g.regions %}
-              <a class="chip" href="/search?region={{ name }}">{{ name }}<i>{{ n }}</i></a>
+              {# 「全国」是库里的存储值（总局文件），但分组名就叫"总局" ——
+                 显示成"全国"会被读成"全国总数"，和总数 5510 一比就对不上。 #}
+              <a class="chip{% if not n %} chip-empty{% endif %}"
+                 href="/search?region={{ name }}"
+                 {% if not n %}title="库内暂无该地区的政策"{% endif %}>{{ '总局' if name == '全国' else name }}<i>{{ n }}</i></a>
             {% endfor %}
           </span>
         </div>
