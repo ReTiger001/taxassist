@@ -289,7 +289,9 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # 默认的「挑战等待」6 秒对这类站点普遍偏低。没有这条，陕西会每天
         # 报一次 ListPageError，看起来像"站点改版了"，其实只是等太短。
         wait_ms=14000,
-        timeout_ms=60000,
+        # 90 秒而非 60：该站导航偶发很慢（实测出现过 60 秒还没到
+        # domcontentloaded 而超时，同一次会话里另一次却几秒就返回）。
+        timeout_ms=90000,
     ),
     ListPageAdapter(
         source_id="gx_zcwj",
