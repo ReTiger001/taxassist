@@ -465,7 +465,16 @@ def cmd_serve(args) -> int:
 
     print("按 Ctrl+C 停止。")
     uvicorn.run(create_app(require_auth=exposed, auth_mode=args.auth),
-                host=args.host, port=args.port, log_level="warning")
+                host=args.host, port=args.port, log_level="warning",
+                # proxy_headers=False：默认 True 时 uvicorn 信任来自 127.0.0.1 的
+                # X-Forwarded-For / X-Forwarded-Proto 并据此改写 client.host ——
+                # 而隧道（cloudflared / tailscaled）正是从 127.0.0.1 连过来的，
+                # 于是请求头变成攻击者可控，会污染「是否本机」判定与限速键。
+                # 不构成认证绕过（门锁是启动常量），但没必要留这个口子。
+                proxy_headers=False,
+                # 访问日志必须留：这是公网服务，被爆破或被登录过，
+                # 控制台一关就什么痕迹都没有（审计指出的取证盲区）。
+                access_log=True)
     return 0
 
 
@@ -595,10 +604,22 @@ def cmd_backfill(args) -> int:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_console()
+    # 日志同时落盘：这是暴露在公网的服务，被爆破或被登录过，
+    # 只输出到控制台的话窗口一关就什么痕迹都不剩（审计指出的取证盲区）。
+    from logging.handlers import RotatingFileHandler
+    from pathlib import Path
+    log_dir = Path(__file__).resolve().parents[2] / "data" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    file_handler = RotatingFileHandler(
+        log_dir / "taxassist.log", maxBytes=5_000_000, backupCount=5,
+        encoding="utf-8")
+    file_handler.setFormatter(logging.Formatter(
+        "%(asctime)s %(levelname)-7s %(name)s | %(message)s"))
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)-7s %(name)s | %(message)s",
         datefmt="%H:%M:%S",
+        handlers=[logging.StreamHandler(), file_handler],
     )
     handlers = {
         "initdb": cmd_initdb,

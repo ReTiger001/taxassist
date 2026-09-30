@@ -142,6 +142,73 @@ def recheck_doc_no(conn, *, limit: int | None = None) -> dict:
             "doc_no_repaired": len(updates), "samples": samples[:20]}
 
 
+_DOCNO_DIGIT = re.compile(r"\d")
+
+
+def looks_like_doc_no(value: str | None) -> bool:
+    """判断一个字符串是否像完整文号。
+
+    用来决定官方字段 ``o_doc_num`` 能不能拿来用。**宁可判为不可用** ——
+    拿一个不像文号的东西去覆盖，比留空危险：错的文号看起来像真的。
+    """
+    v = (value or "").strip()
+    if len(v) < 4 or v.isdigit():
+        return False
+    return "号" in v and bool(_DOCNO_DIGIT.search(v))
+
+
+def apply_official_doc_no(conn, *, dry_run: bool = False) -> dict:
+    """用官方列表接口的 ``o_doc_num`` 覆盖我们自己拼的文号。
+
+    ================================================================
+    这修的是一次真实事故
+    ================================================================
+
+    我们曾按「**发文机关** + 年份 + 序号」拼文号，拼出
+    「国务院1984年第161号」—— 中文文号里根本没有这种形式。
+    而同一行的 ``o_doc_num`` 就是官方组装好的真文号「国发〔1984〕161号」，
+    用的是官方文种简称（``o_doc_type``，如「国发」「财税油政字」）。
+
+    更严重的是曾被标为 ``high``（自称"从原文提取"）的那批：抽样发现它们抓的
+    是**页面上引用的别的文件**的文号 —— 标题是 1987 年的文件，
+    文号却抓成「国家税务总局公告2011年第2号」，年份都对不上。
+
+    规则：
+      - 官方字段可用   -> 用它，confidence 记为 ``official``
+      - 官方字段不可用 -> **如实清空**（``none``），绝不保留我们拼出来的那个
+
+    ``dry_run=True`` 时只统计、不写库。
+    """
+    rows = conn.execute(
+        "SELECT id, p_doc_no_full, o_doc_num FROM policy").fetchall()
+    stats = {"scanned": len(rows), "replaced": 0, "cleared": 0, "unchanged": 0}
+    updates: list[tuple] = []
+
+    for r in rows:
+        official = (r["o_doc_num"] or "").strip()
+        ours = (r["p_doc_no_full"] or "").strip()
+        if looks_like_doc_no(official):
+            if official == ours:
+                stats["unchanged"] += 1
+                continue
+            stats["replaced"] += 1
+            updates.append((official, "official", r["id"]))
+        elif ours:
+            stats["cleared"] += 1
+            updates.append((None, "none", r["id"]))
+        else:
+            stats["unchanged"] += 1
+
+    if not dry_run and updates:
+        conn.executemany(
+            "UPDATE policy SET p_doc_no_full=?, p_doc_no_confidence=?"
+            " WHERE id=?", updates)
+        conn.commit()
+    stats["dry_run"] = dry_run
+    log.info("文号按官方字段校正：%s", stats)
+    return stats
+
+
 def coverage(conn) -> dict:
     """当前各字段的填充率（用于生产验收）。"""
     total = conn.execute("SELECT COUNT(*) FROM policy").fetchone()[0]

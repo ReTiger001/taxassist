@@ -1,0 +1,26 @@
+FROM D:\EY-project\data\models\Hunyuan-MT-7B.Q4_K_M.gguf
+
+# ============================================================
+# 控制标记是必须的，这是本文件唯一的重点
+# ============================================================
+# 官方模板必须带 <|startoftext|> 与 <|extra_0|>（system 段用 <|extra_4|>）。
+# 少了它们，模型会进入**续写模式**而不是翻译模式 —— 实测表现为复读中文直到
+# 跑满 token：18.40 秒一条、6 条里 5 条输出不可用。
+# 加上之后：0.37 秒一条、输出全部正常。差 50 倍。
+#
+# 出处：hf-mirror.com/tencent/HY-MT1.5-7B-GGUF 模型卡给出的 ollama 写法；
+#      标记定义见 tencent/Hunyuan-MT-7B 的 tokenizer_config.json
+#      （user 段 <|startoftext|>内容<|extra_0|>、system 段 <|extra_4|>、eos=<|eos|>）
+TEMPLATE """{{ if .System }}<|startoftext|>{{ .System }}<|extra_4|>{{ end }}{{ if .Prompt }}<|startoftext|>{{ .Prompt }}<|extra_0|>{{ end }}{{ .Response }}"""
+
+# 官方采样参数。我原先用 0.1/0.9 是自己拍的，与模型卡给的这组不符。
+PARAMETER temperature 0.7
+PARAMETER top_k 20
+PARAMETER top_p 0.6
+PARAMETER repeat_penalty 1.05
+
+# 显存 16GB，num_ctx 8192 的单路 KV 约 1.0GB（实测 131KB/token）
+PARAMETER num_ctx 8192
+# 标题译文很短，512 足够；正文由调用方按 3000 字切块后另设
+PARAMETER num_predict 512
+PARAMETER stop "<|eos|>"

@@ -77,6 +77,17 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/gdsw/[a-z]+/\d{4}-\d{2}/\d{2}/content_[0-9a-f]+\.shtml",
         base_url="http://guangdong.chinatax.gov.cn",
     ),
+    # 江苏：实测为静态列表页，详情 URL 形如 /art/2026/9/4/art_23636_13344.html，
+    # 日期直接带在条目里。注意这个栏目是「本省文件 + 转载总局文件」混排 ——
+    # 与广东同样的问题，跨源去重靠标题，见 pipeline.collect_provincial。
+    ListPageAdapter(
+        source_id="js_zcfg",
+        region="江苏",
+        site_name="国家税务总局江苏省税务局",
+        list_url="http://jiangsu.chinatax.gov.cn/col/col8199/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://jiangsu.chinatax.gov.cn",
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}

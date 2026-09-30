@@ -187,6 +187,12 @@ def parse_detail(html_text: str, base_url: str = "") -> DetailResult:
         if not _ATTACH_EXT_RE.search(href):
             continue
         full = urljoin(base_url, href) if base_url else href
+        # 只接受 http/https。抓来的 URL 会直接渲染成 <a href>，而 autoescape
+        # 拦不住 `javascript:` 这类 scheme —— 源站被攻破、或明文 HTTP 抓取被
+        # 中间人篡改时，用户一点就以本站身份执行脚本（同源，可调 /admin 提权）。
+        # 24 个省级源里有 20 个是明文 http://，这条不是理论风险。
+        if not full.lower().startswith(("http://", "https://")):
+            continue
         if full in seen:
             continue
         seen.add(full)
