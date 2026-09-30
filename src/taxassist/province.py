@@ -348,6 +348,18 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://jilin.chinatax.gov.cn",
         needs_js=True,
+        # 站内检索（jsearchfront），实测「发票」返回 **40** 条匹配本省正则的政策。
+        # 这条 URL 是从**栏目页**（不是首页）提取到的 —— 首页的搜索是全站检索，
+        # 返回的多是新闻动态；栏目页的搜索才落到政策上。
+        #
+        # 两点必须与探测环境一致，否则"试调可用、真实采集失败"（已踩过）：
+        # ① 用 http（与 base_url 一致）；
+        # ② wait_ms 提到 10 秒 —— 检索结果是异步渲染的，默认 6 秒只拿到空壳。
+        wait_ms=10000,
+        extra_urls=(
+            "http://jilin.chinatax.gov.cn/jsearchfront/search.do"
+            "?websiteid=111000000135000&p=1&q=%E5%8F%91%E7%A5%A8",
+        ),
     ),
     ListPageAdapter(
         source_id="nmg_zcwj",
