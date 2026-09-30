@@ -34,6 +34,13 @@ _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
 # 挑战 JS 执行 + cookie 下发通常在一两秒内完成；给足余量但不是无限等。
 _CHALLENGE_WAIT_MS = 6000
 
+# 忽略 HTTPS 证书错误。这不是图省事：实测河北、青海税局的证书与域名不匹配
+# （Chromium 报 ERR_CERT_COMMON_NAME_INVALID），浏览器直接拒绝导航 ——
+# 这两个站因此一直被误判成"抓不到/反爬太强"。我们取的是公开政策信息、
+# 写进本地库、且会对页面内容做解析校验，所以这个取舍可接受。
+# 要恢复严格校验，把它改回 False（改完记得重跑一次省级采集验证覆盖面）。
+_IGNORE_TLS = True
+
 
 def fetch_html(url: str, *, timeout_ms: int = 45000,
                wait_ms: int = _CHALLENGE_WAIT_MS,
@@ -62,7 +69,8 @@ def fetch_html(url: str, *, timeout_ms: int = 45000,
         ])
         try:
             ctx = browser.new_context(user_agent=_UA, locale="zh-CN",
-                                      viewport={"width": 1440, "height": 900})
+                                      viewport={"width": 1440, "height": 900},
+                                      ignore_https_errors=_IGNORE_TLS)
             page = ctx.new_page()
             page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
             # 等挑战脚本跑完、cookie 落定。不依赖具体选择器 ——
@@ -149,7 +157,8 @@ def fetch_many(
                     ctx = await asyncio.wait_for(
                         browser.new_context(
                             user_agent=_UA, locale="zh-CN",
-                            viewport={"width": 1440, "height": 900}),
+                            viewport={"width": 1440, "height": 900},
+                            ignore_https_errors=_IGNORE_TLS),
                         timeout=30)
                     try:
                         # 同域名的第一条等满挑战时间（过挑战 + 拿 cookie），
@@ -159,6 +168,14 @@ def fetch_many(
                             out[head] = await _grab(ctx, head, wait=wait_ms)
                         except BaseException as e:  # noqa: BLE001
                             out[head] = e
+                        # 同域名的第一条失败时，多半是挑战没跑完就取了内容 ——
+                        # 有的站要 12 秒以上（实测辽宁）。用更长的等待重试一次，
+                        # 而不是让整个域名下十几条一起记失败。
+                        if isinstance(out.get(head), BaseException):
+                            try:
+                                out[head] = await _grab(ctx, head, wait=wait_ms * 3)
+                            except BaseException as e:  # noqa: BLE001
+                                out[head] = e
                         if rest:
                             sem = asyncio.Semaphore(concurrency)
 
