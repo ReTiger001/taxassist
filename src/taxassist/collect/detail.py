@@ -32,7 +32,7 @@ from urllib.parse import urljoin
 from lxml import html as LH
 
 from .http import GuardedClient
-from .normalize import extract_full_doc_no, norm_text
+from .normalize import doc_no_year, extract_full_doc_no, norm_text
 
 log = logging.getLogger(__name__)
 
@@ -54,12 +54,34 @@ _AGING_MAP = (
 
 _DATE_IN_AGING_RE = re.compile(r"成文日期[:：]\s*(20\d{2})[-/年](\d{1,2})[-/月](\d{1,2})")
 
-# 施行日期："本公告自2026年11月1日起施行"
+# 施行日期："本公告自2026年11月1日起施行"。
+# 实际表述（实测样本）：自/已于/于/从 … 起施行（执行/实施/生效/适用）。
+# 旧写法只认"自 XXXX年X月X日 起+施行/执行/实施"，漏掉了两成以上：
+# 前缀不只是"自"，年份也不都是 20xx（1990 年代的政策一大把）。
+# **但"起"字必须保留**：一旦放宽到"出现日期就算"，正文里引用其他文件的日期
+# （"根据 2019 年 3 月 1 日发布的…"）就会被当成本文的施行日期 ——
+# 误报比漏报更糟，施行日期直接决定"这条政策现在适不适用"。
 _EFFECTIVE_RE = re.compile(
-    r"自\s*(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日起(?:施行|执行|实施)"
+    r"(?:自|从|已于|于)?\s*((?:19|20)\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日\s*起"
+    r"\s*(?:(?:施行|执行|实施|生效|适用))?"
 )
 
 _ATTACH_EXT_RE = re.compile(r"\.(pdf|docx?|xlsx?|pptx?|zip|rar|wps|et)(?:\?|$)", re.I)
+
+
+def _ymd_tuple(value) -> tuple[int, int, int] | None:
+    """把 YYYY-MM-DD（可能带时间）转成可比较的元组；转不了返回 None。
+
+    **不能直接拿字符串比大小** —— "2025-03-24" < "1986-12-31" 在字典序下是 False，
+    会把明显错误的施行日期放过去。
+    """
+    parts = str(value or "")[:10].replace("/", "-").split("-")
+    if len(parts) < 3:
+        return None
+    try:
+        return (int(parts[0]), int(parts[1]), int(parts[2]))
+    except (TypeError, ValueError):
+        return None
 
 # 正文里需要剔除的界面噪音
 _NOISE_PREFIXES = (
@@ -74,6 +96,19 @@ _NOISE_EXACT = frozenset({
     "相关政策文件", "相关解读", "关联解读", "关联文件", "关联问答",
     "注释", "分享", "打印", "下载", "收藏", "订阅", "返回顶部", "正文",
 })
+
+# 文号抽取必须绕开的容器与文本。
+#
+# 实测（521 条误判的根因）：fk 库在已废止的老政策页面上放一个「注释」块，
+# 内容是"根据《…公告》（国家税务总局公告2022年第14号）规定，自2022年7月1日起，
+# 本文全文废止" —— 它只有 76 字、含"年"和"号"，于是被当成了本文文号。
+# 与此同时本文真正的文号（1988）国税地字第28号 被埋在 1749 字的长容器里，
+# 因为超过 150 字的门槛而被跳过。一漏一错，1988 年的规定就挂上了 2022 年的公告号。
+_DOCNO_SKIP_CLASSES = frozenset({"zs", "zscont"})
+# 「本文（全文）废止/失效」这类句子讲的是**别人废止本文**，其中的文号不是本文的。
+# 只认"本文…废止/失效"这个说法 —— 早先还写过"自…起…废止"的模式，
+# 但它在正文段落上误伤率极高（任何提到废止的段子都会被排除掉），已删除。
+_REPEAL_NOTE_RE = re.compile(r"本文(?:全文|部分)?(?:废止|失效)")
 
 # 正文最低长度：低于此值视为"这个页面没有政策正文"，
 # 宁可不回写，也不要往库里塞界面噪音。
@@ -127,8 +162,14 @@ def _norm_cn_date(y: str, m: str, d: str) -> str | None:
         return None
 
 
-def parse_detail(html_text: str, base_url: str = "") -> DetailResult:
-    """从详情页 HTML 提取正文、文号、官方时效、施行日期、附件。"""
+def parse_detail(html_text: str, base_url: str = "",
+                 known_cwrq: str | None = None) -> DetailResult:
+    """从详情页 HTML 提取正文、文号、官方时效、施行日期、附件。
+
+    ``known_cwrq`` 是库里**已知的成文日期**，用于文号自洽校验：很多老政策的
+    详情页上解析不出成文日期（日期只在列表页上有），没有它就没法判断
+    "抽到的这个文号是不是本文的"。
+    """
     doc = LH.fromstring(html_text)
     for bad in doc.xpath("//script | //style | //noscript"):
         parent = bad.getparent()
@@ -206,20 +247,63 @@ def parse_detail(html_text: str, base_url: str = "") -> DetailResult:
     # 踩过的坑：整页文本会把标题和文号挤在一起（"…的公告 国家税务总局公告2026年第19号"），
     # 标题里的"关于…的"会让机关序列被截断，结果文号提取成 None。
     # 这里只考察自身文本较短（<150 字）的元素，避免把正文段落当文号候选。
-    for el in doc.xpath('//*[contains(., "年") and contains(., "号")]'):
+    # 只要求含「号」—— **不能要求同时含"年"**：老式文号（财税〔2014〕46号、
+    # 国税发〔2005〕61号）里根本没有"年"字，加了那个条件它们永远抽不到
+    # （实测：这些页面的 <h5 class="actfwzh">发票字〔2014〕46号</h5> 从不入选，
+    # 库里那些文号其实是 backfill 从正文补的）。
+    for el in doc.xpath('//*[contains(., "号")]'):
         own = " ".join("".join(el.itertext()).split())
         if not own or len(own) > 150:
+            continue
+        # 绕开「注释」块与废止说明：那里装的是**宣布本文废止的那份公告**的文号，
+        # 不是本文的（实测 521 条老政策因此挂上了 2022/2026 年的公告号）。
+        if any(k in str(el.get("class") or "").split() for k in _DOCNO_SKIP_CLASSES):
+            continue
+        if _REPEAL_NOTE_RE.search(own):
             continue
         candidate = extract_full_doc_no(own)
         if candidate:
             result.doc_no = candidate
             break
 
+    # 自洽校验：文号里的年份不该比本文成文日期晚 5 年以上 —— 那种多半是
+    # "相关文件 / 修订依据 / 废止目录"的文号，不是本文的。宁可留空（界面显示
+    # 「—」），也不要挂一个格式正确、一抄就错的文号：文号是政策引用的唯一标识。
+    # 成文日期优先用页面上的；页面上没有就用调用方给的已知日期（见 known_cwrq）。
+    check_date = result.cwrq or known_cwrq
+    if result.doc_no and check_date:
+        doc_year = doc_no_year(result.doc_no)
+        try:
+            pub_year = int(str(check_date)[:4])
+        except (TypeError, ValueError):
+            pub_year = 0
+        if doc_year and pub_year and doc_year - pub_year >= 5:
+            log.warning("文号年份(%s)比成文日期(%s)晚 5 年以上，已丢弃：%s",
+                        doc_year, pub_year, result.doc_no)
+            result.doc_no = None
+
     # ---------------------------------------------------------- 施行日期
     if result.body:
         me = _EFFECTIVE_RE.search(result.body)
         if me:
-            result.effective_date = _norm_cn_date(*me.groups())
+            eff = _norm_cn_date(*me.groups())
+            # 自洽校验：施行日期不可能早于成文日期。放宽正则之后，正文里引用
+            # 其他文件的日期会被抓到（实测样本："施行 2025-03-24 | 成文 1986-12-31"）。
+            # 这类必须丢掉 —— 施行日期决定"政策现在适不适用"，错的值比没有更糟。
+            pub = _ymd_tuple(result.cwrq or known_cwrq)
+            eff_t = _ymd_tuple(eff)
+            if eff and pub and eff_t:
+                if eff_t < pub:
+                    log.warning("施行日期(%s)早于成文日期(%s)，已丢弃", eff, pub)
+                elif eff_t[0] - pub[0] >= 5:
+                    # 另一端：施行日期比成文晚 5 年以上，多半是正文里引用的
+                    # 别的文件的施行日期（实测："施行 2025-03-24 | 成文 1986-12-31"）。
+                    # 政策通常成文后当天到次年施行，给 1-2 年过渡期已属少见。
+                    log.warning("施行日期(%s)晚于成文日期(%s) 5 年以上，已丢弃", eff, pub)
+                else:
+                    result.effective_date = eff
+            else:
+                result.effective_date = eff
 
     # ---------------------------------------------------------- 附件
     seen: set[str] = set()
@@ -254,11 +338,12 @@ def parse_detail(html_text: str, base_url: str = "") -> DetailResult:
     return result
 
 
-def fetch_detail(client: GuardedClient, url: str) -> tuple[bytes, DetailResult]:
+def fetch_detail(client: GuardedClient, url: str, *,
+                 known_cwrq: str | None = None) -> tuple[bytes, DetailResult]:
     """抓取并解析一个详情页。返回 (原始字节, 提取结果)。"""
     resp = client.get(url)
     resp.raise_for_status()
     raw = resp.content
     # 站点为 UTF-8；显式解码避免 httpx 猜测出错
     html_text = raw.decode("utf-8", "replace")
-    return raw, parse_detail(html_text, base_url=url)
+    return raw, parse_detail(html_text, base_url=url, known_cwrq=known_cwrq)

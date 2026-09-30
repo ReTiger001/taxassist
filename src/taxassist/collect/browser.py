@@ -115,20 +115,23 @@ def fetch_many(
             "未安装 playwright：pip install playwright 且 playwright install chromium"
         ) from e
 
-    async def _load(page, url: str, wait: int) -> str:
-        await page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+    async def _load(page, url: str, wait: int, timeout: int) -> str:
+        await page.goto(url, timeout=timeout, wait_until="domcontentloaded")
         await page.wait_for_timeout(wait)
         return await page.content()
 
-    async def _grab(ctx, url: str, *, wait: int) -> str:
+    async def _grab(ctx, url: str, *, wait: int,
+                    timeout: int | None = None) -> str:
         # 每一层都要有超时。没有它，一个连不上的域名会让整组（乃至整批）
         # 无限期挂住 —— 实测就是这样卡死的：202 页跑了 15 分钟一条没落库。
+        # ``timeout`` 可覆盖默认值，用于"重试时给更宽的时间"。
+        t = timeout or timeout_ms
         page = await asyncio.wait_for(ctx.new_page(), timeout=20)
         try:
             html = await asyncio.wait_for(
-                _load(page, url, wait), timeout=timeout_ms / 1000 + 20)
+                _load(page, url, wait, t), timeout=t / 1000 + 20)
         except asyncio.TimeoutError:
-            raise RuntimeError(f"抓取超时（>{timeout_ms} ms）") from None
+            raise RuntimeError(f"抓取超时（>{t} ms）") from None
         finally:
             try:
                 await asyncio.wait_for(page.close(), timeout=5)
@@ -187,6 +190,20 @@ def fetch_many(
                                         out[u] = e
 
                             await asyncio.gather(*(one(u) for u in rest))
+                            # 失败的多半是"这一页比同站别的页慢"（实测广东几条问答页
+                            # 25 秒不够，直接记了失败）。给它们一次翻倍超时再试 ——
+                            # 重试的成本远低于让人去发现漏抓。
+                            retry = [u for u in rest
+                                     if isinstance(out.get(u), BaseException)]
+                            if retry:
+                                log.info("重试 %d 个失败页面（超时翻倍）", len(retry))
+                                for u in retry:
+                                    try:
+                                        out[u] = await _grab(
+                                            ctx, u, wait=warm_wait_ms,
+                                            timeout=timeout_ms * 2)
+                                    except BaseException as e:  # noqa: BLE001
+                                        out[u] = e
                     finally:
                         try:
                             await ctx.close()

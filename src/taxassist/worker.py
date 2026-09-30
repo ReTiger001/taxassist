@@ -66,6 +66,30 @@ log = logging.getLogger(__name__)
 STATUS_FILE = DATA_DIR / "worker_status.json"
 STOP_FILE = DATA_DIR / "worker.stop"
 LOCK_DIR = DATA_DIR / "worker_locks"
+#: 解析器（detail.py / normalize.py）的改动指纹，决定要不要重跑 reparse
+FP_FILE = DATA_DIR / "parser_fingerprint.txt"
+
+
+def _parser_fingerprint() -> str:
+    """detail.py 与 normalize.py 有没有改过。
+
+    用文件大小 + mtime 拼一个短哈希 —— 比读全文便宜，判断"解析逻辑是否变过"
+    够用。全量重解析 5400 条要 27 秒，每轮都跑等于每天白烧二十多分钟。
+    """
+    import hashlib
+    from pathlib import Path as _P
+
+    from .collect import detail, normalize
+
+    parts: list[str] = []
+    for mod in (detail, normalize):
+        p = _P(getattr(mod, "__file__", "") or "")
+        try:
+            st = p.stat()
+            parts.append(f"{p.name}:{st.st_size}:{int(st.st_mtime)}")
+        except OSError:
+            parts.append(f"{p.name}:?")
+    return hashlib.sha256("|".join(parts).encode()).hexdigest()[:12]
 
 #: 阶段顺序：先入库、再补全、最后翻译
 STAGE_ORDER: tuple[str, ...] = ("fetch", "publish", "verify", "translate")
@@ -171,10 +195,26 @@ def stage_verify(conn, cfg: dict) -> dict:
     """
     from . import backfill
 
-    reparsed = pipeline.reparse_details_from_snapshots(conn)
+    # 重解析只在解析器改过时才跑（见 _parser_fingerprint）；改过或首次则跑完记指纹。
+    fp = _parser_fingerprint()
+    try:
+        last_fp = FP_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        last_fp = ""
+    if last_fp == fp and not cfg.get("force_reparse"):
+        reparsed = {"scanned": 0, "updated": 0, "failed": 0, "missing": 0}
+        note = "解析器未改动，跳过重解析"
+    else:
+        reparsed = pipeline.reparse_details_from_snapshots(conn)
+        try:
+            FP_FILE.write_text(fp, encoding="utf-8")
+        except OSError:
+            pass
+        note = None
+
     filled = backfill.backfill_from_content(conn)
     cover = backfill.coverage(conn)
-    return {
+    out = {
         "重解析扫描": reparsed["scanned"],
         "重解析更新": reparsed["updated"],
         "重解析失败": reparsed["failed"],
@@ -182,6 +222,9 @@ def stage_verify(conn, cfg: dict) -> dict:
         "补出施行日": filled.get("effective_date_filled", 0),
         "覆盖率": cover,
     }
+    if note:
+        out["说明"] = note
+    return out
 
 
 def _stage_translate(conn, cfg: dict) -> dict:
@@ -195,6 +238,7 @@ def _stage_translate(conn, cfg: dict) -> dict:
 
     tl.ensure_table(conn)
     done = skipped = failed = 0
+    last_log = time.time()
 
     # 标题：短、便宜，优先补齐（缺标题译文最容易被用户看到）
     rows = conn.execute(
@@ -209,11 +253,24 @@ def _stage_translate(conn, cfg: dict) -> dict:
             continue
         try:
             out = tl.translate(src, model=tl.DEFAULT_MODEL)
-            tl.save(conn, r["doc_uid"], "title", src, out, model=tl.DEFAULT_MODEL)
+            # 攒批提交：每条一 commit 会让翻译与其它阶段频繁争抢 SQLite 写锁
+            # （实测两边都慢十倍）。每 20 条落一次盘。
+            tl.save(conn, r["doc_uid"], "title", src, out,
+                    model=tl.DEFAULT_MODEL, commit=False)
             done += 1
+            if done % 20 == 0:
+                conn.commit()
         except Exception as e:  # noqa: BLE001 - 单条失败不该中断整轮
             failed += 1
             log.warning("标题翻译失败 %s: %s", r["doc_uid"], e)
+        # 进度按**时间**打点，不按条数：单条翻译要几十秒，按条数打点会让日志
+        # 长时间完全静默（实测 15 分钟一行没有），看起来像卡死 —— 这次就因此
+        # 误判过一回。
+        now = time.time()
+        if now - last_log >= 60:
+            log.info("翻译进度：已译 %d / 跳过 %d / 失败 %d", done, skipped, failed)
+            last_log = now
+    conn.commit()
 
     return {"已译": done, "跳过": skipped, "失败": failed,
             "模型": tl.DEFAULT_MODEL}
@@ -246,6 +303,8 @@ def read_status() -> dict:
 
 
 def request_stop() -> None:
+    # 目录可能还不存在（首次跑就要求停止）—— 少了这行 write_text 会抛
+    # FileNotFoundError，而"停止"失败是最不该发生的失败。
     STOP_FILE.parent.mkdir(parents=True, exist_ok=True)
     STOP_FILE.write_text(datetime.now().isoformat(timespec="seconds"),
                          encoding="utf-8")

@@ -217,7 +217,8 @@ def enrich_details(
 
     from .config import RAW_DIR
 
-    sql = "SELECT doc_uid, url FROM policy WHERE url IS NOT NULL AND url <> ''"
+    sql = ("SELECT doc_uid, url, cwrq FROM policy "
+           "WHERE url IS NOT NULL AND url <> ''")
     if only_missing:
         sql += " AND (content IS NULL OR p_detail_fetched_at IS NULL)"
     sql += " ORDER BY cwrq DESC LIMIT ?"
@@ -249,7 +250,10 @@ def enrich_details(
         for row in rows:
             use_client = prefetched if ":" in (row["doc_uid"] or "") else client
             try:
-                raw, detail = fetch_detail(use_client, row["url"])
+                # cwrq 交给解析器做文号自洽校验：详情页上未必解析得出成文日期，
+                # 而列表页给的日期是可靠的（见 detail.parse_detail 的 known_cwrq）。
+                raw, detail = fetch_detail(use_client, row["url"],
+                                           known_cwrq=row["cwrq"])
             except Exception as e:  # noqa: BLE001 - 单条失败不影响整批
                 failed += 1
                 errors.append(f"{row['doc_uid']}: {type(e).__name__}: {e}")
@@ -299,7 +303,7 @@ def reparse_details_from_snapshots(conn, *, limit: int = 0) -> dict:
     from .config import RAW_DIR
 
     rows = conn.execute(
-        "SELECT s.rel_path, s.doc_uid, p.url FROM raw_snapshot s "
+        "SELECT s.rel_path, s.doc_uid, p.url, p.cwrq FROM raw_snapshot s "
         "JOIN policy p ON p.doc_uid = s.doc_uid "
         "WHERE s.kind = 'detail_html' ORDER BY s.id DESC"
     ).fetchall()
@@ -307,7 +311,7 @@ def reparse_details_from_snapshots(conn, *, limit: int = 0) -> dict:
     seen: set[str] = set()
     updated = failed = missing = 0
     errors: list[str] = []
-    for rel, doc_uid, url in rows:
+    for rel, doc_uid, url, cwrq in rows:
         if doc_uid in seen:
             continue
         seen.add(doc_uid)
@@ -417,7 +421,7 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
     ``reported_total`` 留空（表示"该源本来就没有总数"），
     完整性由"零条目即抛错"来保障 —— 见 province.parse_list_page。
     """
-    from .province import ADAPTERS, build_provincial_row, fetch_list_page
+    from .province import ADAPTERS, build_provincial_row, fetch_list_pages
 
     adapters = [a for a in ADAPTERS if not source_ids or a.source_id in source_ids]
     out: list[dict] = []
@@ -426,7 +430,7 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
         for adapter in adapters:
             log_id = store.log_fetch_start(conn, adapter.source_id, "list_page")
             try:
-                items = fetch_list_page(client, adapter)
+                items = fetch_list_pages(client, adapter)
             except Exception as e:  # noqa: BLE001 - 单源失败不阻断其它源
                 store.log_fetch_finish(
                     conn, log_id, reported_total=None, fetched_count=0,

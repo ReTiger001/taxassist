@@ -159,7 +159,14 @@ def cached(conn, doc_uid: str, field: str, src_text: str,
 
 
 def save(conn, doc_uid: str, field: str, src_text: str, translated: str,
-         model: str = DEFAULT_MODEL, lang: str = "en") -> None:
+         model: str = DEFAULT_MODEL, lang: str = "en",
+         commit: bool = True) -> None:
+    """写入一条译文。
+
+    ``commit=False`` 供批量场景使用：每写一条就 commit 会让翻译与其它任务
+    （效力判定、采集）频繁争抢 SQLite 写锁 —— 实测两边都慢十倍以上。
+    攒一批再提交可显著缓解，调用方自己控制提交时机。
+    """
     import datetime
     conn.execute(
         "INSERT INTO translation (doc_uid, field, lang, src_hash, text, model, created_at)"
@@ -169,7 +176,8 @@ def save(conn, doc_uid: str, field: str, src_text: str, translated: str,
         "   model=excluded.model, created_at=excluded.created_at",
         (doc_uid, field, lang, _hash(src_text), translated, model,
          datetime.datetime.now().isoformat(timespec="seconds")))
-    conn.commit()
+    if commit:
+        conn.commit()
 
 
 def progress(conn) -> dict:

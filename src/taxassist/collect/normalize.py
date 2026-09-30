@@ -142,6 +142,35 @@ def strip_body_noise(text: str) -> str:
 
 # 文号主体的起点：〔年〕式，或"2018年第33号"式。
 # **判定与修复必须共用同一个切分点**，否则会出现"判定为脏、却裁不动"的记录。
+# 文号里的年份只认**结构化位置**：〔2026〕 / 公告2026年第 / 第2026年 / 2026年第3号。
+# **绝不能取"所有 4 位数里最大的"** —— 「发改投资〔2014〕2091号」里的 2091 是
+# 序号不是年份，取最大会得出 2091 年，进而把这条**正确**的文号判成"未来文号"丢弃
+# （实测踩过：reparse 日志里出现 "文号年份(2091)比成文日期(2014)晚 5 年以上"）。
+_DOCNO_YEAR_RE = re.compile(
+    r"[〔\[（(]\s*((?:19|20)\d{2})\s*[〕\]）)]"
+    r"|(?:公告|第)\s*((?:19|20)\d{2})\s*年"
+    r"|((?:19|20)\d{2})\s*年\s*第\s*\d+\s*号"
+)
+
+
+def doc_no_year(doc_no: str | None) -> int | None:
+    """从文号里取年份；取不到返回 None。
+
+    只看结构化位置，不看裸 4 位数；未来年份一律不算（文号不可能写着未来的年份）。
+    """
+    if not doc_no:
+        return None
+    found = [int(g) for m in _DOCNO_YEAR_RE.finditer(doc_no)
+             for g in m.groups() if g]
+    if not found:
+        return None
+    from datetime import date
+
+    limit = date.today().year + 1
+    found = [y for y in found if y <= limit]
+    return max(found) if found else None
+
+
 _DOCNO_BODY_RE = re.compile(r"[〔\[（(]|\d{4}\s*年\s*第\s*\d+\s*号")
 
 
