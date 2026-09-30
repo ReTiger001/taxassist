@@ -177,6 +177,60 @@ def _run_parser(parser, path: Path) -> tuple[str | None, str]:
     return text, "ok"
 
 
+@_register(["zip"])
+def parse_zip(path: Path) -> str:
+    """解压后逐一解析内部文件并拼接文本。
+
+    **只解一层**、限制条目数与单文件大小：防恶意构造的嵌套包把磁盘写爆。
+    内部文件也走 parse_attachment，所以包里装 .doc/.xls/.pdf 都能继续解析
+    （.doc 会再经 WPS 转换）。
+    """
+    import tempfile
+    import zipfile
+
+    parts: list[str] = []
+    with zipfile.ZipFile(path) as zf, tempfile.TemporaryDirectory() as td:
+        for info in zf.infolist()[:20]:
+            if info.is_dir() or info.file_size > 20 * 1024 * 1024:
+                continue
+            name = Path(info.filename).name        # 丢弃路径，防目录穿越
+            if not name:
+                continue
+            target = Path(td) / name
+            target.write_bytes(zf.read(info))
+            text, _status = parse_attachment(target)
+            if text:
+                parts.append(f"【{name}】\n{text}")
+    return "\n\n".join(parts)
+
+
+@_register(["rar"])
+def parse_rar(path: Path) -> str:
+    """.rar 要外部程序：纯 Python 的 rarfile 也只是前端，底层仍需 unrar 二进制。
+    本机有 WinRAR 的 UnRAR.exe，直接调它。找不到就抛异常由 _run_parser 记成
+    failed:<类型> —— 不静默返回空串冒充"没有文本层"。
+    """
+    import subprocess
+    import tempfile
+
+    exe = Path(r"C:\Program Files\WinRAR\UnRAR.exe")
+    if not exe.exists():
+        raise RuntimeError("找不到 UnRAR.exe（本机未装 WinRAR）")
+    with tempfile.TemporaryDirectory() as td:
+        proc = subprocess.run(
+            [str(exe), "x", "-y", "-o+", str(path), str(td) + "\\"],
+            capture_output=True, timeout=120)
+        if proc.returncode != 0:
+            raise RuntimeError(f"UnRAR 退出码 {proc.returncode}")
+        parts: list[str] = []
+        for f in sorted(Path(td).rglob("*"))[:20]:
+            if f.is_file() and f.suffix.lower().lstrip(".") in PARSERS:
+                text, _status = parse_attachment(f)
+                if text:
+                    parts.append(f"【{f.name}】\n{text}")
+        return "\n\n".join(parts)
+
+
 def parse_attachment(path: Path) -> tuple[str | None, str]:
     """解析附件，返回 ``(文本, 状态)``。
 
