@@ -147,6 +147,42 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="https://sichuan.chinatax.gov.cn",
         needs_js=True,
     ),
+    ListPageAdapter(
+        source_id="bj_sszc",
+        region="北京",
+        site_name="国家税务总局北京市税务局",
+        list_url="http://beijing.chinatax.gov.cn/bjswj/c104343/sszc.shtml",
+        detail_href_re=r"/bjswj/sszc/zxwj/\d{6}/[0-9a-f]{16,}\.shtml",
+        base_url="http://beijing.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="sh_zcfgk",
+        region="上海",
+        site_name="国家税务总局上海市税务局",
+        list_url="http://shanghai.chinatax.gov.cn/zcfw/zcfgk/",
+        # 上海按税种分子目录（zzs=增值税、grsds=个人所得税…），故税种段用通配。
+        # 注意：列表里的 href 是**相对路径**（"./zzs/202609/t481485.html"）。
+        # detail_href_re 匹配的是 href 原文，不是 urljoin 之后的绝对 URL，
+        # 所以这里不能带 /zcfw/zcfgk/ 前缀 —— 带上就一条都匹配不到（实测踩过）。
+        detail_href_re=r"\./[a-z]+/\d{6}/t\d+\.html",
+        # base_url 必须是**栏目路径**而非域名根：上海列表里的链接是
+        # 相对于栏目页的 "./zzs/202609/t481485.html"。用域名根拼出来会少一层
+        # /zcfw/zcfgk/，变成不存在的地址。
+        base_url="http://shanghai.chinatax.gov.cn/zcfw/zcfgk/",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="zj_zcwj",
+        region="浙江",
+        site_name="国家税务总局浙江省税务局",
+        # 注意：col13300 名为「政策法规库」，但真浏览器实测那里只有备案号链接；
+        # 真正的政策列表在 col13296。别照名字选栏目。
+        list_url="http://zhejiang.chinatax.gov.cn/col/col13296/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://zhejiang.chinatax.gov.cn",
+        needs_js=True,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
