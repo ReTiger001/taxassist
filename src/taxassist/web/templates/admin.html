@@ -8,6 +8,37 @@
 {% if msg %}<div class="ok">{{ msg }}</div>{% endif %}
 {% if err %}<div class="err">{{ err }}</div>{% endif %}
 
+<h2>数据健康</h2>
+<div class="card pad">
+{% if health and health.bad_last_7d %}
+  <div class="err" style="margin:0 0 12px">
+    <b>⚠ 近 7 天有 {{ health.bad_last_7d }} 次抓取未完整完成</b>
+    —— 这不等于"没有新政策"，可能只是抓取漏了。漏掉的政策不会自己出现，
+    请用命令行 <code>python -m taxassist status</code> 查看并重跑。
+    <ul class="plain" style="margin:8px 0 0">
+    {% for b in health.recent_bad %}
+      <li>{{ b.started_at[:19].replace('T', ' ') }} · {{ b.source_id }} ·
+          {{ b.status }}（抓 {{ b.fetched_count }}/{{ b.reported_total }}）
+          {% if b.error %}· {{ b.error[:110] }}{% endif %}</li>
+    {% endfor %}
+    </ul>
+  </div>
+{% else %}
+  <p style="margin:0 0 10px">近 7 天没有失败的抓取。</p>
+{% endif %}
+
+{% if gap is not none and gap > 2 %}
+  <div class="err" style="margin:0">
+    <b>数据已落后 {{ gap }} 天</b>（最后完整抓取覆盖到
+    {{ health.last_window_end[:10] }}）。若后台调度未运行，请手动执行
+    <code>python -m taxassist collect --days {{ gap + 7 }}</code>。
+  </div>
+{% elif health and health.last_window_end %}
+  <p class="sub" style="margin:0">数据覆盖到 {{ health.last_window_end[:10] }}
+    （落后 {{ gap }} 天）。</p>
+{% endif %}
+</div>
+
 <h2>账号 · {{ users|length }}</h2>
 <div class="card">
   <table>

@@ -653,11 +653,20 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         try:
             users = auth.list_users(conn)
             invites = auth.list_invites(conn)
+            # 数据健康：原先显示在总览页，但"抓取未完整完成""用命令行重跑"
+            # 这些话面向的是运维者，客户看不懂、也不该看到 —— 移到只对超管
+            # 可见的后台。数据来源与总览页一致，页面不再各自算一遍。
+            # scheduler 与总览页一样在函数内导入（模块顶部刻意没导它）。
+            from .. import scheduler  # noqa: PLC0415
+
+            health = scheduler.fetch_health(conn)
+            gap = scheduler.days_since_last_success(conn)
         finally:
             conn.close()
         return {"request": request, "users": users, "invites": invites,
                 "user": getattr(request.state, "user", None), "is_owner": True,
                 "exposed": require_auth, "min_password": auth.MIN_PASSWORD_LEN,
+                "health": health, "gap": gap,
                 **extra}
 
     @app.get("/admin", response_class=HTMLResponse)
