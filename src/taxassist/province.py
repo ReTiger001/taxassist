@@ -330,6 +330,36 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="http://guizhou.chinatax.gov.cn/wjjb/",
         # 贵州按"税种/子类"分两级目录（szfl/zzs = 税收法规/增值税）
         detail_href_re=r"/wjjb/zcfgk/[a-z]+/[a-z]+/\d{6}/t\d+",
+        # ------------------------------------------------------------------
+        # 【待实现】贵州政策法规库有 **4934 条**，但页面每页只渲染 15 条、
+        # 翻页走 AJAX，所以现在只能抓到 8 条。接口已抓到并验证可直连：
+        #
+        #   POST https://guizhou.chinatax.gov.cn/irs/front/list
+        #   Content-Type: application/json
+        #   {"pageNo":1,"pageSize":15,"tenantId":71,
+        #    "tableName":"t_179d132472b",
+        #    "searchFields":[], "isPage":true,
+        #    "sorts":[{"sortField":"save_time","sortOrder":"DESC"}],
+        #    "customFilter":{"operator":"or","properties":[
+        #        {"property":"f_202163742494","operator":"eq","value":<下面这串>}]}}
+        #
+        # 税种子类 ID（26 个，缺一个就少收一个税种）：
+        #   5901201, 5899601, 5899600, 5899602, 5899603, 5899604, 5899605,
+        #   5899606, 5899607, 5899608, 5899609, 5899610, 5992803, 5899611,
+        #   5899612, 5899613, 5899614, 5899615, 5899616, 5899617, 5899618,
+        #   5899619, 5899620, 5899621, 5899622, 5901201
+        #
+        # 响应形如 {"success":true,"data":{"list":[{...}]}}，**已确认的字段映射**：
+        #   f_202163261554   = 标题
+        #   doc_pub_url      = 正文链接
+        #   f_202163870059   = 发文单位
+        #   save_time        = 日期（"2022-04-20 10:15:36"）
+        #   f_202161645127   = 正文 HTML
+        #   f_202163742494   = 税种子类 ID（customFilter 里那个 value）
+        # 不带 customFilter 会返回**全站**内容（含减税降费专题等），必须带上。
+        #
+        # 下一步：给 adapter 加 json_api 支持 → 按页拉（4934 条 ÷ 50/页 ≈ 99 页）。
+        # ------------------------------------------------------------------
         base_url="http://guizhou.chinatax.gov.cn",
         needs_js=True,
     ),
