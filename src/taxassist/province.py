@@ -90,6 +90,12 @@ class ListPageAdapter:
     # 用 nodriver 而不是 Playwright。两个浏览器栈的反检测强度不同：
     # 实测西藏税局在 Playwright 下只返回 39 字节空壳，nodriver 能拿到 50009 字节。
     use_nodriver: bool = False
+    # 挑战等待时长（毫秒）。留 0 用 browser 模块的默认值。
+    # 有些站的挑战就是比别的慢：实测辽宁在默认 6 秒下拿不到内容，给到 12 秒
+    # 才出 72781 字节的首页。这类站必须能单独配，否则会一直"抓不到"。
+    wait_ms: int = 0
+    # 导航超时（毫秒）。留 0 用默认。
+    timeout_ms: int = 0
 
 
 # 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
@@ -370,6 +376,60 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="https://chongqing.chinatax.gov.cn/cqtax/zcwj/zcjd/",
         needs_js=True,
     ),
+    # 西藏：域名 xizang.chinatax.gov.cn。实测 Playwright 与 nodriver 在这一页
+    # 拿到完全相同的结果（23802 字节、18 个详情链接），所以用 Playwright ——
+    # 不必为它单独走 nodriver 那条异步链路。
+    # 栏目来自首页：政策文件 col5332 / 最新文件 col5350 / 政策解读 col5346。
+    ListPageAdapter(
+        source_id="xizang_zcwj",
+        region="西藏",
+        site_name="国家税务总局西藏自治区税务局",
+        list_url="https://xizang.chinatax.gov.cn/col/col5332/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="https://xizang.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    # 辽宁：**默认 6 秒的挑战等待不够** —— 那样只拿到空壳，看起来像"站点抓不到"。
+    # 给到 12 秒才出内容（列表页 43744 字节、52 个详情链接）。
+    # 这也是排查河北/新疆时的教训：先怀疑等待时间，再怀疑站点的反爬强度。
+    ListPageAdapter(
+        source_id="liaoning_zcwj",
+        region="辽宁",
+        site_name="国家税务总局辽宁省税务局",
+        list_url="https://liaoning.chinatax.gov.cn/col/col2000/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="https://liaoning.chinatax.gov.cn",
+        needs_js=True,
+        wait_ms=12000,
+        timeout_ms=90000,
+    ),
+    # 新疆：**默认 6 秒的挑战等待同样不够**（和辽宁一个毛病，所以之前一直被
+    # 判成"空壳"）。给到 14 秒拿到 85125 字节的首页、列表页 27343 字节。
+    # 另外注意它的详情链接是 **.htm**（三字母），别省的 .html 正则到这里
+    # 一条都匹配不上 —— 所以统一写成 \.html?。
+    ListPageAdapter(
+        source_id="xinjiang_zcwj",
+        region="新疆",
+        site_name="国家税务总局新疆维吾尔自治区税务局",
+        list_url="https://xinjiang.chinatax.gov.cn/sszc/zxwj/",
+        detail_href_re=r"\./\d{6}/t\d+_\d+\.html?",
+        base_url="https://xinjiang.chinatax.gov.cn/sszc/zxwj/",
+        needs_js=True,
+        wait_ms=14000,
+        timeout_ms=90000,
+    ),
+    # 新疆的政策解读，与重庆一样单独接一个源
+    ListPageAdapter(
+        source_id="xinjiang_zcjd",
+        region="新疆",
+        site_name="国家税务总局新疆维吾尔自治区税务局",
+        list_url="https://xinjiang.chinatax.gov.cn/sszc/zcjd/",
+        detail_href_re=r"\./\d{6}/t\d+_\d+\.html?",
+        base_url="https://xinjiang.chinatax.gov.cn/sszc/zcjd/",
+        needs_js=True,
+        wait_ms=14000,
+        timeout_ms=90000,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
@@ -528,8 +588,14 @@ def fetch_list_page(client: GuardedClient, adapter: ListPageAdapter) -> list[dic
     if adapter.needs_js:
         from .collect.browser import fetch_html
 
+        # 挑战等待与导航超时按源可调：有的站挑战就是慢（见 ListPageAdapter）
+        kw = {}
+        if adapter.wait_ms:
+            kw["wait_ms"] = adapter.wait_ms
+        if adapter.timeout_ms:
+            kw["timeout_ms"] = adapter.timeout_ms
         return parse_list_page(
-            fetch_html(adapter.list_url, use_nodriver=adapter.use_nodriver),
+            fetch_html(adapter.list_url, use_nodriver=adapter.use_nodriver, **kw),
             adapter)
 
     resp = client.get(adapter.list_url)
