@@ -73,7 +73,7 @@ def days_since_last_success(conn) -> int | None:
 # ---------------------------------------------------------------- 日更任务
 
 def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
-              archive: bool = True) -> dict:
+              archive: bool = True, include_provincial: bool = True) -> dict:
     """跑一轮完整日更：抓取 → 详情页 → 附件 → 效力判定。
 
     任一步失败都不吞掉异常，最终状态写入 meta，供界面与 CLI 查询。
@@ -93,6 +93,20 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
             "new": sum(r["new"] for r in collected),
             "incomplete": len(bad),
         }
+
+        # 省级源：列表页在加速乐 WAF 后面必须走浏览器；它们不提供总数，
+        # 完整性靠"零条目即抛错"保障（见 province.parse_list_page）。
+        # 单源失败只记不抛，但要出现在 result 里，不能静默。
+        # include_provincial=False 时不碰省级 —— 测试要能跑日更而不去抓网络，
+        # 生产上也能在被站点限流时临时关掉这一路。
+        if include_provincial:
+            provincial = pipeline.collect_provincial(conn)
+            result["steps"]["provincial"] = {
+                "sources": len(provincial),
+                "fetched": sum(r.get("fetched", 0) for r in provincial),
+                "new": sum(r.get("new", 0) for r in provincial),
+                "failed": len([r for r in provincial if r["status"] != "ok"]),
+            }
 
         result["steps"]["enrich"] = pipeline.enrich_details(conn, limit=enrich_limit)
         result["steps"]["attach"] = pipeline.fetch_attachments(conn, limit=100)

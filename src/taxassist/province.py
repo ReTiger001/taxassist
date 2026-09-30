@@ -431,6 +431,7 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
         # 日期搜索范围逐步放宽：父元素 → **不含链接的兄弟节点**
         # → 链接文本（吉林的日期在 <a> 里，不在父元素）→ URL（部分站把年月日编进路径）
         parent_text = ""
+        siblings: list = []    # 不含详情链接的兄弟节点：日期常在这些格子里
         parent = a.getparent()
         if parent is not None:
             parent_text = " ".join(parent.text_content().split())
@@ -442,9 +443,9 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
                 # 收进来就会给它安上别人的日期。
                 gp = parent.getparent()
                 if gp is not None:
-                    extra = [sib.text_content() for sib in gp.iterchildren()
-                             if sib is not parent and not sib.xpath(".//a[@href]")]
-                    joined = " ".join(extra).strip()
+                    siblings = [sib for sib in gp.iterchildren()
+                                if sib is not parent and not sib.xpath(".//a[@href]")]
+                    joined = " ".join(s.text_content() for s in siblings).strip()
                     if joined and len(joined) < 120:
                         parent_text = f"{parent_text} {joined}"
         haystack = f"{parent_text} {_clean_title(title)} {url}"
@@ -457,13 +458,24 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
             if m2:                                    # 只有年月（甘肃）
                 cwrq = f"{m2.group(1)}-{int(m2.group(2)):02d}-01"
             else:
-                # 只有月日（吉林 [09-04]、山西与四川 <span>09-28</span>），
+                # 只有月日（吉林 [09-04]、山西 <span>09-28</span>），
                 # 年份补当年 —— 这些都是补出来的，只用于排序展示，
                 # 不参与效力判断。
-                m3 = _DATE_MD_RE.search(haystack) or _DATE_MD_BARE_RE.search(haystack)
+                m3 = _DATE_MD_RE.search(haystack)
+                if m3 is None:
+                    # 认「某个格子的文本**整个**就是月-日」（山西的
+                    # <span>09-28</span>、四川的 <span>09-28</span>）。
+                    # 用 fullmatch 而不是 search：search 会把"3-5 个工作日"
+                    # 当成 3 月 5 日 —— 数字都在合理范围内，范围校验拦不住。
+                    inner = list(parent.iterchildren()) if parent is not None else []
+                    for node in [*inner, *siblings]:
+                        m3 = _DATE_MD_BARE_RE.fullmatch(
+                            " ".join(node.text_content().split()))
+                        if m3:
+                            break
                 if m3 and not (1 <= int(m3.group(1)) <= 12
                                and 1 <= int(m3.group(2)) <= 31):
-                    m3 = None                         # "3-5 个工作日" 之类
+                    m3 = None
                 cwrq = (f"{date.today().year}-{int(m3.group(1)):02d}-{int(m3.group(2)):02d}"
                         if m3 else None)
 
