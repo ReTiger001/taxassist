@@ -103,29 +103,40 @@ def backfill_from_content(conn, *, limit: int | None = None) -> dict:
 
 
 def recheck_doc_no(conn, *, limit: int | None = None) -> dict:
-    """修补**被正文污染**的文号：只裁前缀，保留原主体。
+    """复核文号：① 清掉**年份不自洽**的；② 裁掉**被正文污染**的前缀。
 
-    为什么需要单独一个函数：``backfill_from_content`` 明文规定只填 NULL、不覆盖
-    已有值（因为已有值可能来自详情页或人工修正）。但历史上贪心匹配把正文句子
-    写进了这个字段 —— "考虑在粤人社规〔2018〕15号" —— 这类值**非空**，于是永远
-    不会被重算，错的会一直错下去。
+    **① 年份不自洽（新增）**：文号里的年份比本文成文日期晚 5 年以上 ——
+    那不可能是本文的文号。实测 524 条 1980–1990 年代的老政策挂上了
+    "国家税务总局公告2022年第14号"这类**废止目录公告**的号（页面上的
+    「注释」块写着"本文全文废止"，其中的他文文号被当成了本文文号）。
+    这种情况直接清空：留空显示「—」只是缺信息，挂个格式正确、抄走就错的
+    文号则会误导引用。
 
-    为什么是裁前缀而不是重新提取：见 ``repair_doc_no_prefix`` 的说明 ——
-    重新提取会换成别的文件的文号，那比前缀污染更糟。
+    **② 正文污染**：``backfill_from_content`` 明文规定只填 NULL、不覆盖已有值
+    （因为已有值可能来自详情页或人工修正）。但历史上贪心匹配把正文句子写进了
+    这个字段 —— "考虑在粤人社规〔2018〕15号" —— 这类值**非空**，于是永远不会
+    被重算，错的会一直错下去。裁前缀而不是重新提取：重新提取会换成别的文件的
+    文号，那比前缀污染更糟。
     """
     from .collect.normalize import looks_contaminated, repair_doc_no_prefix
 
-    sql = ("SELECT doc_uid, p_doc_no_full FROM policy"
+    sql = ("SELECT doc_uid, p_doc_no_full, cwrq FROM policy"
            " WHERE p_doc_no_full IS NOT NULL AND p_doc_no_full <> ''")
     if limit:
         sql += f" LIMIT {int(limit)}"
     rows = conn.execute(sql).fetchall()
 
     updates: list[tuple[str, str]] = []
+    clears: list[tuple[str, str]] = []
     samples: list[tuple[str, str]] = []
     contaminated = 0
     for r in rows:
         old = r["p_doc_no_full"]
+        # ① 年份不自洽 → 清空
+        if _doc_no_year_gap(r["cwrq"], old) >= 5:
+            clears.append((r["doc_uid"], old))
+            continue
+        # ② 正文污染 → 裁前缀
         if not looks_contaminated(old):
             continue
         contaminated += 1
@@ -137,12 +148,36 @@ def recheck_doc_no(conn, *, limit: int | None = None) -> dict:
 
     if updates:
         conn.executemany("UPDATE policy SET p_doc_no_full=? WHERE doc_uid=?", updates)
+    if clears:
+        conn.executemany("UPDATE policy SET p_doc_no_full=NULL WHERE doc_uid=?",
+                         [(u,) for u, _ in clears])
+    if updates or clears:
         conn.commit()
     return {"scanned": len(rows), "contaminated": contaminated,
-            "doc_no_repaired": len(updates), "samples": samples[:20]}
+            "doc_no_repaired": len(updates), "doc_no_cleared": len(clears),
+            "clear_samples": [o for _, o in clears[:10]], "samples": samples[:20]}
 
 
 _DOCNO_DIGIT = re.compile(r"\d")
+
+
+def _doc_no_year_gap(cwrq: str | None, doc_no: str | None) -> int:
+    """文号里的年份比成文日期晚多少年。无法判断时返回 0（= 不做处理）。
+
+    只在"文号比政策还新很多"时才有意义：政策不可能引用一份未来的文件，
+    所以文号年份大于成文年份、且差距很大，基本可以断定这个文号不是本文的。
+    年份解析走 normalize.doc_no_year（只看结构化位置，不看裸 4 位数）。
+    """
+    if not cwrq or not doc_no:
+        return 0
+    try:
+        pub = int(str(cwrq)[:4])
+    except (TypeError, ValueError):
+        return 0
+    from .collect.normalize import doc_no_year
+
+    dy = doc_no_year(doc_no)
+    return (dy - pub) if dy else 0
 
 
 def looks_like_doc_no(value: str | None) -> bool:

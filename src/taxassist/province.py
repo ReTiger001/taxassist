@@ -96,6 +96,10 @@ class ListPageAdapter:
     wait_ms: int = 0
     # 导航超时（毫秒）。留 0 用默认。
     timeout_ms: int = 0
+    # 额外列表页。省级站的「最新文件」栏目是**固定展示最近一二十条的单页列表**
+    # （实测河南/辽宁/广东都没有翻页控件），历史政策分散在按税种分的
+    # 「政策法规库」子栏目里。所以一个源要能配多个列表页并合并去重。
+    extra_urls: tuple[str, ...] = ()
 
 
 # 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
@@ -388,6 +392,9 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="https://xizang.chinatax.gov.cn",
         needs_js=True,
+        # 再带上「政策解读」栏目：单靠「最新文件」只有最近的一二十条，
+        # 多配一个栏目就多一份覆盖面（见 ListPageAdapter.extra_urls）。
+        extra_urls=("https://xizang.chinatax.gov.cn/col/col5346/index.html",),
     ),
     # 辽宁：**默认 6 秒的挑战等待不够** —— 那样只拿到空壳，看起来像"站点抓不到"。
     # 给到 12 秒才出内容（列表页 43744 字节、52 个详情链接）。
@@ -673,6 +680,41 @@ def build_provincial_row(item: dict, adapter: ListPageAdapter) -> dict:
         "first_seen_at": now_iso(),
         "last_seen_at": now_iso(),
     }
+
+
+def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
+    """抓取适配器配置的**所有**列表页并合并去重。
+
+    为什么要支持多个：省级站的「最新文件」是**固定展示最近一二十条的单页列表**
+    （实测河南/辽宁/广东都没有翻页控件），历史政策分散在按税种分的子栏目里。
+
+    单个子栏目空/失败**不算整源失败**，全都拿不到才算 —— "零条目即报错"这条
+    防线针对的是"栏目 URL 猜错或页面改版"，而不是"某个子栏目恰好没内容"。
+    """
+    from dataclasses import replace
+
+    urls = (adapter.list_url, *adapter.extra_urls)
+    seen: set[str] = set()
+    out: list[dict] = []
+    errors: list[str] = []
+    for url in urls:
+        try:
+            items = fetch_list_page(client, replace(adapter, list_url=url))
+        except Exception as e:  # noqa: BLE001 - 单个子栏目失败不该拖垮整个源
+            errors.append(f"{url}（{type(e).__name__}）")
+            log.warning("子栏目抓取失败 %s: %s", url, e)
+            continue
+        for item in items:
+            if item["url"] in seen:
+                continue
+            seen.add(item["url"])
+            out.append(item)
+    if not out:
+        raise ListPageError(
+            f"[{adapter.source_id}] 配置的 {len(urls)} 个列表页都没有解析出条目："
+            + "；".join(errors or list(urls))
+            + "。页面可能已改版，或该栏目实际是 JS 异步加载。")
+    return out
 
 
 def fetch_list_page(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:

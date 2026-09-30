@@ -618,11 +618,15 @@ def cmd_backfill(args) -> int:
     if args.recheck_docno:
         result = backfill.recheck_doc_no(conn)
         conn.close()
-        print(f"文号复核：扫描 {result['scanned']} 条，"
-              f"发现受污染 {result['contaminated']} 条，"
-              f"修正 {result['doc_no_repaired']} 条")
+        print(f"文号复核：扫描 {result['scanned']} 条；"
+              f"受污染 {result['contaminated']} 条，修正 {result['doc_no_repaired']} 条；"
+              f"年份不自洽而清空 {result.get('doc_no_cleared', 0)} 条")
         for old, new in result["samples"]:
             print(f"    {old}  →  {new}")
+        if result.get("clear_samples"):
+            print("    清空样例（文号年份远晚于成文日期，几乎必是废止目录公告的号）：")
+            for old in result["clear_samples"]:
+                print(f"      {old}")
         return 0
     stats = backfill.backfill_from_content(conn)
     cover = backfill.coverage(conn)
@@ -668,7 +672,16 @@ def cmd_worker(args) -> int:
         print("已请求停止：当前阶段跑完就退出")
         return 0
 
-    stages = worker.STAGE_ORDER if args.stage == "all" else (args.stage,)
+    if args.stage == "all":
+        stages = worker.STAGE_ORDER
+    else:
+        # 支持逗号分隔的组合，例如 --stage fetch,publish（不带 translate，
+        # 免得它把前两个阶段饿死）。
+        stages = tuple(s.strip() for s in args.stage.split(",") if s.strip())
+        unknown = [s for s in stages if s not in worker.STAGE_ORDER]
+        if unknown:
+            print(f"未知阶段 {unknown}；可用：{list(worker.STAGE_ORDER)}，或用 all")
+            return 2
     cfg = {
         "days": args.days,
         "enrich_limit": args.enrich_limit,
