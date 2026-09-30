@@ -166,7 +166,14 @@ tbody tr:hover{background:#fafbf9}
 .docno{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;
   font-size:12px;color:var(--ink-2);background:var(--sunken);
   border:1px solid var(--line-2);border-radius:2px;padding:1px 5px;
-  white-space:nowrap;letter-spacing:-.2px}
+  letter-spacing:-.2px;line-height:1.45;
+  /* 文号**绝不能 nowrap**：table-layout:fixed 下不换行的长文号会溢出到相邻列，
+     与「地区」叠字（实测"国家税务总局广东省税务局公告2026年第1号"压住了"广东"）。
+     允许换行，最多占两行，不会越界。 */
+  white-space:normal;overflow-wrap:anywhere}
+/* 检索命中高亮：淡黄底 + 深字。不用亮黄 —— 亮黄会把整行的正文压得看不见。 */
+mark{background:#fdf3c8;color:inherit;border-radius:1px;padding:0 1px;
+  box-shadow:inset 0 -1px 0 #e6cf78}
 /* 系统重建的文号：虚线边框 + 淡色，与从官方原文提取的真实文号区分开 */
 .docno-recon{border-style:dashed;color:var(--ink-3);background:transparent}
 .docno-recon sup{color:var(--warn-fg);font-size:9px}
@@ -190,7 +197,49 @@ a.tt:hover{color:var(--brand-2);text-decoration:none}
 .src-official{background:var(--brand);color:#fff;font-weight:500}
 .src-default{background:transparent;color:var(--ink-3);border:1px dashed #b9c0c6}
 .src-inferred{background:transparent;color:var(--warn-fg);border:1px dashed #d0a95c}
-/* ---------------- 详情页 ---------------- */
+/* ---------------- 检索：筛选条与结果列表 ----------------
+   结果从 6 列表格改成"标题独占一行 + 元信息一行"的条目列表。
+   原因是实测出来的：政策标题动辄 40 字以上、文号也长，固定列宽下必然
+   要么挤压要么截断（"…公告2026年第1号"压住了"广东"、标题被切成"…"）。
+   条目列表让长标题与长文号各自换行，互不影响。 */
+.filters{background:var(--card);border:1px solid var(--line);
+  border-radius:3px;padding:12px 14px;display:flex;flex-direction:column;gap:10px}
+.f-main{display:flex;gap:8px;align-items:stretch}
+.f-main input{flex:1 1 auto;width:100%;min-width:0;padding:7px 11px;
+  border:1px solid var(--line);border-radius:2px;font-size:14px;
+  font-family:inherit;background:#fff;color:var(--ink)}
+.f-main input:focus{outline:none;border-color:var(--brand-2);
+  box-shadow:0 0 0 2px rgba(40,85,107,.12)}
+.f-main button{padding:7px 20px;border:0;border-radius:2px;background:var(--brand);
+  color:#fff;font-size:13.5px;font-family:inherit;cursor:pointer;flex:none}
+.f-main button:hover{background:var(--brand-2)}
+.f-row{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center;font-size:12.5px;
+  color:var(--ink-3)}
+.f-row label{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.f-row select{padding:4px 6px;border:1px solid var(--line);border-radius:2px;
+  font-size:12.5px;font-family:inherit;background:#fff;color:var(--ink);
+  max-width:190px}
+.f-go{padding:4px 14px;border:1px solid var(--brand);border-radius:2px;
+  background:transparent;color:var(--brand);font-size:12.5px;font-family:inherit;
+  cursor:pointer}
+.f-go:hover{background:var(--brand);color:#fff}
+.f-clear{color:var(--ink-3);text-decoration:underline}
+@media (max-width:640px){
+  .f-main{flex-direction:column}
+  .f-main button{width:100%}
+}
+.hits{list-style:none;margin:0;padding:0;border:1px solid var(--line);
+  border-radius:3px;background:var(--card);overflow:hidden}
+.hits > li{padding:13px 16px;border-bottom:1px solid var(--line-2)}
+.hits > li:last-child{border-bottom:0}
+.hits > li:hover{background:#fafbf9}
+.hit-title{display:block;font-size:15px;font-weight:500;line-height:1.5;
+  color:var(--ink);margin-bottom:7px;letter-spacing:-.1px}
+.hit-title:hover{color:var(--brand-2);text-decoration:none}
+/* 元信息行：徽章、文号、日期、地区并排；空间不够就换行，不挤 */
+.hit-meta{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px;
+  font-size:12px;color:var(--ink-3)}
+.empty{padding:26px 20px;text-align:center;color:var(--ink-3);font-size:13px}
 .dhead{padding:20px 22px 16px;border-bottom:1px solid var(--line)}
 .dtitle{font-size:19px;font-weight:600;line-height:1.5;margin:0 0 12px;
   letter-spacing:-.2px}

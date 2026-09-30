@@ -111,6 +111,13 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
         result["steps"]["enrich"] = pipeline.enrich_details(conn, limit=enrich_limit)
         result["steps"]["attach"] = pipeline.fetch_attachments(conn, limit=100)
         result["steps"]["judge"] = effect.judge_effects(conn)
+
+        # 校对阶段复用 worker 的实现（不联网）：用归档快照重解析 + 补文号/施行日。
+        # 两处逻辑必须是一份，否则"日更跑的校对"和"worker 跑的校对"会慢慢分叉。
+        from .worker import stage_verify  # noqa: PLC0415 - 避免与 worker 循环导入
+
+        result["steps"]["verify"] = stage_verify(conn, {"days": days})
+
         result["steps"]["translate"] = _translate_incremental(conn)
 
         result["ok"] = len(bad) == 0

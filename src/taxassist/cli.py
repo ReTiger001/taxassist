@@ -129,6 +129,20 @@ def build_parser() -> argparse.ArgumentParser:
         "reparse",
         help="从归档的详情页快照重新解析正文（不联网；改进解析器后跑它）")
     rp.add_argument("--limit", type=int, default=0, help="最多处理多少条（0=全部）")
+    w = sub.add_parser(
+        "worker",
+        help="后台工作者：抓取/校对/翻译/上架四阶段守候运行（独立进程，不靠人盯）")
+    w.add_argument("--stage", default="all",
+                   choices=("all", "fetch", "publish", "verify", "translate"))
+    w.add_argument("--interval", type=int, default=1800, help="每轮间隔秒（默认 1800）")
+    w.add_argument("--rounds", type=int, default=0, help="跑多少轮（0=无限）")
+    w.add_argument("--once", action="store_true", help="只跑一轮就退出")
+    w.add_argument("--days", type=int, default=7, help="总局增量窗口天数")
+    w.add_argument("--enrich-limit", type=int, default=200, help="每轮补多少条详情页")
+    w.add_argument("--translate-limit", type=int, default=300,
+                   help="每轮最多译多少条（限量，否则会饿死其它阶段）")
+    w.add_argument("--status", action="store_true", help="查看 worker 当前状态")
+    w.add_argument("--stop", action="store_true", help="请求优雅停止")
     b.add_argument("--recheck-docno", action="store_true",
                    help="复核并修正被正文污染的文号（历史上贪婪匹配留下的，只动受污染的）")
     return p
@@ -636,6 +650,45 @@ def cmd_reparse(args) -> int:
     return 0
 
 
+def cmd_worker(args) -> int:
+    """后台工作者：抓取/校对/翻译/上架四阶段守候运行。
+
+    这是"让机器自己跑"的入口 —— 抓取、校对、翻译、上架都不需要人（或 AI）
+    一条条触发，启动一次就一直推进；`--status` 看进度，`--stop` 优雅收工。
+    """
+    import json
+
+    from . import worker
+
+    if args.status:
+        print(json.dumps(worker.read_status(), ensure_ascii=False, indent=2))
+        return 0
+    if args.stop:
+        worker.request_stop()
+        print("已请求停止：当前阶段跑完就退出")
+        return 0
+
+    stages = worker.STAGE_ORDER if args.stage == "all" else (args.stage,)
+    cfg = {
+        "days": args.days,
+        "enrich_limit": args.enrich_limit,
+        "translate_limit": args.translate_limit,
+    }
+    max_rounds = 1 if args.once else (args.rounds or None)
+    if args.once:
+        plan = "只跑一轮"
+    elif max_rounds:
+        plan = f"跑 {max_rounds} 轮"
+    else:
+        plan = "无限循环"
+    print(f"worker 启动：阶段={list(stages)}，间隔 {args.interval}s，{plan}")
+
+    out = worker.run_forever(stages=stages, interval_sec=args.interval,
+                             max_rounds=max_rounds, cfg=cfg)
+    print(json.dumps(out, ensure_ascii=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_console()
@@ -673,6 +726,7 @@ def main(argv: list[str] | None = None) -> int:
         "dedupe": cmd_dedupe,
         "backfill": cmd_backfill,
         "reparse": cmd_reparse,
+        "worker": cmd_worker,
         "status": cmd_status,
         "search": cmd_search,
     }
