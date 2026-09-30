@@ -65,6 +65,13 @@
          href="/search?column={{ c.v }}">{{ c.v }} · {{ c.c }}</a>
     {% endfor %}
   </div>
+  <div style="margin-top:11px">
+    <b style="font-size:11.5px;color:var(--ink-3);letter-spacing:.4px">按效力</b><br>
+    {% for e in by_effect %}
+      <a class="badge b-mut" style="margin:6px 8px 0 0;text-decoration:none"
+         href="/search?effect={{ e.v }}">{{ e.v }} · {{ e.c }}</a>
+    {% endfor %}
+  </div>
 </div>
 
 <h2>最近政策</h2>

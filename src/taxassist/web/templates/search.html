@@ -1,10 +1,12 @@
 {% extends "base.html" %}
-{% from "_macros.html" import effect_badge, source_mark, docno_cell %}
+{% from "_macros.html" import effect_badge, effect_bar, source_mark, docno_cell %}
 {% block title %}检索{% if q %}：{{ q }}{% endif %} · 税务智能知识助手{% endblock %}
 {% block body %}
 
 <h1>政策检索</h1>
-<p class="sub">检索范围：标题 / 文号 / 发文机关 / 正文 / 关键词。命中结果按成文日期倒序，政策文件优先于解读类内容。</p>
+<p class="sub">检索范围：标题 / 文号 / 发文机关 / 正文 / 关键词 —— 命中处会高亮。
+  可只按条件浏览，不输关键词。</p>
+
 {% if term_hits %}
 {# 用户搜英文却出中文结果，必须说明原因 —— 否则他会以为搜错了，或者以为库里有英文原文 #}
 <p class="sub term-mapped">
@@ -15,61 +17,87 @@
 {% endif %}
 
 <form method="get" action="/search" class="filters">
-  <input type="search" name="q" value="{{ q or '' }}" placeholder="如：研发费用加计扣除、国家税务总局公告2026年第19号"
-         style="min-width:420px">
-  <select name="column">
-    <option value="">全部栏目</option>
-    {% for c in columns %}
-      <option value="{{ c }}" {% if c == column %}selected{% endif %}>{{ c }}</option>
-    {% endfor %}
-  </select>
-  <select name="tax">
-    <option value="">全部税种</option>
-    {% for t, n in tax_counts.items() | sort %}
-      <option value="{{ t }}" {% if t == tax %}selected{% endif %}>{{ t }}（{{ n }}）</option>
-    {% endfor %}
-  </select>
-  <select name="region">
-    <option value="">全部地区</option>
-    {% for name, n in regions %}
-      <option value="{{ name }}" {% if name == region %}selected{% endif %}>{{ name }}（{{ n }}）</option>
-    {% endfor %}
-  </select>
-  <button type="submit" style="padding:5px 16px;border:0;border-radius:3px;background:var(--brand);color:#fff;font-family:inherit;cursor:pointer">检索</button>
+  <div class="f-main">
+    <input type="search" name="q" value="{{ q or '' }}"
+           placeholder="如：研发费用加计扣除、国家税务总局公告2026年第19号">
+    <button type="submit">检索</button>
+  </div>
+  <div class="f-row">
+    <label>栏目
+      <select name="column">
+        <option value="">全部</option>
+        {% for c in columns %}
+          <option value="{{ c }}" {% if c == column %}selected{% endif %}>{{ c }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>税种
+      <select name="tax">
+        <option value="">全部</option>
+        {% for t, n in tax_counts.items() | sort %}
+          <option value="{{ t }}" {% if t == tax %}selected{% endif %}>{{ t }}（{{ n }}）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>地区
+      <select name="region">
+        <option value="">全部</option>
+        {% for name, n in regions %}
+          <option value="{{ name }}" {% if name == region %}selected{% endif %}>{{ name }}（{{ n }}）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>效力
+      <select name="effect">
+        <option value="">全部</option>
+        {% for name, n in effect_counts %}
+          <option value="{{ name }}" {% if name == effect %}selected{% endif %}>{{ name }}（{{ n }}）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>年份
+      <select name="year">
+        <option value="">全部</option>
+        {% for y in years %}
+          <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>排序
+      <select name="sort">
+        <option value="relevance" {% if sort == 'relevance' %}selected{% endif %}>政策优先</option>
+        <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %}>日期 新→旧</option>
+        <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %}>日期 旧→新</option>
+      </select>
+    </label>
+    <button type="submit" class="f-go">应用筛选</button>
+    <a class="f-clear" href="/search">清空</a>
+  </div>
 </form>
 
-{% if error %}<div class="err">{{ error }}</div>{% endif %}
+{% if error %}<div class="err" style="margin-top:14px">{{ error }}</div>{% endif %}
 
-{% if q or column or tax or region %}
-  <p class="sub" style="margin:12px 0">共 {{ results|length }} 条{% if results|length >= limit %}（已截断，可提高上限或加关键词）{% endif %}</p>
+{% if q or column or tax or region or effect or year %}
+  <p class="sub" style="margin:16px 0 8px">
+    共 <b>{{ results|length }}</b> 条{% if results|length >= limit %}（已截断 —— 可加关键词或调小范围）{% endif %}
+  </p>
   {% if results %}
-  <div class="card">
-    <table>
-      <thead><tr>
-        <th style="width:9%">成文日期</th>
-        <th>标题 / 发文机关</th>
-        <th style="width:19%">文号</th>
-        <th style="width:7%">地区</th>
-        <th style="width:7%">栏目</th>
-        <th style="width:16%">效力</th>
-      </tr></thead>
-      <tbody>
-      {% for r in results %}
-        <tr>
-          <td class="d">{{ r.cwrq or '—' }}</td>
-          <td>
-            <a class="tt" href="/policy/{{ r.doc_uid }}">{{ r.title }}</a>
-            {% if r.pub_name %}<div class="sub">{{ r.pub_name }}</div>{% endif %}
-          </td>
-          <td>{{ docno_cell(r.p_doc_no_full, r.p_doc_no_confidence) }}</td>
-          <td class="d">{{ r.p_region or '全国' }}</td>
-          <td class="d">{{ r.o_column or '—' }}</td>
-          <td>{{ effect_badge(r.p_effect_status) }}{{ source_mark(r.p_effect_source) }}</td>
-        </tr>
-      {% endfor %}
-      </tbody>
-    </table>
-  </div>
+  <ul class="hits">
+    {% for r in results %}
+    <li>
+      <a class="hit-title" href="/policy/{{ r.doc_uid }}">{{ r.title | hl(hl_terms) }}</a>
+      <div class="hit-meta">
+        {{ effect_bar(r.p_effect_status) }}
+        {{ effect_badge(r.p_effect_status) }}{{ source_mark(r.p_effect_source) }}
+        {{ docno_cell(r.p_doc_no_full, r.p_doc_no_confidence) }}
+        <span class="d">{{ r.cwrq or '—' }}</span>
+        <span class="d">{{ r.p_region or '全国' }}</span>
+        <span class="d">{{ r.o_column or '—' }}</span>
+        {% if r.pub_name %}<span class="d">{{ r.pub_name }}</span>{% endif %}
+      </div>
+    </li>
+    {% endfor %}
+  </ul>
   {% else %}
   <div class="card"><div class="empty">没有命中。若确信应有结果，请在命令行执行
     <code>python -m taxassist status</code> 检查是否漏抓（抓取不完整会显式标注）。</div></div>

@@ -149,7 +149,7 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         source_id="hb_zcwj",
         region="湖北",
         site_name="国家税务总局湖北省税务局",
-        list_url="http://hubei.chinatax.gov.cn/hbsw/zcwj/index.html",
+        list_url="http://hubei.chinatax.gov.cn/hbsw/zcwj/zxwj/index.html",
         detail_href_re=r"/hbsw/zcwj/[a-z]+/\d+\.htm",
         base_url="http://hubei.chinatax.gov.cn",
         needs_js=True,
@@ -178,8 +178,8 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         source_id="bj_sszc",
         region="北京",
         site_name="国家税务总局北京市税务局",
-        list_url="http://beijing.chinatax.gov.cn/bjswj/c104343/sszc.shtml",
-        detail_href_re=r"/bjswj/sszc/zxwj/\d{6}/[0-9a-f]{16,}\.shtml",
+        list_url="http://beijing.chinatax.gov.cn/bjswj/sszc/zxwj/cs_li.shtml",
+        detail_href_re=r"/bjswj/sszc/zxwj/\d{6}/[0-9a-f]+\.shtml",
         base_url="http://beijing.chinatax.gov.cn",
         needs_js=True,
     ),
@@ -384,7 +384,7 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         source_id="xizang_zcwj",
         region="西藏",
         site_name="国家税务总局西藏自治区税务局",
-        list_url="https://xizang.chinatax.gov.cn/col/col5332/index.html",
+        list_url="https://xizang.chinatax.gov.cn/col/col5350/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="https://xizang.chinatax.gov.cn",
         needs_js=True,
@@ -510,6 +510,13 @@ _JS_WRAP_RE = re.compile(r"document\.write\(\s*['\"]|['\"]\s*\)\s*;?")
 # 不清掉标题就变成"[国家税务总局]关于…的公告"。只去**开头**的一对方括号，
 # 标题正文里的书名号/方括号不动。
 _TITLE_BRACKET_PREFIX_RE = re.compile(r"^\s*[\[【][^\]】]{2,30}[\]】]\s*")
+# 广西的列表把日期和标题挤在同一段 <a> 文本里："2026-09-28 国家税务总局关于…"。
+# 不清掉就成了"日期当标题"（实测 7 条入库后标题只剩日期）。
+# 只在后面还有足够长的正文时才剥 —— 纯日期标题（那种情况标题本来就没抓到）
+# 留着更能暴露问题，而不是悄悄变成空标题。
+_TITLE_DATE_PREFIX_RE = re.compile(r"^\s*20\d\d[-/年]\d{1,2}[-/月]\d{1,2}日?\s*[-—－]?\s*")
+# 「整个字符串就是一个日期」—— 用来识别日期格子，别把它当标题。
+_DATE_ONLY_RE = re.compile(r"^\[?20\d\d[-/年]\d{1,2}[-/月]\d{1,2}日?\]?$")
 
 
 def _clean_title(raw: str | None) -> str:
@@ -526,7 +533,13 @@ def _clean_title(raw: str | None) -> str:
     if not t:
         return ""
     t = norm_text(_JS_WRAP_RE.sub("", t))
-    return _TITLE_BRACKET_PREFIX_RE.sub("", t)
+    t = _TITLE_BRACKET_PREFIX_RE.sub("", t)
+    # 剥掉"日期 + 标题"里的日期前缀（广西）。剥完太短说明本来就只有日期，
+    # 那就保留原样 —— 让"没抓到标题"这件事在数据里看得见。
+    stripped = _TITLE_DATE_PREFIX_RE.sub("", t)
+    if len(stripped) >= 6:
+        t = stripped
+    return t
 
 
 def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
@@ -558,9 +571,15 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
             title = None
             for child in a.iterchildren():
                 candidate = norm_text(child.text_content())
-                if candidate and len(candidate) >= 6:
-                    title = candidate
-                    break
+                if not candidate or len(candidate) < 6:
+                    continue
+                # 纯日期的格子不是标题。广西的条目是
+                # ``<a><span>2026-09-28</span> 国家税务总局关于…</a>``，
+                # 取"第一个够长的子元素"会把日期当标题（实测 7 条入库成纯日期）。
+                if _DATE_ONLY_RE.match(candidate.strip()):
+                    continue
+                title = candidate
+                break
             if not title:
                 title = norm_text(a.text_content())
         if not title or len(title) < 6:

@@ -32,6 +32,59 @@ log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
 
+
+def _highlight(text: str, terms: list[str]):
+    """把命中的关键词包成 ``<mark>``，供检索结果高亮。
+
+    **先按命中位置切片、再对每段分别转义**：用户输入绝不能直接拼进 HTML。
+    这样形如 ``<script>`` 的查询只会变成字面文本，不会被当成标签。
+    """
+    from markupsafe import Markup, escape
+
+    if not text:
+        return Markup("")
+    if not terms:
+        return escape(text)
+
+    low = text.lower()
+    spans: list[list[int]] = []
+    for t in terms:
+        tl = (t or "").lower()
+        if not tl:
+            continue
+        start = 0
+        while True:
+            i = low.find(tl, start)
+            if i < 0:
+                break
+            spans.append([i, i + len(tl)])
+            start = i + len(tl)
+    if not spans:
+        return escape(text)
+
+    spans.sort()
+    merged: list[list[int]] = []
+    for s, e in spans:
+        if merged and s <= merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+
+    out = []
+    pos = 0
+    for s, e in merged:
+        out.append(escape(text[pos:s]))
+        out.append(Markup("<mark>"))
+        out.append(escape(text[s:e]))
+        out.append(Markup("</mark>"))
+        pos = e
+    out.append(escape(text[pos:]))
+    return Markup("").join(out)
+
+
+#: 检索结果高亮用的 filter（模板里写成 ``{{ r.title | hl(hl_terms) }}``）
+templates.env.filters["hl"] = _highlight
+
 # 实质政策优先的排序片段统一由 filters 模块生成。
 # "什么算实质政策"只该有一处定义，否则 Web、CLI、日报会各排各的，
 # 你在不同页面看到的顺序会不一致。
@@ -272,9 +325,13 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         by_column = _rows(
             "SELECT COALESCE(o_column,'(未知)') v, COUNT(*) c FROM policy"
             " GROUP BY v ORDER BY c DESC")
+        by_effect = _rows(
+            "SELECT COALESCE(p_effect_status,'未判定') v, COUNT(*) c FROM policy"
+            " GROUP BY v ORDER BY c DESC")
         return templates.TemplateResponse(
             request=request, name="index.html",
             context=ctx(request, stats=stats, recent=recent, by_column=by_column,
+                        by_effect=by_effect,
                         health=health, gap=gap, regions=regions))
 
     # ------------------------------------------------------------ 检索
@@ -282,6 +339,7 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     @app.get("/search", response_class=HTMLResponse)
     def search(request: Request, q: str = Query("", max_length=120),
                column: str = "", tax: str = "", region: str = "",
+               effect: str = "", year: str = "", sort: str = "relevance",
                limit: int = Query(50, ge=1, le=200)):
         rows, error = [], None
         # 英文查询先过术语反向映射：搜 "value-added tax" 等同于搜 "增值税"。
@@ -335,7 +393,22 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
                 if clause:
                     sql += f" AND {clause}"
                     params += region_params
-            sql += f" ORDER BY {_SUBSTANTIVE_FIRST}, p.cwrq DESC LIMIT ?"
+            # 效力状态与年份 —— 实际工作中最常用的两个限定
+            # （"只看现行有效的""只看今年的"）。
+            if effect:
+                sql += " AND p.p_effect_status = ?"
+                params.append(effect)
+            if year.isdigit():
+                sql += " AND p.cwrq LIKE ?"
+                params.append(f"{year}-%")
+            # 排序：默认"实质政策优先 + 日期倒序"（这是筛掉新闻/科普的核心），
+            # 但明确要看日期时必须能覆盖它 —— 否则"最早发布的"永远查不出来。
+            if sort == "date_asc":
+                sql += " ORDER BY p.cwrq ASC, p.id ASC LIMIT ?"
+            elif sort == "date_desc":
+                sql += " ORDER BY p.cwrq DESC, p.id DESC LIMIT ?"
+            else:
+                sql += f" ORDER BY {_SUBSTANTIVE_FIRST}, p.cwrq DESC LIMIT ?"
             params.append(limit)
             try:
                 rows = _rows(sql, tuple(params))
@@ -351,6 +424,18 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         try:
             tax_counts = filters.tax_type_counts(conn)
             regions = filters.region_counts(conn)
+            effect_counts = [
+                ((r["p_effect_status"] or "未判定"), r["c"])
+                for r in _rows("SELECT p_effect_status, COUNT(*) c FROM policy"
+                               " GROUP BY 1 ORDER BY c DESC")
+            ]
+            years = [
+                r["y"] for r in _rows(
+                    "SELECT DISTINCT SUBSTR(cwrq,1,4) y FROM policy"
+                    " WHERE cwrq IS NOT NULL AND LENGTH(cwrq) >= 4"
+                    " ORDER BY y DESC")
+                if r["y"] and str(r["y"]).isdigit()
+            ]
         finally:
             conn.close()
         return templates.TemplateResponse(
@@ -358,7 +443,9 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             context=ctx(request, results=rows, error=error, columns=columns,
                         column=column, limit=limit, tax=tax, tax_counts=tax_counts,
                         region=region, regions=regions,
-                        term_hits=term_hits, q_original=q))
+                        effect=effect, effect_counts=effect_counts,
+                        year=year, years=years, sort=sort,
+                        hl_terms=terms, term_hits=term_hits, q_original=q))
 
     # ------------------------------------------------------------ 详情
 
