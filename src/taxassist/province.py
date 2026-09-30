@@ -283,6 +283,13 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://shaanxi.chinatax.gov.cn",
         needs_js=True,
+        # 列表页是异步渲染的，默认 6 秒只拿到空壳（2295 字节、0 条链接）。
+        # 实测 10 秒仍不够（3241 字节），**14 秒**才出内容（41461 字节、34 条）。
+        # 这是第 4 个栽在同一处的省（辽宁 12s、新疆 14s、吉林 10s）——
+        # 默认的「挑战等待」6 秒对这类站点普遍偏低。没有这条，陕西会每天
+        # 报一次 ListPageError，看起来像"站点改版了"，其实只是等太短。
+        wait_ms=14000,
+        timeout_ms=60000,
     ),
     ListPageAdapter(
         source_id="gx_zcwj",
