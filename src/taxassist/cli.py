@@ -50,6 +50,9 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("initdb", help="初始化/升级数据库")
 
     c = sub.add_parser("collect", help="抓取政策")
+    pv = sub.add_parser("provincial", help="抓取省级税务局政策（走浏览器过 WAF）")
+    pv.add_argument("--source", action="append", dest="source",
+                    help="只抓指定源（可重复；默认全部）")
     c.add_argument("--days", type=int, default=7, help="增量回溯天数（默认 7，重叠防漏）")
     c.add_argument("--full", action="store_true", help="首次全量导入（按年切窗口）")
     c.add_argument("--year-from", type=int, default=1984, help="全量起始年份")
@@ -165,6 +168,21 @@ def cmd_collect(args) -> int:
     print(f"效力判定：{stats['judged']} 条（来源分布 {stats['by_source']}）")
 
     bad = [r for r in results if r["status"] != "ok"]
+    return 1 if bad else 0
+
+
+def cmd_provincial(args) -> int:
+    """抓省级税务局的政策列表。这些站点在 WAF 后面，走真浏览器。"""
+    conn = dbmod.connect()
+    dbmod.init_db(conn)
+    results = pipeline.collect_provincial(conn, source_ids=args.source or None)
+    print(pipeline.summarize(results))
+    stats = effect.judge_effects(conn)
+    print(f"效力判定：{stats['judged']} 条（来源分布 {stats['by_source']}）")
+    bad = [r for r in results if r["status"] != "ok"]
+    for r in bad:
+        print(f"    失败 {r['source_id']}（{r.get('region', '?')}）：{r.get('error', '')}")
+    conn.close()
     return 1 if bad else 0
 
 
@@ -641,6 +659,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "initdb": cmd_initdb,
         "collect": cmd_collect,
+        "provincial": cmd_provincial,
         "enrich": cmd_enrich,
         "attach": cmd_attach,
         "judge": cmd_judge,

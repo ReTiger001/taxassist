@@ -109,7 +109,7 @@ def test_run_daily_records_status_in_meta(conn, monkeypatch):
     monkeypatch.setattr(scheduler.effect, "judge_effects",
                         lambda *a, **k: {"judged": 0})
 
-    result = scheduler.run_daily(conn)
+    result = scheduler.run_daily(conn, include_provincial=False)
     assert result["ok"] is True
     assert dbmod.get_meta(conn, scheduler.META_LAST_STATUS) == "ok"
 
@@ -128,6 +128,6 @@ def test_run_daily_marks_incomplete_when_collect_partial(conn, monkeypatch):
                                          "bytes": 0, "errors": []})
     monkeypatch.setattr(scheduler.effect, "judge_effects", lambda *a, **k: {"judged": 0})
 
-    result = scheduler.run_daily(conn)
+    result = scheduler.run_daily(conn, include_provincial=False)
     assert result["ok"] is False
     assert dbmod.get_meta(conn, scheduler.META_LAST_STATUS) == "incomplete"
