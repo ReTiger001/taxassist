@@ -430,25 +430,51 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         wait_ms=14000,
         timeout_ms=90000,
     ),
+    # 天津：有三处坑，缺一个都抓不到。
+    # ① 列表在 **iframe** 里（u_zlmViewMx.action），直接抓主页面只有 0 个链接；
+    # ② iframe 的 src 是**不以 / 开头的相对路径**，得 urljoin 到主页面地址；
+    # ③ 详情链接后缀是 **.shtml**（不是 .html），且无前导斜杠，形如
+    #    11200000000/0300/030004/03000419/20260907165858609.shtml
+    #    —— 所以正则写 \.s?html?，base_url 用裸域名（ACTION 的目录就是 /）。
+    ListPageAdapter(
+        source_id="tianjin_zxwj",
+        region="天津",
+        site_name="国家税务总局天津市税务局",
+        list_url=("https://tianjin.chinatax.gov.cn/u_zlmViewMx.action"
+                  "?fjdm=11200000000&lmdm=030001&downbz=null"),
+        detail_href_re=r"\d{11}/\d{4}/\d{6}/\d{8}/\d+\.s?html?",
+        base_url="https://tianjin.chinatax.gov.cn/",
+        needs_js=True,
+        wait_ms=20000,
+        timeout_ms=120000,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
 
 
 _JS_WRAP_RE = re.compile(r"document\.write\(\s*['\"]|['\"]\s*\)\s*;?")
+# 天津等站的 <a title="[发文机关]标题"> 把发文机关塞进方括号前缀，
+# 不清掉标题就变成"[国家税务总局]关于…的公告"。只去**开头**的一对方括号，
+# 标题正文里的书名号/方括号不动。
+_TITLE_BRACKET_PREFIX_RE = re.compile(r"^\s*[\[【][^\]】]{2,30}[\]】]\s*")
 
 
 def _clean_title(raw: str | None) -> str:
-    """清洗标题里残留的 JS 外壳。
+    """清洗标题里残留的外壳。
 
-    实测：湖北的列表条目是 JS 输出的，标题形如
-    ``document.write('国家税务总局关于…的公告');`` —— 不清掉就会把这段
-    JS 当成政策标题入库，而且它长得就像个标题，不容易发现。
+    两种都是实际踩到的：
+    - 湖北的列表条目是 JS 输出的，标题形如
+      ``document.write('国家税务总局关于…的公告');`` —— 不清掉就会把这段
+      JS 当成政策标题入库，而且它长得就像个标题，不容易发现；
+    - 天津的 ``<a title="[国家税务总局天津市税务局]市医保局…">``，发文机关
+      被塞在方括号里，不清掉标题就成了"[国家税务总局]关于…的公告"。
     """
     t = norm_text(raw)
     if not t:
         return ""
-    return norm_text(_JS_WRAP_RE.sub("", t))
+    t = norm_text(_JS_WRAP_RE.sub("", t))
+    return _TITLE_BRACKET_PREFIX_RE.sub("", t)
 
 
 def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
