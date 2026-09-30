@@ -168,6 +168,32 @@ def summarize(results: list[dict]) -> str:
 
 # ---------------------------------------------------------------- 详情页补充
 
+class _BrowserClient:
+    """给 fetch_detail 用的适配器：内部走真浏览器取页面。
+
+    fetch_detail 只用到 ``client.get(url).content`` 与 ``raise_for_status()``，
+    所以这里做最小适配即可 —— 不必改它的签名，也不必给它加"是否用浏览器"的分支。
+
+    为什么需要：省级站点（**含其详情页**）在加速乐 WAF 后面，普通 HTTP 一律 412。
+    这正是"20 个省 267 条政策全都没有正文"的原因 —— 列表页走了浏览器，
+    详情页却还在用普通 HTTP。
+    """
+
+    class _Resp:
+        __slots__ = ("content",)
+
+        def __init__(self, html: str) -> None:
+            self.content = html.encode("utf-8")
+
+        def raise_for_status(self) -> None:
+            return None
+
+    def get(self, url: str, **_kw) -> "_BrowserClient._Resp":
+        from .collect.browser import fetch_html
+
+        return self._Resp(fetch_html(url))
+
+
 def enrich_details(
     conn,
     *,
@@ -197,9 +223,21 @@ def enrich_details(
                 "attachments": 0, "errors": []}
 
     with GuardedClient() as client:
+        browser_client = None
         for row in rows:
+            # 省级源的详情页也在同一套 WAF 后面，必须走浏览器 ——
+            # 这正是"20 个省 267 条政策全都没有正文"的根因：
+            # 列表页已经走了浏览器，详情页却还在用普通 HTTP。
+            # 判据用 doc_uid 含冒号（省级源形如 "gd_zcwj:xxxx"），
+            # 因为这里只取了 doc_uid 与 url 两列，没有 p_region。
+            if ":" in (row["doc_uid"] or ""):
+                if browser_client is None:
+                    browser_client = _BrowserClient()
+                use_client = browser_client
+            else:
+                use_client = client
             try:
-                raw, detail = fetch_detail(client, row["url"])
+                raw, detail = fetch_detail(use_client, row["url"])
             except Exception as e:  # noqa: BLE001 - 单条失败不影响整批
                 failed += 1
                 errors.append(f"{row['doc_uid']}: {type(e).__name__}: {e}")
