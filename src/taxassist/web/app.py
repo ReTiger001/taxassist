@@ -346,8 +346,10 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         # 这样不必先把 5090 条标题全译一遍，英文词也能命中中文政策。
         q_cn, term_hits = to_chinese_query(q)
         terms = [t for t in q_cn.split() if t]
-        # 允许"不输关键词、只按栏目/税种/地区浏览" —— 筛选本身就是真实用法
-        if terms or column or tax or region:
+        # 允许"不输关键词、只按条件浏览" —— 筛选本身就是真实用法。
+        # effect / year 也必须算作筛选条件：否则"只看已废止"这种纯筛选会走进
+        # 空分支返回 0 条（实测：选「已废止」得 0 条，而库里有 1042 条）。
+        if terms or column or tax or region or effect or year:
             if terms and all(len(t) >= 3 for t in terms):
                 sql = (
                     "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.p_doc_no_confidence,"
