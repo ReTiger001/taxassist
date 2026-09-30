@@ -9,7 +9,7 @@
 {# 摘要条：需要注意的数字才有底色，其余保持中性 #}
 <div class="bar">
   <div class="cell"><div class="n">{{ stats.total }}</div><div class="k">政策总数</div></div>
-  <div class="cell"><div class="n">{{ stats.valid }}</div><div class="k">现行有效（含推定）</div></div>
+  <div class="cell"><div class="n">{{ stats.valid }}</div><div class="k">现行有效</div></div>
   <div class="cell{% if stats.repealed %} flag-alert{% endif %}">
     <div class="n">{{ stats.repealed }}</div><div class="k">已废止</div></div>
   <div class="cell{% if stats.pending %} flag{% endif %}">
@@ -28,7 +28,9 @@
     <li><b>官方标注</b> —— 政策原文自带时效标注，或官方废止目录点了名。最硬的一档。</li>
     <li><b>据他文判定</b> —— 另一份文件里写明废止了它；依据原文可在详情页看到。</li>
     <li><b>未发现废止</b> —— 库里没有任何文件说它废止。<b>这不等于官方确认有效</b>，
-        重要事项请核对原文。</li>
+        重要事项请核对原文。
+        <span class="sub">（现行有效共 {{ stats.valid }} 条：官方标注
+        {{ stats.valid_official }} 条、未发现废止 {{ stats.valid_default }} 条）</span></li>
   </ul>
   <p class="sub" style="margin:8px 0 0">
     库内不猜测政策有效性：没有证据就不写"已废止"，没有官方确认也不冒充"已确认"。

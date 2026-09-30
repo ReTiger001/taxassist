@@ -316,6 +316,15 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         stats = {
             "total": _one("SELECT COUNT(*) c FROM policy")["c"],
             "valid": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='现行有效'")["c"],
+            # 现行有效的**依据分布** —— 图例里要写明"多少条有官方标注、多少条
+            # 只是未发现废止证据"。客户不该只看到一个笼统的"现行有效 4423"：
+            # 这两个数字的可靠性差一个量级，混在一起看就是误导。
+            "valid_official": _one(
+                "SELECT COUNT(*) c FROM policy WHERE p_effect_status='现行有效'"
+                " AND p_effect_source='official'")["c"],
+            "valid_default": _one(
+                "SELECT COUNT(*) c FROM policy WHERE p_effect_status='现行有效'"
+                " AND p_effect_source='default'")["c"],
             "pending": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='尚未生效'")["c"],
             "repealed": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='已废止'")["c"],
             "review": _one("SELECT COUNT(*) c FROM policy WHERE p_review_state='needs_review'")["c"],
