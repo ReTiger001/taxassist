@@ -228,7 +228,9 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="https://guangxi.chinatax.gov.cn/zcwj/",
         # href 是相对路径 "./zxwj/202609/t20260930_440809.html"，
         # 正则匹配 href 原文，不能带域名或上级路径（上海的教训）。
-        detail_href_re=r"zxwj/\d{6}/t\d+_\d+\.html",
+        # 同一套 CMS 下并列三个栏目：zxwj 最新文件 / zcjd 政策解读 / rdwd 热点问答。
+        # 只写 zxwj 会漏掉一半（实测候选 48 条只匹配到 14 条）。
+        detail_href_re=r"(?:zxwj|zcjd|rdwd)/\d{6}/t\d+_\d+\.html",
         base_url="https://guangxi.chinatax.gov.cn/zcwj/",
         needs_js=True,
     ),
@@ -284,7 +286,8 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         region="内蒙古",
         site_name="国家税务总局内蒙古自治区税务局",
         list_url="http://neimenggu.chinatax.gov.cn/zcwj",
-        detail_href_re=r"zxwj/\d{6}/t\d+_\d+\.html",
+        # 同广西：zxwj / zcjd / rdwd 三个栏目并列，只写一个会漏大半。
+        detail_href_re=r"(?:zxwj|zcjd|rdwd|tjss)/\d{6}/t\d+_\d+\.html",
         base_url="http://neimenggu.chinatax.gov.cn/zcwj/",
         needs_js=True,
     ),
