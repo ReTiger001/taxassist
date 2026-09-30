@@ -150,19 +150,27 @@ def collect_full(
 
 
 def summarize(results: list[dict]) -> str:
-    """把抓取结果汇总成一行人类可读的结论（供 CLI 与告警使用）。"""
-    bad = [r for r in results if r["status"] != "ok"]
-    fetched = sum(r["fetched"] for r in results)
-    new = sum(r["new"] for r in results)
-    updated = sum(r["updated"] for r in results)
+    """把抓取结果汇总成一行人类可读的结论（供 CLI 与告警使用）。
+
+    必须同时吃两种结果形状：总局的按「栏目 × 时间窗」，省级的按「源」——
+    后者没有 column / window / new / updated 这些键。早先这里直接下标取值，
+    于是**任何一个省级源失败，整个 provincial 命令都会崩在汇总这一步**
+    （KeyError: 'new'），连"哪个源失败了"都打不出来，看着像命令行坏了。
+    """
+    bad = [r for r in results if r.get("status") != "ok"]
+    fetched = sum(r.get("fetched") or 0 for r in results)
+    new = sum(r.get("new") or 0 for r in results)
+    updated = sum(r.get("updated") or 0 for r in results)
     head = f"共 {len(results)} 个窗口：抓取 {fetched} 条（新增 {new}、更新 {updated}）"
     if bad:
-        detail = "; ".join(
-            f"{r['column']} {r['window'][0][:10]}~{r['window'][1][:10]} "
-            f"{r['status']}({r['fetched']}/{r['reported_total']})"
-            for r in bad
-        )
-        return f"{head}；**异常 {len(bad)} 个**：{detail}"
+        parts = []
+        for r in bad:
+            label = r.get("column") or r.get("source_id") or "?"
+            win = r.get("window")
+            span = f"{win[0][:10]}~{win[1][:10]} " if win else ""
+            parts.append(f"{label} {span}{r.get('status')}"
+                         f"({r.get('fetched') or 0}/{r.get('reported_total')})")
+        return f"{head}；**异常 {len(bad)} 个**：{'; '.join(parts)}"
     return f"{head}；全部完整"
 
 
