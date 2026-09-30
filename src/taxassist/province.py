@@ -242,8 +242,18 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://jiangxi.chinatax.gov.cn",
         needs_js=True,
-        # 注：本站「政策法规库」(/col/col23417/index.html) 是 JS 检索页，
-        # 静态列表解析不出条目（实测 0 条），故未配 extra_urls。
+        # 站内检索接口 jsearchfront/search.do 是标准 URL 查询形式、无加密，
+        # 实测「增值税」一词就返回 20 条、含 2020 年的历史政策 —— 这正是
+        # 「最新文件」栏目（只有最近一二十条）拿不到的部分。详情格式与现有
+        # 正则一致（/art/YYYY/M/D/art_N_N.html），所以多个关键词各配一次即可。
+        extra_urls=(
+            "http://jiangxi.chinatax.gov.cn/jsearchfront/search.do"
+            "?websiteid=360000000000000&tpl=23&q=%E7%A8%8E%E5%8A%A1",           # 税务
+            "http://jiangxi.chinatax.gov.cn/jsearchfront/search.do"
+            "?websiteid=360000000000000&tpl=23&q=%E5%A2%9E%E5%80%BC%E7%A8%8E",  # 增值税
+            "http://jiangxi.chinatax.gov.cn/jsearchfront/search.do"
+            "?websiteid=360000000000000&tpl=23&q=%E4%BC%81%E4%B8%9A%E6%89%80%E5%BE%97%E7%A8%8E",  # 企业所得税
+        ),
     ),
     ListPageAdapter(
         source_id="shaanxi_zcwj",
