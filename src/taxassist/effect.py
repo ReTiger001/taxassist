@@ -241,6 +241,48 @@ def extract_repeal_targets(text: str | None) -> list[str]:
     return targets
 
 
+# 本文**被**废止的表述。与"本文废止别人"必须分开判断：
+#   "……令第319号），全文废止"            -> 本文被废止（改效力状态）
+#   "……（财税字〔1994〕20号）同时废止"     -> 本文废止了别人（建关系）
+# 只按"废止"二字抓会把两者混为一谈。此前只做了后者，
+# 于是大量"已被废止"的文件在库里仍显示为现行有效。
+_SELF_REPEAL_RE = re.compile(
+    # 形式一：明确主语 —— "本实施细则全文废止"
+    r"本(?:公告|通知|规定|办法|细则|法规|条例|决定|规则|意见|复函|批复|函|文件)"
+    r"[^。；\n]{0,30}?(?:全文)?废止"
+    # 形式二：主语省略 —— "……（国务院令第319号），全文废止"
+    # 标题目带主语，正文里就不重复了，所以这一形式其实比形式一更多。
+    # 但必须排除"《某文件》全文废止"那种指别人的写法，故用 lookbehind
+    # 排除前面紧跟书名号收尾的情况。
+    r"|(?<!》)(?<!」)(?:全文废止|全部废止|予以废止)"
+)
+
+# 取依据文号：同一句里通常带一个《…》（χχ〔年〕号）或"国务院令第N号"
+_EVIDENCE_DOCNO_RE = re.compile(
+    r"[（(]\s*([^（）()]{2,30}?(?:〔|\[)[^）)]{1,12}号|[^（）()]{2,30}?令第\d+号)\s*[）)]")
+
+
+def detect_self_repealed(text: str | None) -> tuple[bool, str]:
+    """本文是否**被**废止，返回 ``(是否, 依据说明)``。
+
+    为什么需要它：政策是否失效，官方是**在正文里写明**的
+    （"依据《…》（国务院令第319号），全文废止"）。但此前的 judge 只识别
+    "本文废止了谁"，从不识别"本文被谁废止" —— 于是这批文件在库里
+    一直显示现行有效。这不是数据没给，是我们的解析没看。
+    """
+    t = norm_text(text)
+    if not t:
+        return False, ""
+    for sentence in re.split(r"[。；\n]", t):
+        if any(h in sentence for h in _NEGATION_HINTS):
+            continue                      # "不废止"这类反向表述
+        m = _SELF_REPEAL_RE.search(sentence)
+        if not m:
+            continue
+        ev = _EVIDENCE_DOCNO_RE.search(sentence)
+        basis = ev.group(1) if ev else ""
+        return True, norm_text(sentence)[:200] + (f"｜依据文号：{basis}" if basis else "")
+    return False, ""
 def _normalise_doc_no(value: str | None) -> str:
     """文号归一化，用于跨记录比对（去空白、统一括号、去"中华人民共和国"前缀）。"""
     v = norm_text(value) or ""
@@ -429,6 +471,20 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
             parts.append(att["parsed_text"] or "")
         text = "\n".join(p for p in parts if p)
 
+        # 本文**被**废止：官方把失效依据写在正文里，例如
+        #   "依据《国务院关于废止…的决定》（国务院令第319号），全文废止"
+        #   "依据《…目录（第六批）的通知》（财法字[1997]44号），本实施细则全文废止"
+        # 此前完全不看这一类，导致大批已废止文件在库里显示"现行有效"。
+        # 这不是数据没提供，是解析漏了 —— 用户问的"政策是否有效应该有公告"，
+        # 公告就在这些句子里。
+        self_repealed, basis = detect_self_repealed(text)
+        if self_repealed:
+            relation_rows.append(Relation(
+                src_doc_uid=doc_uid, relation="self_repealed",
+                dst_doc_uid=None, dst_doc_no=None,
+                evidence=basis, evidence_source="content_self",
+                confidence="high"))
+
         # 引用形式一：书名号中的文件名（正文引用的主要形式）
         for title_ref in extract_title_refs(text):
             key = _normalise_title(title_ref)
@@ -499,6 +555,12 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
             "SELECT DISTINCT dst_doc_uid FROM policy_relation"
             " WHERE relation='repeals' AND dst_doc_uid IS NOT NULL")
     }
+    # 正文自述被废止的（"依据《…》（国务院令第319号），全文废止"）
+    self_repealed_uids = {
+        row[0] for row in conn.execute(
+            "SELECT DISTINCT src_doc_uid FROM policy_relation"
+            " WHERE relation='self_repealed'")
+    }
 
     judgements: list[EffectJudgement] = []
     for r in rows:
@@ -513,6 +575,19 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
                 doc_uid, EFFECT_REPEALED, "official",
                 "被官方《失效废止目录》点名废止", "high",
                 evidence="来源：国家税务总局公布的失效废止文件目录（附件）",
+            ))
+        elif doc_uid in self_repealed_uids:
+            # 正文自述被废止，且通常带官方依据文号（如"国务院令第319号"）。
+            # 标 inferred 而非 official：依据虽是官方的，但它是我们从**正文文本**
+            # 里解析出来的，不是官方结构化字段 —— 不把解析结果说成官方标注。
+            ev = conn.execute(
+                "SELECT evidence FROM policy_relation"
+                " WHERE relation='self_repealed' AND src_doc_uid=? LIMIT 1",
+                (doc_uid,)).fetchone()
+            judgements.append(EffectJudgement(
+                doc_uid, EFFECT_REPEALED, "inferred",
+                "正文载明已废止", "high",
+                evidence=ev["evidence"] if ev else None,
             ))
         elif doc_uid in repealed_uids:
             src = conn.execute(

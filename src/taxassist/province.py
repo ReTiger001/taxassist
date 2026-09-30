@@ -64,6 +64,11 @@ class ListPageAdapter:
     detail_href_re: str          # 详情链接的正则（用于把条目与导航链接区分开）
     base_url: str
     column: str = "地方政策"
+    # 站点是否受 JS 挑战（加速乐 WAF）保护，必须用真浏览器取页面。
+    # 实测：山东/福建/湖北/湖南/四川/北京六省对普通 HTTP 请求返回 412，
+    # 响应体是 WAF 的挑战 JS（$_ss/$_ts/nsd 特征）。curl_cffi 能过纯 TLS
+    # 指纹检测（湖北已通），但过不了这种要执行 JS 的。
+    needs_js: bool = False
 
 
 # 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
@@ -88,9 +93,79 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://jiangsu.chinatax.gov.cn",
     ),
+    # ---------------------------------------------------------------
+    # 以下五省受**加速乐 WAF 的 JS 挑战**保护：普通 HTTP 请求一律 412，
+    # 响应体是挑战脚本（特征 $_ss / $_ts / nsd）。换请求头无效（实测三种
+    # 组合结果完全一致），curl_cffi 也过不了要执行 JS 的那种。
+    # 故 needs_js=True，走真浏览器（collect/browser.py）。
+    # 栏目 URL 由真浏览器实测确认，2026-09-30。
+    # ---------------------------------------------------------------
+    ListPageAdapter(
+        source_id="sd_zcwj",
+        region="山东",
+        site_name="国家税务总局山东省税务局",
+        list_url="http://shandong.chinatax.gov.cn/col/col5/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://shandong.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="fj_zcfg",
+        region="福建",
+        site_name="国家税务总局福建省税务局",
+        list_url="http://fujian.chinatax.gov.cn/sszczl/",
+        detail_href_re=r"/zfxxgkzl/zfxxgkml/zcfg/[a-z]+/\d{6}/t\d{8}_\d+\.htm",
+        base_url="http://fujian.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="hb_zcwj",
+        region="湖北",
+        site_name="国家税务总局湖北省税务局",
+        list_url="http://hubei.chinatax.gov.cn/hbsw/zcwj/index.html",
+        detail_href_re=r"/hbsw/zcwj/[a-z]+/\d+\.htm",
+        base_url="http://hubei.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="hn_zcwj",
+        region="湖南",
+        site_name="国家税务总局湖南省税务局",
+        list_url="http://hunan.chinatax.gov.cn/category/20190624092865",
+        detail_href_re=r"/show/\d+",
+        base_url="http://hunan.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="sc_zcfg",
+        region="四川",
+        site_name="国家税务总局四川省税务局",
+        # 注意：col19973 是"政策法规库"，但真浏览器实测那里只有 1 个链接（ICP 备案号）；
+        # 真正的政策列表在 col280。这是把候选栏目逐个试出来的结论。
+        list_url="https://sichuan.chinatax.gov.cn/col/col280/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="https://sichuan.chinatax.gov.cn",
+        needs_js=True,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
+
+
+_JS_WRAP_RE = re.compile(r"document\.write\(\s*['\"]|['\"]\s*\)\s*;?")
+
+
+def _clean_title(raw: str | None) -> str:
+    """清洗标题里残留的 JS 外壳。
+
+    实测：湖北的列表条目是 JS 输出的，标题形如
+    ``document.write('国家税务总局关于…的公告');`` —— 不清掉就会把这段
+    JS 当成政策标题入库，而且它长得就像个标题，不容易发现。
+    """
+    t = norm_text(raw)
+    if not t:
+        return ""
+    return norm_text(_JS_WRAP_RE.sub("", t))
 
 
 def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
@@ -140,7 +215,7 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
 
         items.append({
             "url": url,
-            "title": title,
+            "title": _clean_title(title),
             "cwrq": cwrq,
             "doc_uid": f"{adapter.source_id}:" + hashlib.md5(url.encode()).hexdigest()[:16],
         })
@@ -178,7 +253,17 @@ def build_provincial_row(item: dict, adapter: ListPageAdapter) -> dict:
 
 
 def fetch_list_page(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
-    """抓取并解析一个省级列表页。"""
+    """抓取并解析一个省级列表页。
+
+    受 JS 挑战保护的站点走**真浏览器**（见 collect/browser.py）。
+    不走这条的话会拿到 412 挑战页、解析出 0 条，而"零条目即报错"会把
+    它报成"页面改版"—— 掩盖真实原因。所以这里必须按适配器分流。
+    """
+    if adapter.needs_js:
+        from .collect.browser import fetch_html
+
+        return parse_list_page(fetch_html(adapter.list_url), adapter)
+
     resp = client.get(adapter.list_url)
     resp.raise_for_status()
     # 省级站点多为 UTF-8；gb18030 兜底避免个别站点乱码导致解析失败
