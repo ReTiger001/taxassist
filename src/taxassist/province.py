@@ -36,6 +36,7 @@ import hashlib
 import logging
 import re
 from dataclasses import dataclass
+from datetime import date        # 吉林列表页只给「月-日」，补年份要用
 from urllib.parse import urljoin
 
 from lxml import html as LH
@@ -46,7 +47,15 @@ from .db import now_iso
 
 log = logging.getLogger(__name__)
 
-_DATE_RE = re.compile(r"(20\d{2})-(\d{2})-(\d{2})")
+_DATE_RE = re.compile(r"(20\d\d)-(\d{1,2})-(\d{1,2})")
+# 实测还有两种不完整写法。不覆盖的话，整个省的日期都是空的（实测吉林 19/19、
+# 宁夏 18/18、四川 11/11、甘肃 8/8、山西 6/6 全空）：
+#   甘肃 '28 2026-09 国家税务总局关于…'      —— 只有 年-月
+#   吉林 '国家税务总局关于…的公告 [09-04]'    —— 只有 月-日
+# 补出来的日期不是原文写的，所以保守处理：缺日补 01、缺年补当年；
+# 且它只用于排序与展示，不参与任何效力判断。
+_DATE_YM_RE = re.compile(r"(20\d\d)[-/年](\d{1,2})(?![-/月\d])")
+_DATE_MD_RE = re.compile(r"[\[\(（]\s*(\d{1,2})[-/月](\d{1,2})\s*[\]\)）]")
 
 
 class ListPageError(RuntimeError):
@@ -371,13 +380,27 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
         if not title or len(title) < 6:
             continue
 
-        # 日期通常在链接之后的同级文本里（实测形态："标题</a>2026-09-22"）
+        # 日期搜索范围逐步放宽：父元素 → 链接文本（吉林的日期在 <a> 里，
+        # 不在父元素）→ URL（部分站把年月日编进路径）
         parent_text = ""
         parent = a.getparent()
         if parent is not None:
             parent_text = " ".join(parent.text_content().split())
-        m = _DATE_RE.search(parent_text) or _DATE_RE.search(url)
-        cwrq = f"{m.group(1)}-{m.group(2)}-{m.group(3)}" if m else None
+        haystack = f"{parent_text} {_clean_title(title)} {url}"
+
+        m = _DATE_RE.search(haystack)
+        if m:
+            cwrq = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+        else:
+            m2 = _DATE_YM_RE.search(haystack)
+            if m2:                                    # 只有年月（甘肃）
+                cwrq = f"{m2.group(1)}-{int(m2.group(2)):02d}-01"
+            else:
+                m3 = _DATE_MD_RE.search(haystack)
+                # 只有月日（吉林），年份补当年 —— 这些都是补出来的，
+                # 只用于排序展示，不参与效力判断。
+                cwrq = (f"{date.today().year}-{int(m3.group(1)):02d}-{int(m3.group(2)):02d}"
+                        if m3 else None)
 
         items.append({
             "url": url,
