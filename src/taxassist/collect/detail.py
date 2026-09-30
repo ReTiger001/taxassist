@@ -148,6 +148,9 @@ def parse_detail(html_text: str, base_url: str = "") -> DetailResult:
     # 跨省命中率最高；content / con 最泛，所以放最后兜底。
     for xpath in (
         '//*[@id="zoom"]',
+        # 天津用这两个 id（注意后者在原站就是这么拼的，不是笔误）
+        '//*[@id="htmlContent"]',
+        '//*[@id="conntentNR"]',
         '//*[contains(@class,"TRS_Editor")]',
         '//div[contains(@class,"article")]',
         '//div[contains(@class,"currency") and contains(@class,"cont")]',
