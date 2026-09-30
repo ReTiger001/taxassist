@@ -78,6 +78,9 @@ class ListPageAdapter:
     # 响应体是 WAF 的挑战 JS（$_ss/$_ts/nsd 特征）。curl_cffi 能过纯 TLS
     # 指纹检测（湖北已通），但过不了这种要执行 JS 的。
     needs_js: bool = False
+    # 用 nodriver 而不是 Playwright。两个浏览器栈的反检测强度不同：
+    # 实测西藏税局在 Playwright 下只返回 39 字节空壳，nodriver 能拿到 50009 字节。
+    use_nodriver: bool = False
 
 
 # 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
@@ -322,6 +325,18 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="http://ningxia.chinatax.gov.cn",
         needs_js=True,
     ),
+    ListPageAdapter(
+        source_id="hainan_zcwj",
+        region="海南",
+        site_name="国家税务总局海南省税务局",
+        list_url="http://hainan.chinatax.gov.cn/zcwj",
+        # 海南的链接形如 /xxgk_6_1/30167423.html（信息公开）。
+        # 同一页还有 ssxc_（税收宣传）与 gzcy_（关注产业）两类，那些不是政策文件，
+        # 所以正则只收 xxgk_ 前缀 —— 栏目边界比想象中松，得挑。
+        detail_href_re=r"/xxgk_\d+_\d+/\d+\.html",
+        base_url="http://hainan.chinatax.gov.cn",
+        needs_js=True,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
@@ -451,7 +466,9 @@ def fetch_list_page(client: GuardedClient, adapter: ListPageAdapter) -> list[dic
     if adapter.needs_js:
         from .collect.browser import fetch_html
 
-        return parse_list_page(fetch_html(adapter.list_url), adapter)
+        return parse_list_page(
+            fetch_html(adapter.list_url, use_nodriver=adapter.use_nodriver),
+            adapter)
 
     resp = client.get(adapter.list_url)
     resp.raise_for_status()
