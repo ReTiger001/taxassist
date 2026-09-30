@@ -67,7 +67,14 @@ a:hover{text-decoration:underline}
 .who a,.who-login{color:rgba(255,255,255,.6);text-decoration:none}
 .who a:hover,.who-login:hover{color:#fff;text-decoration:underline}
 .quick+.who,.quick+.who-login{margin-left:16px}
-@media (max-width:900px){.top .wrap{gap:14px}.top nav{display:none}}
+/* 窄屏不再把导航整块藏掉：藏掉之后手机用户**没有任何入口**去别的页面
+   （实测 390px 宽下「总览/每日简报/检索」全部消失，只剩品牌和后台）。
+   改为让顶栏换行，导航保留并跟随换行到第二行。 */
+@media (max-width:900px){
+  .top .wrap{gap:14px;flex-wrap:wrap;height:auto;
+    padding-top:9px;padding-bottom:9px;row-gap:9px}
+  .top nav{order:3;flex:1 0 100%;gap:18px}
+}
 /* 窄屏顶栏改为两行：品牌与账号一行、检索框独占一行。
    挤在一行的后果实测过：490px 宽下"对外"徽章直接压在品牌文字上，
    检索框也被推得叠在一起 —— 顶栏是每页都出现的东西，不能这里塌。 */
