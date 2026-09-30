@@ -6,10 +6,16 @@
 <div class="card">
   <div class="dhead">
     <h1 class="dtitle">{{ p.title }}</h1>
+    {% if tr_title %}
+    {# 英文标题是机器翻译，必须就地标注 —— 不让它看起来像官方英文文本 #}
+    <p class="en" style="margin:3px 0 0">{{ tr_title.text }}
+      <span class="mt-note" style="display:inline;margin-left:10px;padding-left:9px;border-left:2px solid var(--line)">
+        机器翻译（{{ tr_title.model }}），以中文原文为准</span></p>
+    {% endif %}
     <div class="meta">
       <span><b>文号</b>
         {% if p.p_doc_no_full %}<span class="docno">{{ p.p_doc_no_full }}</span>
-          {% if p.p_doc_no_confidence != 'high' %}<span class="badge b-mut">重建·{{ p.p_doc_no_confidence }}</span>{% endif %}
+          {% if p.p_doc_no_confidence == 'none' %}<span class="badge b-mut">官方未提供文号</span>{% endif %}
         {% else %}<span class="d">未识别到完整文号</span>{% endif %}
       </span>
       <span><b>成文日期</b>{{ p.cwrq or '—' }}</span>
@@ -62,6 +68,18 @@
         </td>
         <td class="d">{{ a.text_len }} 字</td>
       </tr>
+      {% if a.text_excerpt %}
+      {# 附件原文直接摊在页面上，不用点外链去下载 —— 这是"文件写在页面里"的本意。
+         默认折叠：一篇申报表动辄几千字，展开会把正文挤到看不见的地方。 #}
+      <tr>
+        <td colspan="4">
+          <details>
+            <summary>展开附件原文（共 {{ a.text_len }} 字{% if a.text_len > 20000 %}，此处显示前 20000 字{% endif %}）</summary>
+            <pre class="attach-text">{{ a.text_excerpt }}</pre>
+          </details>
+        </td>
+      </tr>
+      {% endif %}
     {% endfor %}
     </tbody>
   </table>

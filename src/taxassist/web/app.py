@@ -24,6 +24,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from .. import db as dbmod
+from ..translate import to_chinese_query
 from .. import auth, filters
 
 log = logging.getLogger(__name__)
@@ -82,18 +83,28 @@ def _set_session_cookie(response: Response, request: Request, token: str) -> Non
     )
 
 
-async def _read_form(request: Request) -> dict:
+async def _read_form(request: Request, max_bytes: int = 8192) -> dict:
     """解析 application/x-www-form-urlencoded 表单。
 
     不引入 python-multipart：只为一个登录表单不值得多一个依赖，
     而本应用要求断网可用、依赖越少越好。
+
+    **必须边读边限流**：`await request.body()` 会先把**整个**请求体收进内存
+    再返回，把大小检查放在它之后等于没有检查 —— 匿名 chunked POST 持续灌字节
+    就能把进程打爆（安全审计确认的未认证 DoS，而这台机器同时是工作机）。
+    所以改用 stream() 逐块累加，一超限立即中止，不再继续读。
     """
+    chunks: list[bytes] = []
+    total = 0
     try:
-        body = await request.body()
+        async for chunk in request.stream():
+            total += len(chunk)
+            if total > max_bytes:
+                return {}          # 超限即放弃，别再往下读
+            chunks.append(chunk)
     except Exception:  # noqa: BLE001 - 读不到就当空表单，交由校验去报错
         return {}
-    if len(body) > 8192:
-        return {}
+    body = b"".join(chunks)
     return {k: v[0] for k, v in
             parse_qs(body.decode("utf-8", "replace"), keep_blank_values=True).items()}
 
@@ -136,7 +147,10 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     ``auth_mode`` 决定闸门形式：``page`` 为登录页 + 签名 Cookie，
     ``basic`` 为 HTTP Basic（兼容脚本调用，代价是无法登出、无注册入口）。
     """
-    app = FastAPI(title="税务智能知识助手", docs_url=None, redoc_url=None)
+    # openapi_url 也要关：默认会暴露完整接口清单（含所有 /admin/* 路由），
+    # 登录后的任何成员都能拿到，属于不必要的信息泄露。
+    app = FastAPI(title="税务智能知识助手", docs_url=None, redoc_url=None,
+                  openapi_url=None)
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
@@ -153,8 +167,12 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             return await call_next(request)
 
         path = request.url.path
-        if path in PUBLIC_PATHS or path.startswith("/static/"):
-            return await call_next(request)
+        # 精确匹配 /static 及其子路径，不用 startswith("/static/") ——
+        # 后者会把 "/static/..%2fadmin" 这类路径也放过去。当前没有 mount
+        # StaticFiles 所以不可利用，但将来一旦 mount，它就变成认证绕过入口。
+        if path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/"):
+            if ".." not in path and "\\" not in path:
+                return await call_next(request)
 
         if auth_mode == "basic":
             header = request.headers.get("authorization", "")
@@ -266,7 +284,10 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
                column: str = "", tax: str = "", region: str = "",
                limit: int = Query(50, ge=1, le=200)):
         rows, error = [], None
-        terms = [t for t in q.split() if t]
+        # 英文查询先过术语反向映射：搜 "value-added tax" 等同于搜 "增值税"。
+        # 这样不必先把 5090 条标题全译一遍，英文词也能命中中文政策。
+        q_cn, term_hits = to_chinese_query(q)
+        terms = [t for t in q_cn.split() if t]
         # 允许"不输关键词、只按栏目/税种/地区浏览" —— 筛选本身就是真实用法
         if terms or column or tax or region:
             if terms and all(len(t) >= 3 for t in terms):
@@ -319,7 +340,10 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             try:
                 rows = _rows(sql, tuple(params))
             except Exception as e:  # noqa: BLE001 - 检索出错要让人看见
-                error = f"检索失败：{e}"
+                # 不回显原始异常：FTS5 的语法错误消息会把检索实现细节
+                # （表名、列名、查询语法）泄露到页面上。细节写日志即可。
+                log.warning("检索失败 q=%r: %s", q, e)
+                error = "检索失败，请调整关键词后重试。"
 
         columns = [r["v"] for r in _rows(
             "SELECT DISTINCT o_column v FROM policy WHERE o_column IS NOT NULL")]
@@ -333,7 +357,8 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             request=request, name="search.html",
             context=ctx(request, results=rows, error=error, columns=columns,
                         column=column, limit=limit, tax=tax, tax_counts=tax_counts,
-                        region=region, regions=regions))
+                        region=region, regions=regions,
+                        term_hits=term_hits, q_original=q))
 
     # ------------------------------------------------------------ 详情
 
@@ -353,17 +378,30 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             " s.title AS src_title, s.p_doc_no_full AS src_doc_no_full, s.cwrq AS src_cwrq"
             " FROM policy_relation r LEFT JOIN policy s ON s.doc_uid = r.src_doc_uid"
             " WHERE r.relation='repeals' AND r.dst_doc_uid=? ORDER BY r.id", (doc_uid,))
+        # 附件正文：只取前 2 万字渲染 —— 有的申报表附件单篇就好几万字，
+        # 全塞进页面会让详情页变得极慢。完整文本仍在库里（attachment.parsed_text），
+        # 需要全文时另行导出，页面上会注明已截断。
         attachments = _rows(
             "SELECT filename, ext, url, parse_status,"
-            " LENGTH(COALESCE(parsed_text,'')) AS text_len"
+            " LENGTH(COALESCE(parsed_text,'')) AS text_len,"
+            " SUBSTR(COALESCE(parsed_text,''), 1, 20000) AS text_excerpt"
             " FROM attachment WHERE doc_uid=? ORDER BY id", (doc_uid,))
         snapshots = _rows(
             "SELECT kind, fetched_at, rel_path, size_bytes FROM raw_snapshot"
             " WHERE doc_uid=? ORDER BY id DESC LIMIT 5", (doc_uid,))
+        # 英文译文（机器翻译）。模板里必须标注来源 —— 法律文本的译文被当成
+        # 官方英文版本引用，是会出事的。
+        tr_title = _one(
+            "SELECT text, model, created_at FROM translation"
+            " WHERE doc_uid=? AND field='title' AND lang='en'", (doc_uid,))
+        tr_content = _one(
+            "SELECT text, model, created_at FROM translation"
+            " WHERE doc_uid=? AND field='content' AND lang='en'", (doc_uid,))
         return templates.TemplateResponse(
             request=request, name="detail.html",
             context=ctx(request, p=policy, citations=citations, repealed=repealed,
-                        attachments=attachments, snapshots=snapshots))
+                        attachments=attachments, snapshots=snapshots,
+                        tr_title=tr_title, tr_content=tr_content))
 
     # ------------------------------------------------------------ 每日简报
 
@@ -628,4 +666,13 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     return app
 
 
-app = create_app()
+# ============================================================
+# 这个模块级变量的默认值必须是 require_auth=True
+# ============================================================
+# 它只在 `uvicorn taxassist.web.app:app` 这类**绕开 CLI** 的启动方式下被用到。
+# 一旦取默认值 require_auth=False，含义就是「无认证 + is_owner=True」
+# （见 create_app 里 `if not require_auth:` 那段）——整站连同 /admin 对全网敞开。
+# 换句话说：换个启动方式就等于把后台交出去。
+#
+# 正常部署走 `python -m taxassist serve`，它显式传参，不受这里影响。
+app = create_app(require_auth=True)

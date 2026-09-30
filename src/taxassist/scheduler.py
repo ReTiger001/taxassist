@@ -97,6 +97,7 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
         result["steps"]["enrich"] = pipeline.enrich_details(conn, limit=enrich_limit)
         result["steps"]["attach"] = pipeline.fetch_attachments(conn, limit=100)
         result["steps"]["judge"] = effect.judge_effects(conn)
+        result["steps"]["translate"] = _translate_incremental(conn)
 
         result["ok"] = len(bad) == 0
         status = "ok" if result["ok"] else "incomplete"
@@ -158,6 +159,45 @@ def catch_up(conn=None, *, max_days: int = 90) -> dict | None:
 
 
 # ---------------------------------------------------------------- 调度器
+
+def _translate_incremental(conn, *, limit: int = 200) -> dict:
+    """给新入库的政策补译文。
+
+    为什么必须接进日更：库每天新增政策，若不补译，双语库会慢慢退化成中英混杂
+    —— 昨天点开还有英文的栏目，今天多出一条纯中文，比一开始就没有英文更让人
+    困惑，也更难发现是"漏译"还是"本来就没有"。
+
+    限量 200 条/天：翻译要占 GPU，不能让它把日更流程卡死。
+    模型未就绪时返回说明而不是报错 —— ollama 没开不该让整次日更失败。
+    """
+    from . import translate_llm as tl
+
+    ready, why = tl.is_available(tl.DEFAULT_MODEL)
+    if not ready:
+        log.warning("跳过增量翻译：%s", why)
+        return {"skipped": why}
+
+    tl.ensure_table(conn)
+    rows = conn.execute(
+        "SELECT doc_uid, title FROM policy ORDER BY cwrq DESC LIMIT ?",
+        (limit,)).fetchall()
+
+    done = failed = 0
+    for r in rows:
+        src = r["title"] or ""
+        if not src.strip():
+            continue
+        if tl.cached(conn, r["doc_uid"], "title", src) is not None:
+            continue
+        try:
+            out = tl.translate(src, model=tl.DEFAULT_MODEL)
+            tl.save(conn, r["doc_uid"], "title", src, out, model=tl.DEFAULT_MODEL)
+            done += 1
+        except Exception as e:  # noqa: BLE001 - 单条失败不该中断日更
+            failed += 1
+            log.warning("增量翻译失败 %s: %s", r["doc_uid"], e)
+    return {"translated": done, "failed": failed}
+
 
 def start_background_scheduler(hour: int = 7, minute: int = 30):
     """启动后台调度（供 Web 服务内嵌使用）。

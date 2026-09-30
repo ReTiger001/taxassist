@@ -87,6 +87,44 @@ h2{font-size:11.5px;font-weight:600;margin:26px 0 9px;color:var(--ink-3);
 .pad{padding:16px 18px}
 /* 窄屏：表格无法优雅地塞进手机宽度，让卡片容器自己横向滚动，
    而不是让整页被撑破（页面级横向滚动是最糟的窄屏体验）。 */
+/* 附件原文：默认折叠在 <details> 里，展开后限高滚动。
+   用正文字体而非 <pre> 默认的等宽 —— 中文等宽很难读。 */
+.attach-text{white-space:pre-wrap;word-break:break-word;font-size:12.5px;
+  line-height:1.7;max-height:60vh;overflow:auto;background:#f7f8f9;
+  border:1px solid #e3e6e8;border-radius:4px;padding:10px 12px;margin:8px 0 0;
+  font-family:inherit}
+
+/* ---------------- 双语排版（内容从单语扩展为双语后新增） ----------------
+   中文是权威版本，英文是机器翻译的辅助。排版必须体现这个从属关系：
+   英文更小、更浅、永远排在中文之后。若两者视觉等重，使用者会误以为
+   它们是并列的两个权威文本 —— 而英文版一旦被当成官方文本引用，
+   错误就会传播出去（法律文本翻译出错比不译危险）。
+   ------------------------------------------------------------------- */
+.en{color:var(--ink-3);font-size:12.5px;line-height:1.5;letter-spacing:.1px}
+.en a{color:var(--ink-2)}
+.tt .en{display:block;margin-top:3px;font-weight:400}
+
+/* 详情页中英并排：宽屏两栏、窄屏堆叠。
+   用 grid 而非 flex —— 两栏需要等高，且各自内容独立增长。 */
+.split{display:grid;grid-template-columns:1fr 1fr;gap:0;
+  border:1px solid var(--line);border-radius:3px;overflow:hidden;
+  background:var(--card)}
+.split > *{min-width:0}
+.split > * + *{border-left:1px solid var(--line)}
+.split .pane > header{padding:7px 13px;background:var(--sunken);
+  border-bottom:1px solid var(--line);font-size:11.5px;font-weight:600;
+  color:var(--ink-3);letter-spacing:.6px}
+.split .pane > .body{padding:13px 15px}
+@media (max-width:900px){
+  .split{grid-template-columns:1fr}
+  .split > * + *{border-left:0;border-top:1px solid var(--line)}
+}
+
+/* 机器翻译声明：法律文本的译文必须始终带着它，
+   否则读者会把机翻当成官方英文版本。这是内容可信度的一部分，不是装饰。 */
+.mt-note{font-size:11.5px;color:var(--ink-3);margin:7px 0 0;
+  padding-left:9px;border-left:2px solid var(--line);line-height:1.5}
+
 @media (max-width:760px){
   .card{overflow-x:auto}
   .card table{min-width:560px}

@@ -278,6 +278,14 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
                 "UPDATE policy SET p_region=? WHERE p_region IS NULL AND IFNULL(o_site_name,'')=?",
                 (region_from_site_name(row["s"]), row["s"]),
             )
+    # 本地模型翻译结果。与中文原文**分列存放**：原文永远是权威版本，
+    # 译文只作阅读辅助 —— 两者必须能分别取用、分别清空，绝不混在一列里。
+    if _ensure_column(conn, "policy", "p_title_en", "p_title_en TEXT"):
+        applied.append("policy.p_title_en")
+    if _ensure_column(conn, "policy", "p_content_en", "p_content_en TEXT"):
+        applied.append("policy.p_content_en")
+    if _ensure_column(conn, "policy", "p_translated_at", "p_translated_at TEXT"):
+        applied.append("policy.p_translated_at")
     conn.commit()
     return applied
 

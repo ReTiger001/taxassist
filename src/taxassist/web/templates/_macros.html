@@ -32,14 +32,14 @@
 {%- endmacro %}
 
 {% macro docno_cell(no, confidence) -%}
-  {#- 文号必须标明来源：high = 从官方原文提取；其余 = 本系统按
-      「机关+年份+序号」重建，**不是原文文号**（原文形如「财税〔2013〕57号」）。
-      不标出来，使用者会把重建文号当真实文号用于正式引用。
-      实测：正文里不含文号，真实文号只能从详情页获取，故未抓详情页时必然为重建。 -#}
+  {#- 文号来源现在只有两种：official = 官方列表接口给的完整文号；
+      none = 官方没给。**我们不再拼装文号** ——
+      拼出来的「国务院1984年第161号」看着像真文号，比留空危险得多。
+      若将来出现第三种来源，落回虚线样式并标星，而不是假装官方。 -#}
   {%- if not no -%}<span class="d">—</span>
-  {%- elif confidence == 'high' -%}<span class="docno">{{ no }}</span>
+  {%- elif confidence == 'official' -%}<span class="docno">{{ no }}</span>
   {%- else -%}<span class="docno docno-recon"
-      title="系统重建的文号，不是原文文号；正式引用请以官方原文为准">{{ no }}<sup>*</sup></span>
+      title="文号来源非官方字段，正式引用前请核对原文">{{ no }}<sup>*</sup></span>
   {%- endif -%}
 {%- endmacro %}
 

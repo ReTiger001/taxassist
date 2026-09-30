@@ -205,6 +205,26 @@ def user_count(conn) -> int:
 _ATTEMPTS: dict[str, list[float]] = {}
 MAX_FAILURES = 8
 WINDOW_SEC = 300
+_MAX_KEYS = 4096
+
+
+def _evict_if_needed() -> None:
+    """键太多时淘汰**最久未活动**的条目，绝不整体清空。
+
+    审计确认的漏洞：这里原本是 `_ATTEMPTS.clear()`。攻击者只要用 4096 个随机
+    用户名各失败一次，就能把整张限速表清空 —— 包括对 owner 的失败计数 ——
+    于是「8 次后锁定」形同虚设，可以无限爆破。而不存在的用户名在 check_credentials
+    里因短路**不跑 scrypt**，冲刷成本极低。
+
+    改成淘汰最旧条目后这条路就断了：被丢掉的恰好是那些只出现一次的随机用户名，
+    而目标账号因为一直在活动，计数会被保留。
+    """
+    if len(_ATTEMPTS) <= _MAX_KEYS:
+        return
+    ordered = sorted(_ATTEMPTS.items(),
+                     key=lambda kv: max(kv[1]) if kv[1] else 0.0)
+    for key, _ in ordered[: len(_ATTEMPTS) - _MAX_KEYS]:
+        _ATTEMPTS.pop(key, None)
 
 
 def _recent(key: str) -> list[float]:
@@ -214,8 +234,7 @@ def _recent(key: str) -> list[float]:
         _ATTEMPTS.pop(key, None)          # 空键及时清掉，避免字典无限增长
     else:
         _ATTEMPTS[key] = kept
-    if len(_ATTEMPTS) > 4096:             # 兜底：被大量不同 key 冲刷时整体老化
-        _ATTEMPTS.clear()
+    _evict_if_needed()
     return kept
 
 
@@ -246,7 +265,14 @@ def check_credentials(conn, username: str, password: str) -> bool:
     row = conn.execute(
         "SELECT password_hash FROM app_user WHERE username=?", (username,)
     ).fetchone()
-    ok = bool(row) and verify_password(password, row["password_hash"])
+    # 账号不存在时也要跑一次等价开销的哈希计算：
+    # 否则「不存在」立刻返回、「存在」要跑 16ms 的 scrypt，响应时间本身
+    # 就成了「用户名是否存在」的侧信道，攻击者据此挑出有效账号再爆破。
+    if row is None:
+        hash_password(password)          # 开销等价，结果丢弃
+        ok = False
+    else:
+        ok = verify_password(password, row["password_hash"])
     if ok:
         record_success(conn, username)
     else:

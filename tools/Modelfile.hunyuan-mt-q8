@@ -1,0 +1,14 @@
+FROM D:\EY-project\data\models\Hunyuan-MT-7B.Q8_0.gguf
+
+# 与 Q4_K_M 版完全相同的模板与参数，唯一差别是权重精度 ——
+# 这样对比出来的差异才只归因于量化，而不是配置。
+# 模板里的控制标记是必须的，缺了会退化成续写模式（详见 Modelfile.hunyuan-mt 注释）。
+TEMPLATE """{{ if .System }}<|startoftext|>{{ .System }}<|extra_4|>{{ end }}{{ if .Prompt }}<|startoftext|>{{ .Prompt }}<|extra_0|>{{ end }}{{ .Response }}"""
+
+PARAMETER temperature 0.7
+PARAMETER top_k 20
+PARAMETER top_p 0.6
+PARAMETER repeat_penalty 1.05
+PARAMETER num_ctx 8192
+PARAMETER num_predict 512
+PARAMETER stop "<|eos|>"

@@ -5,6 +5,14 @@
 
 <h1>政策检索</h1>
 <p class="sub">检索范围：标题 / 文号 / 发文机关 / 正文 / 关键词。命中结果按成文日期倒序，政策文件优先于解读类内容。</p>
+{% if term_hits %}
+{# 用户搜英文却出中文结果，必须说明原因 —— 否则他会以为搜错了，或者以为库里有英文原文 #}
+<p class="sub term-mapped">
+  已按术语对照把你的英文说法理解为：
+  {% for t in term_hits %}<strong>{{ t }}</strong>{% if not loop.last %}、{% endif %}{% endfor %}
+  —— 库内政策为中文原文，故按对应中文词检索。
+</p>
+{% endif %}
 
 <form method="get" action="/search" class="filters">
   <input type="search" name="q" value="{{ q or '' }}" placeholder="如：研发费用加计扣除、国家税务总局公告2026年第19号"

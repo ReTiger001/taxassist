@@ -40,10 +40,16 @@ def main() -> int:
     print("   3. 页面内容会经过 Cloudflare 的服务器（已加密到其边缘）。")
     print()
 
-    print(f"[1/2] 启动本地服务（0.0.0.0:{PORT}，已启用认证）…")
+    print(f"[1/2] 启动本地服务（127.0.0.1:{PORT}，已启用认证）…")
+    # 只绑回环，不绑 0.0.0.0：
+    #   隧道（cloudflared / tailscaled）本来就是从 127.0.0.1 连进来的，
+    #   绑 0.0.0.0 不会让对外访问更容易，却会让**同网段任何人都能直连
+    #   http://<本机IP>:8765** 并明文传输口令 —— 办公室 LAN、酒店 Wi-Fi
+    #   都算。审计把这条列为实际暴露面。
+    #   --expose 与绑定地址解耦：即使只监听回环，也照样开认证。
     server = subprocess.Popen(
         [sys.executable, "-m", "taxassist", "serve",
-         "--host", "0.0.0.0", "--port", str(PORT)],
+         "--host", "127.0.0.1", "--port", str(PORT), "--expose"],
         cwd=str(ROOT))
     time.sleep(4)
 
