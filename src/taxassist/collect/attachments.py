@@ -90,6 +90,48 @@ def parse_docx(path: Path) -> str:
     return "\n".join(p.text for p in d.paragraphs if p.text.strip())
 
 
+# 老式文档（OLE2 的 .doc/.wps）没有纯 Python 解析器，但本机装有 WPS，
+# 它注册了 KWPS.Application（文字）/ KET.Application（表格）两个 COM 类。
+# 让 WPS 把文件另存为 .docx，再交给 python-docx —— 质量远高于自己啃 OLE2 二进制。
+_WPS_WRITER = "KWPS.Application"
+_WD_FORMAT_DOCX = 16          # Word 的「默认文档格式」，在 WPS 上同样接受
+
+
+def convert_legacy_doc(path: Path) -> Path | None:
+    """用 WPS 把老式文档转成 .docx，成功返回新路径，失败返回 None。
+
+    **失败必须返回 None 而不是抛异常**：转换依赖外部程序（可能未启动、可能
+    弹窗、可能被安全软件拦），个别文件转不了是常态，不该让整批解析中断。
+    """
+    try:
+        import win32com.client
+    except ImportError:
+        log.info("未安装 pywin32，跳过 WPS 转换")
+        return None
+
+    app = None
+    try:
+        app = win32com.client.DispatchEx(_WPS_WRITER)
+        app.Visible = False
+        app.DisplayAlerts = 0
+        doc = app.Documents.Open(str(path), ReadOnly=True, AddToRecentFiles=False)
+        try:
+            out = path.with_suffix(".docx")
+            doc.SaveAs2(str(out), FileFormat=_WD_FORMAT_DOCX)
+        finally:
+            doc.Close(False)
+        return out if out.exists() else None
+    except Exception as e:  # noqa: BLE001 - 外部程序，任何异常都算"转不了"
+        log.warning("WPS 转换失败 %s: %s", path.name, e)
+        return None
+    finally:
+        if app is not None:
+            try:
+                app.Quit()
+            except Exception:  # noqa: BLE001
+                pass
+
+
 # 文件头魔数。**不能只信扩展名**：实测税务局的附件里，名为 .docx 的文件
 # 文件头是 d0cf11e0（OLE2 老式文档），按扩展名交给 python-docx 必然抛
 # PackageNotFoundError —— 那不是"解析失败"，是我们选错了工具。
@@ -143,10 +185,20 @@ def parse_attachment(path: Path) -> tuple[str | None, str]:
     kind = sniff_kind(path)
 
     if kind == "ole2":
-        # 老式容器。表格能读，文档没有解析器 —— 如实标 unsupported：
-        # 它的格式就是这样，不是文件坏了。
+        # 老式容器。表格能读（xlrd）；文档（.doc/.wps）没有纯 Python 解析器，
+        # 先用 WPS 另存为 .docx 再解析（见 convert_legacy_doc）。
+        # 转换失败仍然如实标 unsupported —— 那是"格式读不了"，不是"文件坏了"。
         if ext in _OLE2_READABLE:
             return _run_parser(parse_xls, path)
+        converted = convert_legacy_doc(path)
+        if converted is not None:
+            try:
+                return _run_parser(parse_docx, converted)
+            finally:
+                try:
+                    converted.unlink()      # 转换产物是临时的，不留档
+                except OSError:
+                    pass
         return None, "unsupported"
 
     if kind == "zip" and ext in _ZIP_ALIASES:

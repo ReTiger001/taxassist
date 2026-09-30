@@ -242,6 +242,8 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://jiangxi.chinatax.gov.cn",
         needs_js=True,
+        # 注：本站「政策法规库」(/col/col23417/index.html) 是 JS 检索页，
+        # 静态列表解析不出条目（实测 0 条），故未配 extra_urls。
     ),
     ListPageAdapter(
         source_id="shaanxi_zcwj",
@@ -394,7 +396,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         needs_js=True,
         # 再带上「政策解读」栏目：单靠「最新文件」只有最近的一二十条，
         # 多配一个栏目就多一份覆盖面（见 ListPageAdapter.extra_urls）。
-        extra_urls=("https://xizang.chinatax.gov.cn/col/col5346/index.html",),
+        # 「政策解读」有效（+24 条）；本站「政策法规库」(col5510) 是 JS 检索页，
+        # 静态列表解析不出条目（实测 0 条），故只配了前者。
+        extra_urls=(
+            "https://xizang.chinatax.gov.cn/col/col5346/index.html",
+        ),
     ),
     # 辽宁：**默认 6 秒的挑战等待不够** —— 那样只拿到空壳，看起来像"站点抓不到"。
     # 给到 12 秒才出内容（列表页 43744 字节、52 个详情链接）。
@@ -496,6 +502,8 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="http://qinghai.chinatax.gov.cn",
         needs_js=True,
         wait_ms=12000,
+        # 注：本站「政策法规库」(/web/zcfgk/fgk.shtml) 是 JS 检索页，
+        # 静态列表解析不出条目（实测 0 条），故未配 extra_urls。
     ),
     ListPageAdapter(
         source_id="qinghai_zcfg",
