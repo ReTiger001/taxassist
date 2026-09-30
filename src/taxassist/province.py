@@ -183,6 +183,44 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         base_url="http://zhejiang.chinatax.gov.cn",
         needs_js=True,
     ),
+    ListPageAdapter(
+        source_id="henan_zcwj",   # 注意：不能用 hn_ 前缀，湖南已占用 hn_zcwj
+        region="河南",
+        site_name="国家税务总局河南省税务局",
+        list_url="https://henan.chinatax.gov.cn/zcwj/",
+        detail_href_re=r"/20\d\d/\d{2}-\d{2}/\d+\.html",
+        base_url="https://henan.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="ah_zcfg",
+        region="安徽",
+        site_name="国家税务总局安徽省税务局",
+        list_url="http://anhui.chinatax.gov.cn/col/col9416/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://anhui.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="jx_zcwj",
+        region="江西",
+        site_name="国家税务总局江西省税务局",
+        list_url="http://jiangxi.chinatax.gov.cn/col/col31015/index.html",
+        # 江西的 href 是**绝对 URL**，上海的是相对路径 "./..." ——
+        # 正则只取 path 部分，所以同一套写法对两种形式都成立。
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://jiangxi.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="shaanxi_zcwj",
+        region="陕西",
+        site_name="国家税务总局陕西省税务局",
+        list_url="http://shaanxi.chinatax.gov.cn/col/col3899/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://shaanxi.chinatax.gov.cn",
+        needs_js=True,
+    ),
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
