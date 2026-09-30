@@ -20,6 +20,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 
@@ -103,6 +104,10 @@ def convert_legacy_doc(path: Path) -> Path | None:
     **失败必须返回 None 而不是抛异常**：转换依赖外部程序（可能未启动、可能
     弹窗、可能被安全软件拦），个别文件转不了是常态，不该让整批解析中断。
     """
+    if os.environ.get("TAXASSIST_NO_WPS"):
+        # 单元测试不该依赖外部程序：启动 WPS 要几秒，还可能弹窗或挂住。
+        # conftest 默认设了这个变量；要专门测转换本身时把它清掉即可。
+        return None
     try:
         import win32com.client
     except ImportError:
