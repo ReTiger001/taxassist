@@ -163,10 +163,18 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         source_id="hb_zcwj",
         region="湖北",
         site_name="国家税务总局湖北省税务局",
-        list_url="http://hubei.chinatax.gov.cn/hbsw/zcwj/zxwj/index.html",
-        detail_href_re=r"/hbsw/zcwj/[a-z]+/\d+\.htm",
+        # 政策法规库（zcfgk）**本身就是文章列表页**，不是导航页 —— 实测一次
+        # 给出 2586 篇，按税种分目录（/zcfgk/zzs/1593613.htm）。
+        # 原正则 /hbsw/zcwj/[a-z]+/\d+\.htm 只认两层，匹配不到三层目录，
+        # 现象是"没解析出条目"，极易被误判成"页面改版"。
+        # zxwj（最新文件，两层路径）也一并收，用交替覆盖两种形态。
+        list_url="http://hubei.chinatax.gov.cn/hbsw/zcwj/zcfgk/index.html",
+        detail_href_re=r"/hbsw/zcwj/(?:zcfgk/[a-z]+|zxwj)/\d+\.htm",
         base_url="http://hubei.chinatax.gov.cn",
         needs_js=True,
+        # 政策法规库页面要渲染 840KB 才出内容，默认 6 秒只拿到空壳
+        # （现象是"没解析出条目"，很容易被误判成页面改版）。实测约 10 秒够。
+        wait_ms=11000,
     ),
     ListPageAdapter(
         source_id="hn_zcwj",
@@ -634,6 +642,49 @@ def _clean_title(raw: str | None) -> str:
     return t
 
 
+# layui 表格站：**数据全塞在 <script> 的 datajson.push({...}) 里**，
+# DOM 只渲染当前页。实测湖北政策法规库 DOM 10 条 / 脚本 2749 条，差 275 倍 ——
+# 只按 DOM 解析会安静地少抓 99%，而且页面"看起来是好的"，极难发现。
+_LAYUI_ENTRY_RE = re.compile(r"datajson\.push\(\s*\{(?P<body>.*?)\}\s*\)", re.S)
+_LAYUI_TITLE_RE = re.compile(r'href="([^"]+)"[^>]*>(.*?)</a>', re.S)
+_LAYUI_DATE_RE = re.compile(r'"publishDate"\s*:\s*[\'"]([^\'"]+)[\'"]')
+
+
+def _parse_layui_datajson(html_text: str, pattern: re.Pattern,
+                          adapter: ListPageAdapter) -> list[dict]:
+    """从 layui 的 datajson 脚本数据里取条目；页面没有这种脚本时返回空表。"""
+    items: list[dict] = []
+    seen: set[str] = set()
+    for m in _LAYUI_ENTRY_RE.finditer(html_text):
+        block = m.group("body")
+        t = _LAYUI_TITLE_RE.search(block)
+        if not t:
+            continue
+        href, raw_title = t.group(1), t.group(2)
+        if not pattern.search(href):
+            continue
+        title = _clean_title(norm_text(re.sub(r"<[^>]+>", "", raw_title)))
+        if not title or len(title) < 6:
+            continue
+        url = urljoin(adapter.base_url, href)
+        if url in seen:
+            continue
+        seen.add(url)
+        cwrq = None
+        d = _LAYUI_DATE_RE.search(block)
+        if d:
+            mm = _DATE_RE.search(d.group(1)) or _DATE_YMD_SLASH_RE.search(d.group(1))
+            if mm:
+                cwrq = f"{mm.group(1)}-{int(mm.group(2)):02d}-{int(mm.group(3)):02d}"
+        items.append({
+            "url": url,
+            "title": title,
+            "cwrq": cwrq,
+            "doc_uid": f"{adapter.source_id}:" + hashlib.md5(url.encode()).hexdigest()[:16],
+        })
+    return items
+
+
 def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
     """解析静态列表页，返回条目列表。
 
@@ -642,6 +693,12 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
     """
     doc = LH.fromstring(html_text)
     pattern = re.compile(adapter.detail_href_re)
+
+    # 先试 layui 的脚本数据：命中就直接返回（数据比 DOM 全得多，见上面注释）
+    layui_items = _parse_layui_datajson(html_text, pattern, adapter)
+    if layui_items:
+        return layui_items
+
     items: list[dict] = []
     seen: set[str] = set()
 
