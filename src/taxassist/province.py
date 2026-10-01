@@ -201,7 +201,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         source_id="hn_zcwj",
         region="湖南",
         site_name="国家税务总局湖南省税务局",
-        list_url="http://hunan.chinatax.gov.cn/category/20190624092865",
+        # 指向「最新文件」列表页，而不是原来的聚合页 /category/20190624092865。
+        # 那个聚合页把「最新文件 / 政策解读 / **热点问答** / 图解税收」混在一起，
+        # 于是"我们准备新开办一家企业，请问办理税务登记需要收费吗？"这类
+        # 咨询问答也进了政策库 —— 内容没错，但它不是政策，混进来会干扰检索。
+        list_url="http://hunan.chinatax.gov.cn/lists/20190725027557",
         detail_href_re=r"/show/\d+",
         base_url="http://hunan.chinatax.gov.cn",
         needs_js=True,
