@@ -116,6 +116,9 @@ class ListPageAdapter:
     #: 正文所在字段名。给了就直接入库 —— 省掉逐条抓详情页
     #: （北京接口一次性返回 7789 条的完整正文，这是最省的一条路）
     api_content_field: str = ""
+    #: 官方文号字段名。接口给的往往就是**原文真文号**，比从标题里正则提取的
+    #: 可靠得多 —— 北京 fwzh 字段 3155 条全带（如"国家税务总局公告2026年第20号"）。
+    api_docno_field: str = ""
     api_page_field: str = "pageNo"     # 页码字段名（贵州 pageNo / 北京 PageNumber）
     #: 静态分页模板。河北的分页是 index_1.html / index_2.html…（**纯静态**，
     #: 不是 AJAX），所以不用扒接口，按页抓即可。{n} 替换成 1..page_count。
@@ -286,6 +289,7 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         api_fields=("question", "", "fwrq"),   # 无链接字段 → 用 api_id_field
         api_id_field="id",
         api_content_field="answer",            # 正文直接带出来，不再逐条抓详情
+        api_docno_field="fwzh",                # 官方真文号（全库文号质量的解药）
         api_body={
             "Field": 180,
             "PageSize": 50,
@@ -456,6 +460,10 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         api_url="https://guizhou.chinatax.gov.cn/irs/front/list",
         api_pages=110,
         api_fields=("f_202163261554", "doc_pub_url", "save_time"),
+        # 正文与文号：接口里其实都有，第一次接的时候只配了标题与链接。
+        # 正文在 f_202161645127（HTML），文号不在字段里 —— 由 build_provincial_row
+        # 从正文提取（比从标题提取的拼装品可靠）。
+        api_content_field="f_202161645127",
         api_body={
             "pageSize": 50,
             "tenantId": 71,
@@ -980,7 +988,12 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
 
 def build_provincial_row(item: dict, adapter: ListPageAdapter) -> dict:
     """把列表页条目转成 policy 表的一行。"""
-    doc_no = extract_full_doc_no(item.get("title"))
+    # 文号来源按可靠性排序：**接口给的官方文号 > 正文里出现的 > 标题里提取的**。
+    # 标题里提取的多半是"机关+年份+序号"的拼装品；正文里的才是原文写出来的。
+    doc_no = (item.get("doc_no")
+              or extract_full_doc_no(item.get("content"))
+              or extract_full_doc_no(item.get("title")))
+    conf = "official" if item.get("doc_no") else ("high" if doc_no else "low")
     return {
         "doc_uid": item["doc_uid"],
         "url": item["url"],
@@ -998,7 +1011,7 @@ def build_provincial_row(item: dict, adapter: ListPageAdapter) -> dict:
         "cwrq": item.get("cwrq"),
         "pub_date": item.get("cwrq"),
         "p_doc_no_full": doc_no,
-        "p_doc_no_confidence": "high" if doc_no else "low",
+        "p_doc_no_confidence": conf,
         "pub_name": adapter.site_name,
         "first_seen_at": now_iso(),
         "last_seen_at": now_iso(),
@@ -1061,9 +1074,19 @@ def _fetch_json_api(client: GuardedClient, adapter: ListPageAdapter) -> list[dic
                            + hashlib.md5(url.encode()).hexdigest()[:16],
             }
             if adapter.api_content_field:
-                body = norm_text(str(row.get(adapter.api_content_field) or ""))
+                raw_body = str(row.get(adapter.api_content_field) or "")
+                # 接口给的正文有两种形态：北京 answer 是纯文本，
+                # 贵州 f_202161645127 是 HTML（<div class="trs_editor_view">…）。
+                # 统一去过标签再入库，否则 HTML 标签会污染检索。
+                if "<" in raw_body:
+                    raw_body = re.sub(r"<[^>]+>", " ", raw_body)
+                body = norm_text(raw_body)
                 if body:
                     item["content"] = body
+            if adapter.api_docno_field:
+                no = norm_text(str(row.get(adapter.api_docno_field) or ""))
+                if no:
+                    item["doc_no"] = no
             out.append(item)
     return out
 
