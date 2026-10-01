@@ -207,10 +207,29 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # 咨询问答也进了政策库 —— 内容没错，但它不是政策，混进来会干扰检索。
         list_url="http://hunan.chinatax.gov.cn/lists/20190725027557",
         detail_href_re=r"/show/\d+",
-        # 【待续】「最新文件」实测只有一页 15 条，历史政策需要翻页或走它
-        # 自己的「政策法规库」（hngsww/FullTextSearchBLH_searchMain.do）。
-        # 下一步：先看列表页有没有分页链接；没有就按接口方式接那个检索系统
-        # （湖南与河北、贵州同类，都是"只给第一页"）。
+        # ------------------------------------------------------------------
+        # 【已探明，暂不接入】湖南的政策全量在「12366 知识库」检索系统里：
+        #
+        #   POST https://hunan.chinatax.gov.cn/hngsww/
+        #        FullTextSearchBLH_getpagedata.do
+        #   Content-Type: application/x-www-form-urlencoded
+        #   page=1&pageSize=10&treeVal=1&xzqh=&zlType=&zlflag=1
+        #        &keywords=&pxlx=&pxzd=
+        #
+        # 实测：共 8276 条 / 828 页。每条结果的 ID 前缀标明了层级 ——
+        #   1430000002… = 湖南省局（省级）
+        #   0000000002… = 总局
+        # 栏目分「税收法规 / 全国涉税政策 / 省级涉税政策 / 市级 / 县级」。
+        #
+        # **为什么不接入**：该接口有 JS 挑战 WAF（返回 412 + MMB1_*.js），
+        # GuardedClient 的 curl_cffi **过不去**（已实测），只能走真浏览器。
+        # 828 页 × 约 10 秒/页 ≈ 2.3 小时，且现有 fetch_html 只支持 GET，
+        # 要新增"浏览器内提交表单"的能力才做得到。
+        #
+        # 取舍：湖南当前已有 5 条真政策（来自「最新文件」），日更够用；
+        # 全量回填的性价比低于其它省，暂缓。
+        # 若日后要做：给 fetch_html 加 submit_form，或在页面里 eval 提交。
+        # ------------------------------------------------------------------
         base_url="http://hunan.chinatax.gov.cn",
         needs_js=True,
     ),
