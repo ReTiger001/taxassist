@@ -213,6 +213,31 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/bjswj/sszc/zxwj/\d{6}/[0-9a-f]+\.shtml",
         base_url="http://beijing.chinatax.gov.cn",
         needs_js=True,
+        # ------------------------------------------------------------------
+        # 【待接入】北京另有一个独立的「税费知识库」（Vue SPA），**7789 条**，
+        # 字段比任何现有源都全 —— 带官方真文号与有效性标注：
+        #
+        #   POST https://znhd.beijing.chinatax.gov.cn:8443/zsknsrd/api/
+        #        zsknsrdsjjsService/search/v1/listKnowledge
+        #   {"Field":180,"SortBy":"UpdateTime","PageNumber":1,"PageSize":10,
+        #    "Order":"desc","Range":[1,2,6],"Ztfl":[],"Yxx":[],"Zsqy":[12703],
+        #    "Zssx":[[],[]],"Text":""}
+        #
+        # 响应路径与贵州不同：列表在 Response.Data.List（贵州是 data.list），
+        # 总数在 Response.Data.Total。**没有链接字段** —— 正文直接给在 answer
+        # 里，所以要用 id 合成伪 URL。
+        #
+        # 字段（22 个，实测）：
+        #   question = 标题            answer = 正文
+        #   fwzh     = 发文字号（官方真文号）  fwrq   = 发文日期
+        #   yxx      = 有效性（数值，需解码）  fjmc   = 附件文件名列表
+        #   zssx     = 所属税种         ztfl   = 主题分类
+        #   id       = 722957          code   = F260930001698781
+        #
+        # 坑：httpx 直连会被服务端断开（Server disconnected without sending
+        # a response），必须走 GuardedClient 的 curl_cffi —— 已用 post_json
+        # 实测通过（Total=7789）。
+        # ------------------------------------------------------------------
     ),
     ListPageAdapter(
         source_id="sh_zcfgk",
