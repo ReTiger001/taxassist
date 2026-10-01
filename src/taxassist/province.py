@@ -109,6 +109,18 @@ class ListPageAdapter:
     api_body: dict | None = None          # 固定参数（含 customFilter 等）
     api_pages: int = 0                    # 拉多少页；0 表示该源不用接口
     api_fields: tuple[str, str, str] = ("", "", "")   # (标题, 链接, 日期) 字段名
+    #: 响应里列表所在的路径。贵州是 ("data","list")，北京是 ("Response","Data","List")
+    api_list_path: tuple[str, ...] = ("data", "list")
+    #: 接口**不给链接**时，用它合成一个伪 URL（北京只有 id，正文直接在响应里）
+    api_id_field: str = ""
+    #: 正文所在字段名。给了就直接入库 —— 省掉逐条抓详情页
+    #: （北京接口一次性返回 7789 条的完整正文，这是最省的一条路）
+    api_content_field: str = ""
+    api_page_field: str = "pageNo"     # 页码字段名（贵州 pageNo / 北京 PageNumber）
+    #: 静态分页模板。河北的分页是 index_1.html / index_2.html…（**纯静态**，
+    #: 不是 AJAX），所以不用扒接口，按页抓即可。{n} 替换成 1..page_count。
+    page_url_template: str = ""
+    page_count: int = 0
 
 
 # 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
@@ -238,6 +250,27 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # a response），必须走 GuardedClient 的 curl_cffi —— 已用 post_json
         # 实测通过（Total=7789）。
         # ------------------------------------------------------------------
+        # 7789 条 ÷ 50/页 ≈ 156 页，取 160 留余量。
+        api_url="https://znhd.beijing.chinatax.gov.cn:8443/zsknsrd/api/"
+                "zsknsrdsjjsService/search/v1/listKnowledge",
+        api_pages=160,
+        api_page_field="PageNumber",       # 北京用 PageNumber（贵州是 pageNo）
+        api_list_path=("Response", "Data", "List"),
+        api_fields=("question", "", "fwrq"),   # 无链接字段 → 用 api_id_field
+        api_id_field="id",
+        api_content_field="answer",            # 正文直接带出来，不再逐条抓详情
+        api_body={
+            "Field": 180,
+            "PageSize": 50,
+            "SortBy": "UpdateTime",
+            "Order": "desc",
+            "Range": [1, 2, 6],
+            "Ztfl": [],
+            "Yxx": [],
+            "Zsqy": [12703],
+            "Zssx": [[], []],
+            "Text": "",
+        },
     ),
     ListPageAdapter(
         source_id="sh_zcfgk",
@@ -670,21 +703,15 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"\./\d{6}/t\d+_\d+\.html",
         base_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/",
         needs_js=True,
-        # ------------------------------------------------------------------
-        # 【待实现】河北页面写着 **共 4938 条**，而只解析出 21 条 —— 比湖北
-        # 还严重。它是全量复核脚本挑出来的（判据：页面有"共 N 条"，且
-        # N >> DOM 条目数 → 翻页走 AJAX，我们只拿到第一页）。
-        #
-        # 处理方式与贵州同类，照做即可：
-        #   ① 浏览器打开 list_url，点"下一页"
-        #   ② 从 network 抓翻页接口与请求体
-        #   ③ 配 api_url / api_body / api_pages / api_fields
+        # 页面写着"共4938条"，而原先只解析出 21 条 —— 由复核脚本挑出来。
+        # 好消息是河北**不需要扒接口**：分页是 index_1.html … index_330.html
+        # 这种纯静态链接，按页抓即可（与贵州/北京的 AJAX 分页不同）。
         #
         # —— 本轮 32 个源的全量复核结论 ——
-        #   可疑的只有两个：湖北（已修，0→274 条）与本项河北；
+        #   可疑的只有两个：湖北（已修，0→274）与河北（本项）；
         #   其余 30 个源"DOM 条目数 ≈ 全文正则匹配数"，没有数据藏在脚本里。
-        #   复核方法：比对 DOM <a> 匹配数、全文正则匹配数、页面"共 N 条"。
-        # ------------------------------------------------------------------
+        page_url_template="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/index_{n}.html",
+        page_count=330,
     ),
     ListPageAdapter(
         source_id="hebei_zcjd",
@@ -931,6 +958,10 @@ def build_provincial_row(item: dict, adapter: ListPageAdapter) -> dict:
         "snapshot_url": None,
         "url_md5": None,
         "title": item["title"],
+        # 接口型源（北京）在列表阶段就带回了正文，直接落库 ——
+        # 省掉逐条抓详情页（7789 条按 1.5 秒/条算要三个多小时）。
+        # content_hash 由 store.upsert_policy 统一计算，这里不用管。
+        "content": item.get("content"),
         "o_column": adapter.column,
         "o_site_name": adapter.site_name,
         "o_label": "地方文件",
@@ -958,21 +989,34 @@ def _fetch_json_api(client: GuardedClient, adapter: ListPageAdapter) -> list[dic
     seen: set[str] = set()
     for page in range(1, adapter.api_pages + 1):
         body = dict(adapter.api_body or {})
-        body["pageNo"] = page
+        # 页码字段名各站不同：贵州是 pageNo，北京是 PageNumber。
+        # 写死一个名字会导致**每页都请求第 1 页**，去重后只剩几十条 ——
+        # 而且不报错、状态还是 ok（实测踩过：7789 条只拿到 65 条）。
+        body[adapter.api_page_field] = page
         try:
             data = client.post_json(adapter.api_url, body, max_retries=1)
         except Exception as e:  # noqa: BLE001 - 翻页失败不该丢掉已拿到的
             log.warning("接口翻页中断 %s page=%s: %s", adapter.source_id, page, e)
             break
-        rows = (data.get("data") or {}).get("list") or []
+        rows = data
+        for key in adapter.api_list_path:
+            rows = (rows or {}).get(key) if isinstance(rows, dict) else None
+        rows = rows or []
         if not rows:
             break
         for row in rows:
             href = str(row.get(url_f) or "").strip()
-            title = norm_text(str(row.get(title_f) or ""))
-            if not href or not title or len(title) < 6:
+            if not href and adapter.api_id_field:
+                # 接口不给链接（北京只有 id）：合成伪 URL 供 doc_uid 用。
+                # 这类条目的正文由 api_content_field 直接带出来，不依赖详情页。
+                href = f"kb:{row.get(adapter.api_id_field)}"
+            if not href:
                 continue
-            url = urljoin(adapter.base_url, href)
+            title = norm_text(str(row.get(title_f) or ""))
+            if not title or len(title) < 6:
+                continue
+            url = href if href.startswith("kb:") \
+                else urljoin(adapter.base_url, href)
             if url in seen:
                 continue
             seen.add(url)
@@ -980,13 +1024,18 @@ def _fetch_json_api(client: GuardedClient, adapter: ListPageAdapter) -> list[dic
                 or _DATE_YMD_SLASH_RE.search(str(row.get(date_f) or ""))
             cwrq = (f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
                     if m else None)
-            out.append({
+            item = {
                 "url": url,
                 "title": title,
                 "cwrq": cwrq,
                 "doc_uid": f"{adapter.source_id}:"
                            + hashlib.md5(url.encode()).hexdigest()[:16],
-            })
+            }
+            if adapter.api_content_field:
+                body = norm_text(str(row.get(adapter.api_content_field) or ""))
+                if body:
+                    item["content"] = body
+            out.append(item)
     return out
 
 
@@ -1001,7 +1050,14 @@ def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[di
     """
     from dataclasses import replace
 
-    urls = (adapter.list_url, *adapter.extra_urls)
+    urls = [adapter.list_url, *adapter.extra_urls]
+    # 静态分页（河北 index_1.html … index_330.html）：展开成额外列表页。
+    # 与"接口分页"的区别是这些页是**真静态 HTML**，不用扒接口、也不用浏览器交互。
+    if adapter.page_url_template and adapter.page_count:
+        for i in range(1, adapter.page_count + 1):
+            u = adapter.page_url_template.format(n=i)
+            if u != adapter.list_url:
+                urls.append(u)
     seen: set[str] = set()
     out: list[dict] = []
     errors: list[str] = []
