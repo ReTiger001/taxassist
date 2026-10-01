@@ -455,13 +455,19 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
             for item in items:
                 row = build_provincial_row(item, adapter)
 
-                # 跨源去重：同一份文件可能既在总局库、又被省级站转载。
-                # 实测：广东站转载了多份总局公告，不去重会在检索结果里出现
-                # 两条标题完全相同、一条有正文一条没有的记录，让人以为系统重复了。
-                # 保留先入库的那条（总局源通常先到）。
+                # 跨源去重：同一份文件可能既在总局库、又被省级站转载
+                # （实测：广东站转载了多份总局公告，不去重会出现两条标题完全
+                # 相同的记录，让人以为系统重复了）。保留先入库的那条。
+                #
+                # **判重必须连成文日期一起看 —— 同名不等于重复。**
+                # 实测：总局库里有 14 条"关于调整增值税纳税申报有关事项的
+                # 公告"，是 2011–2026 年间逐年发布的**不同修订版本**（日期、
+                # 内容、效力各不相同）。只按标题判重会把它们当成一条；更糟
+                # 的是省级站转载的若是较新版本，会被误判成重复而丢弃。
                 duplicate = conn.execute(
-                    "SELECT 1 FROM policy WHERE title = ? AND doc_uid <> ? LIMIT 1",
-                    (row["title"], row["doc_uid"]),
+                    "SELECT 1 FROM policy WHERE title = ? AND doc_uid <> ?"
+                    " AND IFNULL(cwrq,'') = IFNULL(?,'') LIMIT 1",
+                    (row["title"], row["doc_uid"], row.get("cwrq")),
                 ).fetchone()
                 if duplicate is not None:
                     skipped += 1
