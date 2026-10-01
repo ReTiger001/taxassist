@@ -409,6 +409,11 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # 同一套 CMS 下并列三个栏目：zxwj 最新文件 / zcjd 政策解读 / rdwd 热点问答。
         # 只写 zxwj 会漏掉一半（实测候选 48 条只匹配到 14 条）。
         detail_href_re=r"(?:zxwj|zcjd|rdwd)/\d{6}/t\d+_\d+\.html",
+        # 「最新文件」栏有**静态分页**（/zcwj/zxwj/index_N.html）——
+        # 实测页内有 15 个文章链接 + 10 个 index_N.html 分页链接。
+        # 原先只抓 /zcwj/ 首页，所以只有 13 条。
+        page_url_template="https://guangxi.chinatax.gov.cn/zcwj/zxwj/index_{n}.html",
+        page_count=60,
         base_url="https://guangxi.chinatax.gov.cn/zcwj/",
         needs_js=True,
     ),
@@ -731,6 +736,10 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         needs_js=True,
         wait_ms=14000,
         timeout_ms=90000,
+        # 列表页有**静态分页**（index_1.htm …）—— 实测页内同时有 15 个文章链接
+        # 和 11 个 index_N.htm 分页链接。只抓第一页会漏掉全部历史政策。
+        page_url_template="https://xinjiang.chinatax.gov.cn/sszc/zxwj/index_{n}.htm",
+        page_count=60,
     ),
     # 新疆的政策解读，与重庆一样单独接一个源
     ListPageAdapter(
