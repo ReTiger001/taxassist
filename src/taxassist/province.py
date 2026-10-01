@@ -569,34 +569,38 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         extra_urls=("https://neimenggu.chinatax.gov.cn/zcfgk/zcfgk",),
     ),
     ListPageAdapter(
-        source_id="hlj_jsearch",
+        source_id="hlj_zcwj",
         region="黑龙江",
         site_name="国家税务总局黑龙江省税务局",
-        # 政策法规库走 jsearchfront 检索（TRS 系统，**与吉林同一套**）。
-        # websiteid 从搜索框隐藏字段拿到；q 用"税"这个通用词覆盖全部政策。
-        # 结果里 /art/<年>/<月>/<日>/art_<数字>_<数字>.html 即文章。
-        list_url=("http://heilongjiang.chinatax.gov.cn/jsearchfront/search.do"
-                  "?websiteid=230000000000000&p=1&q=%E7%A8%8E"),
+        # **不要用「政策法规库」**：那是个 jsearchfront 检索壳页，
+        # q= 只返回固定 22 条，且实测 p / page / pageNo / pageNum /
+        # currentPage / pn / start 七种分页参数**全部无效**（返回同一批）。
+        # 真正的政策列表在首页 →「政策文件」这个 col 栏目里，页内直接给文章。
+        list_url="http://heilongjiang.chinatax.gov.cn/col/col7573/index.html",
         detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
         base_url="http://heilongjiang.chinatax.gov.cn",
         needs_js=True,
-        page_url_template=("http://heilongjiang.chinatax.gov.cn/jsearchfront/"
-                           "search.do?websiteid=230000000000000&p={n}&q=%E7%A8%8E"),
-        page_count=60,
     ),
     ListPageAdapter(
-        source_id="gs_jsearch",
+        source_id="gs_zcwj",
         region="甘肃",
         site_name="国家税务总局甘肃省税务局",
-        # 同黑龙江（同一套 jsearchfront，websiteid 不同）
-        list_url=("http://gansu.chinatax.gov.cn/jsearchfront/search.do"
-                  "?websiteid=620000000000000&p=1&q=%E7%A8%8E"),
+        # 同黑龙江：走「政策文件」栏，不用那个 jsearchfront 壳页
+        list_url="http://gansu.chinatax.gov.cn/col/col4/index.html",
         detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
         base_url="http://gansu.chinatax.gov.cn",
         needs_js=True,
-        page_url_template=("http://gansu.chinatax.gov.cn/jsearchfront/"
-                           "search.do?websiteid=620000000000000&p={n}&q=%E7%A8%8E"),
-        page_count=60,
+    ),
+    ListPageAdapter(
+        source_id="jx_zcwj",
+        region="江西",
+        site_name="国家税务总局江西省税务局",
+        # 同黑龙江/甘肃（江西的「政策法规库」也是 jsearchfront 壳页，
+        # websiteid=360000000000000 但那套只给固定 10 条）
+        list_url="http://jiangxi.chinatax.gov.cn/col/col31015/index.html",
+        detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
+        base_url="http://jiangxi.chinatax.gov.cn",
+        needs_js=True,
     ),
     ListPageAdapter(
         source_id="gs_zcwj",
