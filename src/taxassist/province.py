@@ -569,6 +569,36 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         extra_urls=("https://neimenggu.chinatax.gov.cn/zcfgk/zcfgk",),
     ),
     ListPageAdapter(
+        source_id="hlj_jsearch",
+        region="黑龙江",
+        site_name="国家税务总局黑龙江省税务局",
+        # 政策法规库走 jsearchfront 检索（TRS 系统，**与吉林同一套**）。
+        # websiteid 从搜索框隐藏字段拿到；q 用"税"这个通用词覆盖全部政策。
+        # 结果里 /art/<年>/<月>/<日>/art_<数字>_<数字>.html 即文章。
+        list_url=("http://heilongjiang.chinatax.gov.cn/jsearchfront/search.do"
+                  "?websiteid=230000000000000&p=1&q=%E7%A8%8E"),
+        detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
+        base_url="http://heilongjiang.chinatax.gov.cn",
+        needs_js=True,
+        page_url_template=("http://heilongjiang.chinatax.gov.cn/jsearchfront/"
+                           "search.do?websiteid=230000000000000&p={n}&q=%E7%A8%8E"),
+        page_count=60,
+    ),
+    ListPageAdapter(
+        source_id="gs_jsearch",
+        region="甘肃",
+        site_name="国家税务总局甘肃省税务局",
+        # 同黑龙江（同一套 jsearchfront，websiteid 不同）
+        list_url=("http://gansu.chinatax.gov.cn/jsearchfront/search.do"
+                  "?websiteid=620000000000000&p=1&q=%E7%A8%8E"),
+        detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
+        base_url="http://gansu.chinatax.gov.cn",
+        needs_js=True,
+        page_url_template=("http://gansu.chinatax.gov.cn/jsearchfront/"
+                           "search.do?websiteid=620000000000000&p={n}&q=%E7%A8%8E"),
+        page_count=60,
+    ),
+    ListPageAdapter(
         source_id="gs_zcwj",
         region="甘肃",
         site_name="国家税务总局甘肃省税务局",
