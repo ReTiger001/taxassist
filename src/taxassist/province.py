@@ -580,6 +580,9 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
         base_url="http://heilongjiang.chinatax.gov.cn",
         needs_js=True,
+        # 「最新文件」是同一站里更接近政策本体的栏目（实测政策文件栏只有
+        # 几十条单页，而最新文件是持续更新的入口）
+        extra_urls=("http://heilongjiang.chinatax.gov.cn/col/col16798/index.html",),
     ),
     ListPageAdapter(
         source_id="gs_zcwj",
@@ -590,6 +593,10 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
         base_url="http://gansu.chinatax.gov.cn",
         needs_js=True,
+        # 「税收规范性文件」是甘肃省局发布规范性文件的**正式栏目** ——
+        # 这才是省级政策本体的所在，比泛泛的"政策文件"栏准确得多
+        extra_urls=("http://gansu.chinatax.gov.cn/col/col9689/index.html",
+                    "http://gansu.chinatax.gov.cn/col/col36/index.html"),
     ),
     ListPageAdapter(
         source_id="jx_zcwj",
@@ -601,6 +608,7 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
         base_url="http://jiangxi.chinatax.gov.cn",
         needs_js=True,
+        extra_urls=("http://jiangxi.chinatax.gov.cn/col/col31884/index.html",),
     ),
     ListPageAdapter(
         source_id="gs_zcwj",
