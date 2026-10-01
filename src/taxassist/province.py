@@ -700,17 +700,19 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         region="河北",
         site_name="国家税务总局河北省税务局",
         list_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/",
-        detail_href_re=r"\./\d{6}/t\d+_\d+\.html",
+        # 两种路径形态都要认：普通列表页给相对路径（./202609/t…），
+        # 无障碍版检索接口给绝对路径（hebei.chinatax.gov.cn/hbsw/sszc/zxwj/…）。
+        detail_href_re=r"(?:\./|hebei\.chinatax\.gov\.cn/hbsw/sszc/zxwj/)"
+                       r"\d{6}/t\d+_\d+\.html",
         base_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/",
         needs_js=True,
-        # 页面写着"共4938条"，而原先只解析出 21 条 —— 由复核脚本挑出来。
-        # 好消息是河北**不需要扒接口**：分页是 index_1.html … index_330.html
-        # 这种纯静态链接，按页抓即可（与贵州/北京的 AJAX 分页不同）。
-        #
-        # —— 本轮 32 个源的全量复核结论 ——
-        #   可疑的只有两个：湖北（已修，0→274）与河北（本项）；
-        #   其余 30 个源"DOM 条目数 ≈ 全文正则匹配数"，没有数据藏在脚本里。
-        page_url_template="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/index_{n}.html",
+        # 普通列表页的 index_N.html **只到第 66 页**（约 990 条）就没了，
+        # 而站点声明 4938 条。全量的 330 页在**无障碍版**的 TRS 检索系统里
+        # （GET 参数分页）—— 这一点是从浏览器里"尾页"链接找到的，
+        # 首页分页控件只显示到"尾页"却不会告诉你它指向别处。
+        page_url_template="http://wzyy.hebei.chinatax.gov.cn/was5/web/search?"
+                          "&channelid=245955&searchword=docchannel=45812"
+                          "&perpage=15&page={n}",
         page_count=330,
     ),
     ListPageAdapter(
