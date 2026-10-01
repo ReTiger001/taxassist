@@ -207,6 +207,10 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # 咨询问答也进了政策库 —— 内容没错，但它不是政策，混进来会干扰检索。
         list_url="http://hunan.chinatax.gov.cn/lists/20190725027557",
         detail_href_re=r"/show/\d+",
+        # 【待续】「最新文件」实测只有一页 15 条，历史政策需要翻页或走它
+        # 自己的「政策法规库」（hngsww/FullTextSearchBLH_searchMain.do）。
+        # 下一步：先看列表页有没有分页链接；没有就按接口方式接那个检索系统
+        # （湖南与河北、贵州同类，都是"只给第一页"）。
         base_url="http://hunan.chinatax.gov.cn",
         needs_js=True,
     ),
