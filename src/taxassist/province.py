@@ -557,10 +557,16 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         region="内蒙古",
         site_name="国家税务总局内蒙古自治区税务局",
         list_url="http://neimenggu.chinatax.gov.cn/zcwj",
-        # 同广西：zxwj / zcjd / rdwd 三个栏目并列，只写一个会漏大半。
-        detail_href_re=r"(?:zxwj|zcjd|rdwd|tjss)/\d{6}/t\d+_\d+\.html",
+        # 两种路径形态必须都认：zcwj 下是 <栏目>/<年月>/t<日期>_<编号>.html；
+        # 而首页那个「政策法规库」（/zcfgk/zcfgk）是 <数字>/t<日期>_<编号>.html
+        # —— 只写一种就会整块漏掉。
+        detail_href_re=(r"(?:(?:zxwj|zcjd|rdwd|tjss)/\d{6}/t\d+_\d+"
+                        r"|zcfgk/zcfgk/\d+/t\d+_\d+)\.html"),
         base_url="http://neimenggu.chinatax.gov.cn/zcwj/",
         needs_js=True,
+        # 首页那个「政策法规库」：页内**直接给文章**（不像黑龙江/江西/甘肃
+        # 那样是检索壳页），所以直接当列表页抓
+        extra_urls=("https://neimenggu.chinatax.gov.cn/zcfgk/zcfgk",),
     ),
     ListPageAdapter(
         source_id="gs_zcwj",

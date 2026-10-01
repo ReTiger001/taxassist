@@ -235,10 +235,13 @@ def connect(path: str | Path | None = None) -> sqlite3.Connection:
     target = Path(path) if path else DB_PATH
     # busy_timeout：默认只等 5 秒，多个任务同时写库时经常不够 ——
     # 实测正文翻译跑到第 440 条时崩于 "database is locked"（当时另一个
-    # 批量任务正持着写锁），白跑一场。给出 30 秒的等待窗口。
-    conn = sqlite3.connect(str(target), timeout=30)
+    # 批量任务正持着写锁），白跑一场。
+    # 后来又把窗口提到 120 秒：浏览器模式的抓取每条要 10 秒、若攒批提交，
+    # 写锁能被持有 200 秒，把并行的采集挤死（内蒙古与贵州都中过招）。
+    # **两边要一起做**：这里放长等待，长任务那边把提交粒度改小。
+    conn = sqlite3.connect(str(target), timeout=120)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA busy_timeout = 30000")
+    conn.execute("PRAGMA busy_timeout = 120000")
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
