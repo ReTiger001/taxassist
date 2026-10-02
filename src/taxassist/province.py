@@ -974,7 +974,11 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
         title = norm_text(a.get("title"))
         if not title or len(title) < 6:
             title = None
-            for child in a.iterchildren():
+            # iterchildren() 会返回**注释节点**（HtmlComment），对它调
+            # text_content() 会抛 "ValueError: Input object is not an XML element"。
+            # 天津站就栽在这（整省采集因它崩掉）。注释节点的 tag 不是字符串，
+            # 用 isinstance(c.tag, str) 滤掉。
+            for child in (c for c in a.iterchildren() if isinstance(c.tag, str)):
                 candidate = norm_text(child.text_content())
                 if not candidate or len(candidate) < 6:
                     continue
@@ -1029,7 +1033,9 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
                     # <span>09-28</span>、四川的 <span>09-28</span>）。
                     # 用 fullmatch 而不是 search：search 会把"3-5 个工作日"
                     # 当成 3 月 5 日 —— 数字都在合理范围内，范围校验拦不住。
-                    inner = list(parent.iterchildren()) if parent is not None else []
+                    inner = ([c for c in parent.iterchildren()
+                              if isinstance(c.tag, str)]
+                             if parent is not None else [])
                     for node in [*inner, *siblings]:
                         m3 = _DATE_MD_BARE_RE.fullmatch(
                             " ".join(node.text_content().split()))
