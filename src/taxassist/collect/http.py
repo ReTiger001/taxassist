@@ -189,6 +189,43 @@ class GuardedClient:
                     time.sleep(backoff)
         raise RuntimeError(f"POST 最终失败: {url} -> {last_err}")
 
+    def post_form(self, url: str, form: dict, *,
+                  max_retries: int | None = None) -> httpx.Response:
+        """POST 表单（application/x-www-form-urlencoded），带出网守卫与限速。
+
+        为什么需要：部分省的政策检索是**表单提交**（山西 /web/search/sx-11400
+        要 keywords / cx_title / cx_content 等字段）。与 post_json 同理 ——
+        必须走出网守卫，因为表单内容同样可能夹带客户信息。
+        """
+        body = urlencode(form)
+        self._check_outbound(url, None, body)
+        retries = self.retries if max_retries is None else max_retries
+        last_err: Exception | None = None
+        for attempt in range(retries + 1):
+            self._throttle(url)
+            try:
+                resp = self._client.post(
+                    url, content=body.encode("utf-8"),
+                    headers={"Content-Type":
+                             "application/x-www-form-urlencoded"})
+                if resp.status_code >= 500:
+                    raise httpx.HTTPStatusError(
+                        f"服务端错误 {resp.status_code}",
+                        request=resp.request, response=resp)
+                resp.raise_for_status()
+                return resp
+            except Exception as e:  # noqa: BLE001 - 需要统一重试判定
+                last_err = e
+                if isinstance(e, httpx.HTTPStatusError) and e.response is not None \
+                        and 400 <= e.response.status_code < 500:
+                    raise
+                if attempt < retries:
+                    backoff = RETRY_BACKOFF_SEC * (attempt + 1)
+                    log.warning("POST 表单失败（第 %d 次），%.1fs 后重试：%s",
+                                attempt + 1, backoff, e)
+                    time.sleep(backoff)
+        raise RuntimeError(f"POST 表单最终失败: {url} -> {last_err}")
+
     def close(self) -> None:
         self._client.close()
 
