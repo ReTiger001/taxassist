@@ -703,17 +703,15 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="https://xizang.chinatax.gov.cn/col/col5350/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="https://xizang.chinatax.gov.cn",
-        # 首页「政策文件」栏（col5332）与现有源（col5350）**不是同一个** ——
-        # 实测前者有 17 篇文章。两栏合并去重。
-        extra_urls=("https://xizang.chinatax.gov.cn/col/col5332/index.html",),
         needs_js=True,
-        # 再带上「政策解读」栏目：单靠「最新文件」只有最近的一二十条，
-        # 多配一个栏目就多一份覆盖面（见 ListPageAdapter.extra_urls）。
-        # 「政策解读」有效（+24 条）；本站「政策法规库」(col5510) 是 JS 检索页，
-        # 静态列表解析不出条目（实测 0 条），故只配了前者。
+        # 三个列表页各有不同覆盖：
+        #   col5346「政策解读」（实测 +24 条）
+        #   col5332「政策文件」（实测 17 篇，与现有源 col5350 不是同一个栏目）
+        #   jrobot 站内检索（实测「社保费」返回 20 条匹配本省正则的政策）
+        # 本站「政策法规库」(col5510) 是 JS 检索页，静态解析不出条目，故不配。
         extra_urls=(
             "https://xizang.chinatax.gov.cn/col/col5346/index.html",
-            # 站内检索（汉王 jrobot），实测「社保费」返回 20 条匹配本省正则的政策。
+            "https://xizang.chinatax.gov.cn/col/col5332/index.html",
             "https://xizang.chinatax.gov.cn/jrobot/search.do"
             "?q=%E7%A4%BE%E4%BF%9D%E8%B4%B9&x=31&y=19&webid=1&pg=12&p=1&tpl=&category=xzsw",
         ),
