@@ -1009,8 +1009,12 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
                 # 收进来就会给它安上别人的日期。
                 gp = parent.getparent()
                 if gp is not None:
+                    # 同样要滤掉注释节点：**sib.xpath(...) 对 HtmlComment 也会抛**
+                    # "ValueError: Input object is not an XML element" ——
+                    # 天津站栽的是这一行，不是 text_content 那两处。
                     siblings = [sib for sib in gp.iterchildren()
-                                if sib is not parent and not sib.xpath(".//a[@href]")]
+                                if isinstance(sib.tag, str) and sib is not parent
+                                and not sib.xpath(".//a[@href]")]
                     joined = " ".join(s.text_content() for s in siblings).strip()
                     if joined and len(joined) < 120:
                         parent_text = f"{parent_text} {joined}"
