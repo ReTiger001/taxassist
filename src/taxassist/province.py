@@ -703,6 +703,9 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="https://xizang.chinatax.gov.cn/col/col5350/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="https://xizang.chinatax.gov.cn",
+        # 首页「政策文件」栏（col5332）与现有源（col5350）**不是同一个** ——
+        # 实测前者有 17 篇文章。两栏合并去重。
+        extra_urls=("https://xizang.chinatax.gov.cn/col/col5332/index.html",),
         needs_js=True,
         # 再带上「政策解读」栏目：单靠「最新文件」只有最近的一二十条，
         # 多配一个栏目就多一份覆盖面（见 ListPageAdapter.extra_urls）。
