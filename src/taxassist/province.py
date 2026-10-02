@@ -574,6 +574,20 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         extra_urls=("https://neimenggu.chinatax.gov.cn/zcfgk/zcfgk",),
     ),
     ListPageAdapter(
+        source_id="tianjin_zlm",
+        region="天津",
+        site_name="国家税务总局天津市税务局",
+        # 天津用 Struts：列表 u_zlmView.action（fjdm/lmdm 两个栏目号），
+        # 详情 u_zlmViewMx.action?fjdm=…&lmdm=…。实测列表页给 5 个详情链接。
+        # 该站另有汉王检索 API（so.hanweb.com/api-gateway/jpaas-jsearch-web-server）
+        # 可作备用路径。
+        list_url=("https://tianjin.chinatax.gov.cn/u_zlmView.action"
+                  "?fjdm=11200000000&lmdm=030001"),
+        detail_href_re=r"/u_zlmViewMx\.action\?fjdm=\d+&lmdm=\d+",
+        base_url="https://tianjin.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
         source_id="hlj_zcwj",
         region="黑龙江",
         site_name="国家税务总局黑龙江省税务局",
