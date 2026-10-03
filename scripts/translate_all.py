@@ -32,11 +32,12 @@ ROOT = Path(__file__).resolve().parent.parent
 PY = sys.executable
 BATCH = ROOT / "scripts" / "translate_batch.py"
 
-# 标题用 Q4：短文本量化差异体现不出来，速度却快一倍（实测 8.16s vs 13.62s /600字）
-# 正文用 Q8：术语密集，实测 Q8 的 individual income tax 才是合规译法
+# 两个阶段都用 Q4（hunyuan-mt）。依据：Q8_0 实测慢 8.7 倍
+# （12.15s/条 vs 1.40s/条）、翻译质量无可辨差异，为省 15G 空间已删除 ——
+# 所以这里不能再引用 hunyuan-mt-q8（会直接报模型不存在）。
 STAGES = [
-    ("titles", "hunyuan-mt", "标题（5109 条，约 125 分钟）"),
-    ("content", "hunyuan-mt-q8", "正文（约 806 万字，约 30 小时）"),
+    ("titles", "hunyuan-mt", "标题（约 125 分钟）"),
+    ("content", "hunyuan-mt", "正文（约 806 万字）"),
 ]
 
 
