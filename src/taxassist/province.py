@@ -982,7 +982,15 @@ def _parse_js_url_arrays(html_text: str, pattern: "re.Pattern[str]",
         m = date_re.search(url)
         if m:
             cwrq = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
-        items.append({"url": url, "title": title, "cwrq": cwrq})
+        items.append({
+            "url": url,
+            "title": title,
+            "cwrq": cwrq,
+            # doc_uid 的口径必须与另外两处解析器完全一致（源ID + URL 的 md5
+            # 前 16 位），否则跨源去重与 upsert 的键对不上。
+            "doc_uid": f"{adapter.source_id}:"
+                       + hashlib.md5(url.encode()).hexdigest()[:16],
+        })
     if items:
         log.info("%s：从页内 JS 数组解析出 %d 条（DOM 里只有少数几条）",
                  adapter.source_id, len(items))
