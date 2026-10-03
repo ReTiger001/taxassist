@@ -389,6 +389,12 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://shaanxi.chinatax.gov.cn",
         needs_js=True,
+        # **「政策法规库」col13936 才是大头**：实测页内直接给出 **419 篇**
+        # 文章链接（/art/ 共 434 个），最早可追到 2013 年。col3899 只有几十条。
+        # 它的分页是假象：javascript:void(0) 无页码、showNews_60113(N) 是页内
+        # JS 分页 —— 但**全部数据本就整批渲染在页面里**，正则直接匹配即可，
+        # 不需要解析那个 JS 数组。
+        extra_urls=("http://shaanxi.chinatax.gov.cn/col/col13936/index.html",),
         # 列表页是异步渲染的，默认 6 秒只拿到空壳（2295 字节、0 条链接）。
         # 实测 10 秒仍不够（3241 字节），**14 秒**才出内容（41461 字节、34 条）。
         # 这是第 4 个栽在同一处的省（辽宁 12s、新疆 14s、吉林 10s）——
