@@ -52,10 +52,41 @@ def run(what: str, model: str, label: str) -> int:
     return proc.returncode
 
 
+def _in_window(spec: str) -> bool:
+    """当前时刻是否落在 ``起-止`` 小时窗内（含起点、不含终点）。
+
+    支持跨天写法（如 ``23-7``）。窗口由作息决定 —— 翻译会占满 GPU 并持有
+    写库锁，所以只在不用电脑的时段跑，其余时间让位给采集/publish。
+    """
+    try:
+        start_s, end_s = spec.split("-", 1)
+        start_h, end_h = int(start_s), int(end_s)
+    except Exception:  # noqa: BLE001 - 规格写错就不限制，别把翻译卡死
+        return True
+    hour = datetime.now().hour
+    if start_h <= end_h:
+        return start_h <= hour < end_h
+    return hour >= start_h or hour < end_h
+
+
+def _wait_for_window(spec: str) -> None:
+    """窗口外就等到窗口开始（每 2 分钟醒一次，便于 Ctrl-C 打断）。"""
+    if _in_window(spec):
+        return
+    print(f"当前不在翻译时段（{spec} 点之间），等待中……", flush=True)
+    while not _in_window(spec):
+        time.sleep(120)
+    print(f"进入翻译时段（{spec} 点之间），开工。", flush=True)
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--only", choices=[s[0] for s in STAGES], default=None)
     ap.add_argument("--skip-titles", action="store_true")
+    ap.add_argument("--window", default="11-19",
+                    help="允许翻译的小时窗（默认 11-19，即只在此时段跑）")
+    ap.add_argument("--anytime", action="store_true",
+                    help="忽略时间窗，立刻开始（手动补译时用）")
     args = ap.parse_args()
 
     stages = STAGES
@@ -63,6 +94,9 @@ def main() -> int:
         stages = [s for s in STAGES if s[0] == args.only]
     elif args.skip_titles:
         stages = [s for s in STAGES if s[0] != "titles"]
+
+    if not args.anytime:
+        _wait_for_window(args.window)
 
     # **先取写库锁再开工**：正文翻译一条 20 秒、攒批窗口百秒级；若此时
     # worker 在跑采集/publish，两边会互相撞锁（实测撞过 init_db 的
