@@ -948,6 +948,47 @@ def _parse_layui_datajson(html_text: str, pattern: re.Pattern,
     return items
 
 
+def _parse_js_url_arrays(html_text: str, pattern: "re.Pattern[str]",
+                         adapter: ListPageAdapter) -> list[dict]:
+    """从页内 JS 数组里取条目（陕西型）。
+
+    陕西的「政策法规库」把**全部 419 篇**整批渲染进页内脚本：
+        function showNews_60113(start_num){
+          var urls=new Array(); var headers=new Array(); ...
+          urls[i]='/art/2026/9/28/art_15172_773877.html';
+          headers[i]='标题文字';
+    而 ``<a href>`` 里只有 15 条 —— 只读 DOM 会漏掉 96%。
+
+    这类站的分页是**前端假分页**（javascript:void(0) + 页内 showNews(N)），
+    数据本身一次给全，所以把数组读出来就行，不必跑 JS。
+    日期从 URL 里的 /art/YYYY/M/D/ 取。
+    """
+    urls = re.findall(r"urls\[\w*\]\s*=\s*['\"]([^'\"]+)['\"]", html_text)
+    if not urls:
+        return []
+    heads = re.findall(r"headers\[\w*\]\s*=\s*['\"]([^'\"]*)['\"]", html_text)
+    date_re = re.compile(r"/art/(\d{4})/(\d{1,2})/(\d{1,2})/")
+    items: list[dict] = []
+    seen: set[str] = set()
+    for idx, href in enumerate(urls):
+        if not pattern.search(href):
+            continue
+        url = urljoin(adapter.base_url, href)
+        if url in seen:
+            continue
+        seen.add(url)
+        title = norm_text(heads[idx]) if idx < len(heads) else ""
+        cwrq = ""
+        m = date_re.search(url)
+        if m:
+            cwrq = f"{m.group(1)}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+        items.append({"url": url, "title": title, "cwrq": cwrq})
+    if items:
+        log.info("%s：从页内 JS 数组解析出 %d 条（DOM 里只有少数几条）",
+                 adapter.source_id, len(items))
+    return items
+
+
 def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
     """解析静态列表页，返回条目列表。
 
@@ -961,6 +1002,13 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
     layui_items = _parse_layui_datajson(html_text, pattern, adapter)
     if layui_items:
         return layui_items
+
+    # 再试页内 JS 数组（陕西型：419 篇全在 urls[] 里，DOM 只有 15 条）。
+    # 要求 ≥10 条才采用 —— urls[]= 是通用写法，别站可能用它存无关链接，
+    # 数量阈值能挡掉那种误伤。
+    js_items = _parse_js_url_arrays(html_text, pattern, adapter)
+    if len(js_items) >= 10:
+        return js_items
 
     items: list[dict] = []
     seen: set[str] = set()
