@@ -88,7 +88,11 @@ def main() -> int:
                 commit=False)
         done += 1
 
-        if done % 20 == 0:
+        # 每 5 条提交，而不是 20 条。正文一条要 20 秒（逐段译），20 条就是
+        # 400 秒的持锁窗口 —— 超过其它进程的 busy_timeout（120s），
+        # worker 启动时的 init_db（DROP TRIGGER）就这么被撞死过一次。
+        # 5 条 ≈ 100 秒，留出余量；同时仍远少于"每条都提交"的争抢频率。
+        if done % 5 == 0:
             conn.commit()
             el = time.time() - t0
             rate = done / el if el > 0 else 0
