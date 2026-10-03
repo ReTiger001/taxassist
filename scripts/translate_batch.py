@@ -80,10 +80,16 @@ def main() -> int:
             failed += 1
             print(f"  [{i}/{len(rows)}] 失败 {r['doc_uid']}: {type(e).__name__}: {e}")
             continue
-        tl.save(conn, r["doc_uid"], field, src, out, model=args.model)
+        # commit=False 攒批提交。translate_llm.save 的注释里写明了原因：
+        # "每写一条就 commit 会让翻译与其它任务（效力判定、采集）频繁争抢
+        # SQLite 写锁 —— 实测两边都慢十倍以上"。这里原先用了默认的
+        # commit=True，实测直接撞成 "database is locked" 让整批退出。
+        tl.save(conn, r["doc_uid"], field, src, out, model=args.model,
+                commit=False)
         done += 1
 
         if done % 20 == 0:
+            conn.commit()
             el = time.time() - t0
             rate = done / el if el > 0 else 0
             left = (len(rows) - i) / rate / 60 if rate > 0 else 0
