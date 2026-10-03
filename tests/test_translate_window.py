@@ -52,3 +52,22 @@ def test_bad_spec_does_not_block(ta):
     _at(ta, 3)
     assert ta._in_window("乱写") is True
     assert ta._in_window("") is True
+
+
+def test_module_actually_has_datetime():
+    """冒烟：模块真的能 import 到 datetime。
+
+    为什么要这一条：上面几个测试都用打桩把 ``ta.datetime`` 换掉了 ——
+    那**恰好会掩盖"模块里根本没有 datetime 这个名字"**。实测就是这么漏掉
+    一个 NameError 的（翻译进程一启动就崩）。所以补一条不打扰动的检查。
+    """
+    import subprocess
+    out = subprocess.run(
+        [sys.executable, "-c",
+         "import importlib.util,sys;"
+         f"s=importlib.util.spec_from_file_location('t', r'{ROOT / 'scripts' / 'translate_all.py'}');"
+         "m=importlib.util.module_from_spec(s);s.loader.exec_module(m);"
+         "print(m._in_window('11-19'))"],
+        capture_output=True, text=True, timeout=60)
+    assert out.returncode == 0, out.stderr[-400:]
+    assert out.stdout.strip() in ("True", "False")
