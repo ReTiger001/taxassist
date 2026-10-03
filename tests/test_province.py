@@ -192,3 +192,65 @@ def test_date_not_taken_from_neighbouring_entry():
     assert len(items) == 2
     assert items[0]["cwrq"] is None          # 这条自己的格子里没有日期
     assert items[1]["cwrq"] == f"{date.today().year}-08-01"
+
+
+# ---------------------------------------------------------------------------
+# 页内 JS 数组型（陕西）：419 篇全在 urls[] 里，DOM 只给 15 条。
+# 这一组是为了防住一个真出过的 bug：新解析器漏了 doc_uid，
+# pytest 全绿但采集一跑就 KeyError（测试没覆盖"解析器输出 → build_row"的接口）。
+# ---------------------------------------------------------------------------
+JS_ADAPTER = province.ListPageAdapter(
+    source_id="js_src",
+    region="测试省",
+    site_name="测试省税务局",
+    list_url="http://example.test/lib.html",
+    detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+    base_url="http://example.test",
+)
+
+
+def _js_page(n: int) -> str:
+    """造一个陕西式页面：``urls[]`` 里有 n 条，DOM 里只有 1 条。"""
+    arr = "".join(
+        f"urls[i]='/art/2026/9/{i % 28 + 1}/art_15172_{700000 + i}.html';"
+        f"headers[i]='第 {i} 号测试公告';"
+        for i in range(n))
+    return (
+        "<html><body>"
+        "<a href='/art/2026/9/1/art_15172_700001.html'>DOM 里的一条</a>"
+        "<script>function showNews_60113(start_num){var urls=new Array();"
+        f"var headers=new Array();var i=0;{arr}}}"
+        "</script></body></html>")
+
+
+def test_js_array_parsed_when_dom_has_only_a_few():
+    """DOM 只给 1 条，但 urls[] 里有 40 条 —— 40 条都要解析出来。"""
+    items = province.parse_list_page(_js_page(40), JS_ADAPTER)
+    assert len(items) == 40
+    assert all(i["url"].startswith("http://example.test/art/") for i in items)
+    assert items[0]["cwrq"].startswith("2026-09-"), "日期应从 URL 的 /art/ 段取"
+
+
+def test_js_array_items_carry_doc_uid():
+    """doc_uid 必须在解析器这一层带上 —— 写库时读它，缺了就 KeyError。"""
+    items = province.parse_list_page(_js_page(12), JS_ADAPTER)
+    assert all(i.get("doc_uid") for i in items)
+    assert all(i["doc_uid"].startswith("js_src:") for i in items)
+
+
+def test_js_array_items_survive_build_row():
+    """端到端：解析器的输出要能直接喂给 build_provincial_row。
+
+    这是真出过的 bug —— 解析器漏 doc_uid，295 项测试全绿，采集一跑就崩。
+    """
+    items = province.parse_list_page(_js_page(12), JS_ADAPTER)
+    row = province.build_provincial_row(items[0], JS_ADAPTER)
+    assert row["doc_uid"] == items[0]["doc_uid"]
+    assert row["p_region"] == "测试省"
+
+
+def test_js_array_ignored_when_too_few():
+    """少于 10 条不采用 —— urls[]= 是通用写法，别站可能存无关链接。"""
+    items = province.parse_list_page(_js_page(3), JS_ADAPTER)
+    assert len(items) == 1, "应回退到 DOM 解析"
+    assert "DOM" in items[0]["title"]
