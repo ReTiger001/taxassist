@@ -64,8 +64,20 @@ def main() -> int:
     elif args.skip_titles:
         stages = [s for s in STAGES if s[0] != "titles"]
 
-    for what, model, label in stages:
-        run(what, model, label)
+    # **先取写库锁再开工**：正文翻译一条 20 秒、攒批窗口百秒级；若此时
+    # worker 在跑采集/publish，两边会互相撞锁（实测撞过 init_db 的
+    # DROP TRIGGER 与 record_snapshot）。取不到就等 —— 翻译是长任务，
+    # 等几分钟远好过撞死重跑。（见 taxassist.writelock）
+    from taxassist import writelock
+
+    if not writelock.acquire("translate_all", timeout=1800):
+        print(f"写库锁被 {writelock.holder()} 占用，等待超时，未启动翻译。")
+        return 1
+    try:
+        for what, model, label in stages:
+            run(what, model, label)
+    finally:
+        writelock.release()
     print("\n全部阶段完成。")
     return 0
 

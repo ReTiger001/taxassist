@@ -58,7 +58,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from . import db as dbmod
-from . import effect, pipeline
+from . import effect, pipeline, writelock
 from .config import DATA_DIR
 
 log = logging.getLogger(__name__)
@@ -357,15 +357,32 @@ def run_forever(*, stages: tuple[str, ...] = STAGE_ORDER,
         if stop_requested():
             stopped_early = True
             break
+        # **长任务互斥**：正文翻译会长时间持有写锁（一条 20 秒、攒批窗口
+        # 百秒级），此时开采集/publish 只会互相撞锁 —— 实测撞过 init_db 的
+        # DROP TRIGGER 和 record_snapshot。拿不到锁就跳过本轮，下一轮再来，
+        # 守候循环本来就是这个节奏。（见 writelock 模块）
+        if not writelock.acquire(f"worker:{','.join(stages)}"):
+            log.info("写库锁被 %s 占用，本轮跳过", writelock.holder())
+            for _ in range(min(60, max(1, interval_sec))):
+                if stop_requested():
+                    stopped_early = True
+                    break
+                time.sleep(1)
+            continue
         rounds += 1
         started_at = datetime.now().isoformat(timespec="seconds")
         log.info("=== 第 %d 轮开始 %s（阶段 %s）===", rounds, started_at, stages)
         conn = dbmod.connect()
-        dbmod.init_db(conn)
+        try:
+            dbmod.init_db(conn)
+        except Exception:
+            writelock.release()
+            raise
         try:
             result = run_round(conn, stages, cfg)
         finally:
             conn.close()
+            writelock.release()
         write_status({
             "回合": rounds,
             "开始": started_at,
