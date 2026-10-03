@@ -10,11 +10,15 @@
 """
 from __future__ import annotations
 
+import logging
 import sqlite3
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import DB_PATH, ensure_dirs
+
+log = logging.getLogger(__name__)
 
 SCHEMA_VERSION = 1
 
@@ -298,20 +302,42 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
 
 
 def init_db(conn: sqlite3.Connection) -> str:
-    """建表 + 迁移 + 建 FTS。返回使用的分词器名，便于日志记录。"""
-    conn.executescript(SCHEMA)
-    migrate(conn)
-    fts = "trigram" if _supports_trigram(conn) else "unicode61"
-    conn.executescript(FTS_SCHEMA_TRIGRAM if fts == "trigram" else FTS_SCHEMA_FALLBACK)
-    # 触发器定义变更时必须先删后建：CREATE TRIGGER IF NOT EXISTS 不会替换已有的。
-    # （踩过：给 policy_au 加了 WHEN 条件后旧触发器仍在，优化不生效。）
-    for trg in ("policy_ai", "policy_ad", "policy_au"):
-        conn.execute(f"DROP TRIGGER IF EXISTS {trg}")
-    conn.executescript(FTS_TRIGGERS)
-    set_meta(conn, "schema_version", str(SCHEMA_VERSION))
-    set_meta(conn, "fts_tokenizer", fts)
-    conn.commit()
-    return fts
+    """建表 + 迁移 + 建 FTS。返回使用的分词器名，便于日志记录。
+
+    **带锁重试**：这一串 DDL 都要写锁，而翻译进程会长时间持有它
+    （正文一条 20 秒，攒批提交的窗口可达百秒）。实测 worker 启动时在
+    ``DROP TRIGGER IF EXISTS`` 上撞过 "database is locked" ——
+    库初始化失败意味着整个 worker 起不来，代价太大，所以这里退避重试。
+    busy_timeout 只覆盖单条语句的等待，挡不住这种长窗口。
+    """
+    last: Exception | None = None
+    for attempt in range(6):
+        try:
+            conn.executescript(SCHEMA)
+            migrate(conn)
+            fts = "trigram" if _supports_trigram(conn) else "unicode61"
+            conn.executescript(
+                FTS_SCHEMA_TRIGRAM if fts == "trigram" else FTS_SCHEMA_FALLBACK)
+            # 触发器定义变更时必须先删后建：CREATE TRIGGER IF NOT EXISTS
+            # 不会替换已有的。（踩过：给 policy_au 加了 WHEN 条件后旧触发器
+            # 仍在，优化不生效。）
+            for trg in ("policy_ai", "policy_ad", "policy_au"):
+                conn.execute(f"DROP TRIGGER IF EXISTS {trg}")
+            conn.executescript(FTS_TRIGGERS)
+            set_meta(conn, "schema_version", str(SCHEMA_VERSION))
+            set_meta(conn, "fts_tokenizer", fts)
+            conn.commit()
+            return fts
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if "locked" not in msg and "busy" not in msg:
+                raise
+            last = e
+            wait = 5 * (attempt + 1)
+            log.warning("init_db 撞锁（第 %d/6 次），%.0fs 后重试：%s",
+                        attempt + 1, wait, e)
+            time.sleep(wait)
+    raise RuntimeError(f"init_db 反复撞锁，放弃：{last}")
 
 
 def get_meta(conn: sqlite3.Connection, key: str, default: str | None = None) -> str | None:
