@@ -100,15 +100,15 @@
 .composer .row{display:flex;gap:9px;align-items:flex-end;padding:9px 11px}
 .composer textarea{flex:1;min-height:52px;max-height:220px;resize:vertical;
   border:1px solid var(--line);border-radius:3px;padding:9px 11px;
-  font:inherit;font-size:13.5px;background:#fdfdfc;color:var(--ink)}
+  font:inherit;font-size:13.5px;background:#0a0f0a;color:var(--terminal)}
 .composer textarea:focus{outline:none;border-color:var(--brand-2);
-  background:#fff}
-.ibtn{border:1px solid var(--line);background:#fbfbfa;border-radius:3px;
+  background:#001a00}
+.ibtn{border:1px solid var(--line);background:#001a00;border-radius:0;
   cursor:pointer;font:inherit;font-size:13px;padding:0 13px;height:36px;
   color:var(--ink-2);flex:none;white-space:nowrap}
 .ibtn:hover{background:var(--sunken);border-color:var(--line-2)}
 .ibtn:disabled{opacity:.5;cursor:not-allowed}
-.ibtn.go{background:var(--brand);color:#fff;border-color:var(--brand);
+.ibtn.go{background:var(--terminal);color:#000;border-color:var(--terminal);
   font-weight:600;padding:0 20px}
 .ibtn.go:hover{background:var(--brand-2)}
 .hint{font-size:11.5px;color:var(--ink-3);padding:0 12px 9px;line-height:1.5}
@@ -185,6 +185,11 @@
   var filesBox = document.getElementById('files');
   var files = [];          // [{id, name, chars}]
   var busy = false;
+  /* 多轮追问的历史。只放「用户问了什么 + 助手答了什么要点」——
+     **不放政策依据块**：每轮 prompt 里已经有若干条依据（几千字），
+     历史再原样带上会立刻撑爆上下文窗口。依据每轮重新检索、重新注入，
+     这样追问"那如果改成…呢"时，检索也是按新问题重做的。 */
+  var chatHistory = [];
 
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -354,7 +359,8 @@
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
         text: text || '请分析我上传的文件，重点看税务合规与优化空间。',
-        file_ids: usedFiles.map(function (f) { return f.id; })
+        file_ids: usedFiles.map(function (f) { return f.id; }),
+        history: chatHistory
       })
     }).then(function (resp) {
       if (!resp.ok) {
@@ -402,6 +408,12 @@
     }).catch(function (e) {
       b.stage.outerHTML = '<div class="err">分析失败：' + esc(e.message || e) + '</div>';
     }).then(function () {
+      // 记下这一轮，供下一次追问。**助手的回答只留前 1200 字** ——
+      // 完整的四节报告好几千字，全带上会挤掉本轮的检索上下文。
+      // 后端还会再裁一次；两边都卡住是有意的：不依赖对方的自觉。
+      if (shown) chatHistory.push({role: 'user', content: shown});
+      if (raw) chatHistory.push({role: 'assistant', content: raw.slice(0, 1200)});
+      if (chatHistory.length > 8) chatHistory = chatHistory.slice(-8);
       busy = false;
       sendBtn.disabled = false;
       window.scrollTo(0, document.body.scrollHeight);

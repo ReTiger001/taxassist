@@ -343,6 +343,155 @@ button.mini.danger:hover{background:var(--bad-bg)}
   .fgroup{flex-direction:column;gap:4px}
   .fglabel{flex:none;text-align:left}
 }
+
+/* =================================================================
+   终端主题（覆盖层，写在最后所以生效）
+   -----------------------------------------------------------------
+   方向：黑底 / 终端绿 / 直角 / 中英混排等宽。
+   它取代了原先的「档案工作台」浅色文档风。
+
+   三条刻意的克制（理由见 tools/apply_terminal_theme.py 的文件头）：
+     · 语义色保留 —— 效力四态必须能一眼分开
+     · 中文不强等宽 —— 等宽字体排前面，中文自动回退
+     · 不加扫描线/闪烁 —— 正文是公文，一读几千字
+   ================================================================= */
+:root{
+  --bg:#000; --bg-2:#0a0f0a; --bg-3:#111811;
+  --terminal:#00ff00; --terminal-2:#00cc00; --terminal-3:#008800;
+  --terminal-4:#005500; --terminal-dim:#0e3a0e; --terminal-dim-2:#082a08;
+
+  /* —— 覆盖原有变量名，让既有规则自动变终端风 —— */
+  --paper:#000; --card:#0a0f0a; --sunken:#111811;
+  --ink:#00ff00; --ink-2:#00cc00; --ink-3:#008800;
+  --line:#0e3a0e; --line-2:#082a08;
+  /* **注意 --brand 在原设计里是"顶栏背景"**（原本是深蓝 #1b3a4b），
+     不是品牌文字色。我第一次覆盖成 #00ff00，结果整个顶栏变成一块亮绿
+     —— 截图一眼就看出来了。这里给它一个很深的绿，顶栏才是黑底绿字；
+     顶栏文字色由下面那条 `.brand{color:...}` 单独控制。 */
+  --brand:#001a00; --brand-2:#002a00;
+  /* 语义色：**刻意保留**，见文件头理由 ① */
+  --ok-bg:#003300;  --ok-fg:#00ff00;  --ok-bar:#00cc00;
+  --warn-bg:#2a1c00; --warn-fg:#ffb000; --warn-bar:#ffb000;
+  --bad-bg:#2a0500;  --bad-fg:#ff5f56;  --bad-bar:#ff3b30;
+  --mut-bg:#0d0d0d;  --mut-fg:#4d7a4d;  --mut-bar:#3a5f3a;
+}
+html,body{background:#000}
+::selection{background:#00ff00;color:#000}
+
+/* 中英混排：等宽排最前，中文自动回退到雅黑（见文件头理由 ②） */
+body{font:14px/1.68 "Cascadia Mono",Consolas,"SF Mono",Menlo,
+  "DejaVu Sans Mono","Courier New",monospace,"Microsoft YaHei",
+  "PingFang SC",sans-serif}
+code,kbd,.docno,.d,.en,.n,.cit{font-family:"Cascadia Mono",Consolas,
+  "SF Mono",Menlo,monospace}
+/* 数字对齐：表格里的日期/条数/编号用等宽数字，扫列时不会跳动 */
+td,.d,.n,.cit{font-variant-numeric:tabular-nums}
+
+/* 滚动条 —— 细节，但它是"运行框"观感的一部分 */
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-track{background:#000}
+::-webkit-scrollbar-thumb{background:#0e3a0e;border:1px solid #000}
+::-webkit-scrollbar-thumb:hover{background:#0b4b0b}
+
+/* 直角：终端里没有圆角 */
+.card,.pad,.bar,.badge,.src,.row-tag,.evi,textarea,input,button,
+select,.ibtn,.chip,.split{border-radius:0}
+
+/* 链接：悬停反色高亮，像终端里选中一段 */
+a{color:#00cc00;border-bottom-color:#0e3a0e}
+a:hover{background:#00ff00;color:#000;border-bottom-color:#00ff00}
+
+/* 顶栏 */
+.top{background:#000;border-bottom-color:#0e3a0e}
+.top nav a{color:#008800}
+.top nav a:hover{background:none;color:#00ff00;
+  border-bottom-color:#00ff00}
+.brand{color:#00ff00;font-weight:700;letter-spacing:.5px}
+.brand:hover{background:none;color:#00ff00}
+/* 品牌名后面跟一个闪烁光标 —— 纯 CSS，是"运行框"最省的一个信号 */
+.brand::after{content:"_";animation:ta-blink 1.1s step-end infinite}
+@keyframes ta-blink{0%,100%{opacity:1}50%{opacity:0}}
+.local{background:#001a00;border-color:#0e3a0e;color:#00cc00}
+.mode-out{background:#2a1c00;border-color:#4a3200;color:#ffb000}
+.quick input{background:#0a0f0a;border-color:#0e3a0e;color:#00ff00}
+.quick input::placeholder{color:#005500}
+.quick input:focus{background:#001a00;border-color:#00cc00}
+.quick button{background:#001a00;border-color:#0e3a0e;color:#00cc00}
+.quick button:hover{background:#002a00;color:#00ff00}
+.who,.who-login{color:#008800}
+.who-name{color:#00ff00}
+
+/* 标题：终端里用提示符前缀，比加粗更贴 */
+h1{color:#00ff00}
+h1::before{content:"> ";color:#008800}
+h2{color:#008800}
+
+/* 卡片与表格 */
+.card{background:#0a0f0a;border-color:#0e3a0e}
+.bar{background:#0a0f0a;border-color:#0e3a0e}
+.bar .cell{border-right-color:#082a08}
+table{border-color:#0e3a0e}
+th{background:#0d140d;color:#008800;border-color:#0e3a0e}
+td{border-color:#082a08}
+tr:hover td{background:#0d140d}
+
+/* 表单：终端里的输入位 */
+input,textarea,select{background:#0a0f0a;border-color:#0e3a0e;
+  color:#00ff00}
+input:focus,textarea:focus,select:focus{border-color:#00cc00;outline:none;
+  background:#001a00}
+input::placeholder,textarea::placeholder{color:#005500}
+
+/* 按钮：主按钮反色（绿底黑字），次按钮描边。
+   表单里的 submit（登录/注册）也算主按钮 —— 终端里"当前可执行"的东西
+   就该是亮的那一个。原设计用 --brand 做按钮底，而 --brand 已被改深，
+   所以这里显式点出来。 */
+button,.ibtn{background:#001a00;border-color:#0e3a0e;color:#00cc00}
+button:hover,.ibtn:hover{background:#002a00;border-color:#00cc00;
+  color:#00ff00}
+form button[type=submit],.ibtn.go{background:#00ff00;color:#000;
+  border-color:#00ff00;font-weight:700}
+form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
+  color:#000}
+
+/* 双语排版：英文原是浅灰，这里改成暗绿 —— 从属关系不变 */
+.en{color:#008800}
+.en a{color:#008800}
+.mt-note{color:#008800;border-left-color:#0e3a0e}
+
+/* 摘要条 / 空态 / 日期分隔 */
+.sub,.empty,.hint{color:#008800}
+.day{background:#0d140d;color:#00cc00;border-color:#0e3a0e}
+
+/* 快捷筛选（年份/地区的 q-chip） */
+.q-chip{background:#0a0f0a;border-color:#0e3a0e;color:#00cc00}
+.q-chip:hover{background:#001a00;border-color:#00cc00;color:#00ff00}
+.q-chip.on{background:#00ff00;color:#000;border-color:#00ff00;
+  font-weight:700}
+.f-q-label{color:#008800}
+
+/* 附件原文：终端里的输出区 */
+.attach-text{background:#050805;border-color:#0e3a0e;color:#00cc00}
+
+/* 登录/注册页 */
+.auth-card,.auth-wrap .card{background:#0a0f0a;border-color:#0e3a0e}
+
+/* 助手对话页：输入区与依据卡 */
+.composer{background:#0a0f0a;border-color:#0e3a0e;box-shadow:none}
+.msg.user .body{background:#0d140d;border-color:#0e3a0e}
+.ans h3{color:#00ff00;border-bottom-color:#0e3a0e}
+.ans h4{color:#00cc00}
+.ans strong{color:#00ff00}
+.evi{background:#0a0f0a;border-color:#0e3a0e}
+.evi > summary{background:#0d140d;color:#00cc00;border-bottom-color:#0e3a0e}
+.evi .row{border-bottom-color:#082a08}
+.fact{border-left-color:#0e3a0e;color:#00cc00}
+.group-hd{color:#008800}
+.stage{color:#008800}
+.stage .dot{background:#00ff00}
+.err{background:#2a0500;color:#ff5f56;border-color:#4a1010}
+.warn-bar{background:#2a1c00;color:#ffb000;border-color:#4a3200}
+.cit{background:#001a00;color:#00ff00}
 </style>
 </head>
 <body>

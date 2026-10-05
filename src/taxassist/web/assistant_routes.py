@@ -137,6 +137,12 @@ def register(app, *, ctx, templates) -> None:
             data = {}
         text = str(data.get("text") or "").strip()[:20000]
         file_ids = data.get("file_ids") or []
+        # 多轮追问的历史，由前端维护并回传。这里只做类型保护，
+        # **具体裁剪（留几轮、每轮多长）在 assistant.build_prompt 里做** ——
+        # 那里最清楚上下文预算（NUM_CTX=8192，每轮的依据块就占几千字）。
+        history = data.get("history") or []
+        if not isinstance(history, list):
+            history = []
         if not text and not file_ids:
             return JSONResponse({"error": "请输入要分析的内容或上传文件"},
                                 status_code=400)
@@ -169,7 +175,8 @@ def register(app, *, ctx, templates) -> None:
                 emit({"stage": f"拆成 {len(facts)} 条业务事实"})
                 by_fact = am.gather_policies(facts)
                 emit({"stage": f"检索到 {sum(len(v) for v in by_fact.values())} 条相关政策"})
-                messages, ordered, groups = am.build_prompt(text, facts, by_fact)
+                messages, ordered, groups = am.build_prompt(
+                    text, facts, by_fact, history=history)
                 emit({"stage": "正在生成分析（首次调用需加载模型，约 1 分钟）"})
                 # **先把依据发给前端**：用户能立刻看到"它查到了哪些政策"，
                 # 即使后面生成慢，也不是干等。这也是可溯源的一部分。

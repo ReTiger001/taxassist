@@ -500,7 +500,8 @@ SYSTEM_PROMPT = """你是一名资深中国税务顾问，服务于会计师事�
 
 
 def build_prompt(text: str, facts: list[dict], by_fact: dict[int, list[dict]],
-                 max_total: int = MAX_CONTEXT_POLICIES
+                 max_total: int = MAX_CONTEXT_POLICIES,
+                 history: list[dict] | None = None
                  ) -> tuple[list[dict], list[dict], dict[int, list[int]]]:
     """第三步：把「事实 + 它的依据」配对组装。
 
@@ -541,9 +542,20 @@ def build_prompt(text: str, facts: list[dict], by_fact: dict[int, list[dict]],
         blocks.append("\n".join(lines))
 
     evidence = "【待分析的业务事实及其相关依据】\n\n" + "\n\n".join(blocks)
-    return ([{"role": "system", "content": SYSTEM_PROMPT},
-             {"role": "user", "content": f"{evidence}\n\n【补充说明】\n{text[:1500]}"}],
-            ordered, groups)
+    msgs: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
+    # 多轮追问：把此前的对话带进来，模型才知道"那如果改成…呢"指的是什么。
+    # **只带最近 4 轮，且每轮截断到 1200 字** —— 每轮的 prompt 里已经有
+    # 若干条政策依据（几千字），历史若原样带上，上下文会迅速撑爆
+    # （NUM_CTX=8192）。所以历史只保留"用户问了什么 + 助手答了什么要点"，
+    # **不带当时的依据块** —— 依据由本轮重新检索、重新注入。
+    for h in (history or [])[-4:]:
+        role = "assistant" if h.get("role") == "assistant" else "user"
+        content = str(h.get("content") or "")[:1200]
+        if content:
+            msgs.append({"role": role, "content": content})
+    msgs.append({"role": "user",
+                 "content": f"{evidence}\n\n【补充说明】\n{text[:1500]}"})
+    return msgs, ordered, groups
 
 
 # ------------------------------------------------------------------ 主流程

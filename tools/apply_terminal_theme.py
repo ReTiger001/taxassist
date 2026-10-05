@@ -1,56 +1,37 @@
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{% block title %}登录 · 税务智能知识助手{% endblock %}</title>
-<style>
-/* 认证页独立布局：这一页的使用者还没进来，不需要导航与检索，
-   注意力只该集中在一件事上。色板与主界面同源，视觉不脱节。 */
-:root{
-  --paper:#f4f5f3; --card:#fff; --sunken:#eef0ec;
-  --ink:#1c2227; --ink-2:#4d5761; --ink-3:#78828c;
-  --line:#dfe2dc; --brand:#1b3a4b; --brand-2:#28556b;
-  --bad-bg:#f7e8e8; --bad-fg:#96272c;
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);
-  font:14px/1.6 "Segoe UI","Microsoft YaHei",system-ui,sans-serif;
-  -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;min-height:100vh}
-header.top{background:var(--brand);color:#fff;height:52px;display:flex;
-  align-items:center;padding:0 20px;flex:none}
-header.top .brand{color:#fff;font-size:14.5px;font-weight:600;letter-spacing:.3px;
-  text-decoration:none;white-space:nowrap}
-header.top .mode{font-size:10.5px;font-weight:400;letter-spacing:0;
-  background:rgba(255,255,255,.13);border:.5px solid rgba(255,255,255,.22);
-  border-radius:2px;padding:1px 5px;margin-left:8px;vertical-align:1.5px;
-  color:rgba(255,255,255,.8)}
-header.top .mode-out{background:rgba(255,214,145,.16);
-  border-color:rgba(255,210,130,.42);color:#ffd89a}
-main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:56px 20px}
-.box{width:100%;max-width:390px;background:var(--card);border:1px solid var(--line);
-  border-radius:3px;padding:26px 28px 24px}
-h1{font-size:17px;font-weight:600;margin:0 0 6px;letter-spacing:-.1px}
-.lede{font-size:12.5px;color:var(--ink-3);margin:0 0 18px;line-height:1.75}
-label{display:block;font-size:12px;color:var(--ink-2);margin:14px 0 5px;
-  font-weight:500;letter-spacing:.2px}
-input{width:100%;padding:8px 10px;border:1px solid var(--line);border-radius:2px;
-  font-family:inherit;font-size:14px;background:var(--card);color:var(--ink)}
-input:focus{outline:none;border-color:var(--brand-2)}
-.hint{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.65}
-button{width:100%;margin-top:22px;padding:9px;border:0;border-radius:2px;
-  background:var(--brand);color:#fff;font-family:inherit;font-size:14px;
-  font-weight:500;cursor:pointer}
-button:hover{background:var(--brand-2)}
-.err{background:var(--bad-bg);color:var(--bad-fg);border:1px solid #e3cccc;
-  padding:10px 12px;border-radius:2px;font-size:12.5px;line-height:1.7;margin:0 0 18px}
-.alt{margin-top:20px;padding-top:15px;border-top:1px solid var(--line);
-  font-size:12.5px;color:var(--ink-3);line-height:1.8}
-.alt a{color:var(--brand-2);text-decoration:none}
-.alt a:hover{text-decoration:underline}
-code{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12px;
-  background:var(--sunken);border:1px solid var(--line);border-radius:2px;padding:1px 5px}
+"""给两个基类注入「终端主题」样式（追加覆盖，不重写原有规则）。
 
+======================================================================
+为什么不重写那 340 行 CSS
+======================================================================
+
+base.html 的 <style> 里有几十个类名（.card/.pad/.bar/.badge/.b-ok/
+.row-tag/.src/.docno/.split/.en/.f-quick/.q-chip/.attach-text…），散落在
+9 个页面里。凭记忆重写一遍，漏掉任何一个都会让某个页面塌掉。
+而原 CSS **大量使用 CSS 变量**（--paper/--card/--ink/--line…），
+所以正确做法是：**覆盖变量 + 补几条关键规则** —— 大部分样式会自动变，
+且不可能漏类名。
+
+======================================================================
+设计约束（三条，都是为了不让视觉压过可读性）
+======================================================================
+
+① **语义色必须保留**：效力有四种状态（现行有效/已废止/尚未生效/未判定），
+   纯绿一种颜色分不出来 —— 而那恰恰是做判断时最先看的东西。
+   所以红/琥珀是刻意留下的，不是没改干净。
+② **中文不强制等宽**：把等宽字体排在 font-family 最前面，中文在等宽字体
+   里没有字形，浏览器自动回退到雅黑 —— 一行规则实现「拉丁数字等宽、
+   中文常规」。项目早年踩过坑：中文等宽长文极难读。
+③ **不加扫描线/闪烁特效**：正文是公文，一读几千字。终端感靠黑底、绿字、
+   直角、等宽字体已经足够；再叠特效就是拿可读性换气氛。
+"""
+import re
+from pathlib import Path
+
+ROOT = Path(r"D:\EY-project\src\taxassist\web\templates")
+
+# 终端主题：覆盖变量 + 关键规则。放在原 <style> 的最末尾，
+# 同权重下后出现的规则生效。
+THEME = """
 /* =================================================================
    终端主题（覆盖层，写在最后所以生效）
    -----------------------------------------------------------------
@@ -71,11 +52,7 @@ code{font-family:"Cascadia Mono",Consolas,"Courier New",monospace;font-size:12px
   --paper:#000; --card:#0a0f0a; --sunken:#111811;
   --ink:#00ff00; --ink-2:#00cc00; --ink-3:#008800;
   --line:#0e3a0e; --line-2:#082a08;
-  /* **注意 --brand 在原设计里是"顶栏背景"**（原本是深蓝 #1b3a4b），
-     不是品牌文字色。我第一次覆盖成 #00ff00，结果整个顶栏变成一块亮绿
-     —— 截图一眼就看出来了。这里给它一个很深的绿，顶栏才是黑底绿字；
-     顶栏文字色由下面那条 `.brand{color:...}` 单独控制。 */
-  --brand:#001a00; --brand-2:#002a00;
+  --brand:#00ff00; --brand-2:#00cc00;
   /* 语义色：**刻意保留**，见文件头理由 ① */
   --ok-bg:#003300;  --ok-fg:#00ff00;  --ok-bar:#00cc00;
   --warn-bg:#2a1c00; --warn-fg:#ffb000; --warn-bar:#ffb000;
@@ -195,17 +172,35 @@ button:hover,.ibtn:hover{background:#002a00;border-color:#00cc00;
 .err{background:#2a0500;color:#ff5f56;border-color:#4a1010}
 .warn-bar{background:#2a1c00;color:#ffb000;border-color:#4a3200}
 .cit{background:#001a00;color:#00ff00}
-</style>
-</head>
-<body>
-<header class="top">
-  <a class="brand" href="/">税务智能知识助手<span
-     class="mode {{ 'mode-out' if exposed else '' }}">{{ '对外' if exposed else '本地' }}</span></a>
-</header>
-<main>
-  <div class="box">
-{% block body %}{% endblock %}
-  </div>
-</main>
-</body>
-</html>
+"""
+
+
+def inject(path: Path, tag: str) -> str:
+    """把 THEME 插到 </style> 之前。已注入过就跳过（可重复运行）。"""
+    text = path.read_text(encoding="utf-8")
+    if tag in text:
+        return f"  {path.name}：已有终端主题，跳过"
+    idx = text.rfind("</style>")
+    if idx < 0:
+        return f"  {path.name}：✗ 找不到 </style>"
+    text = text[:idx] + THEME + text[idx:]
+    path.write_text(text, encoding="utf-8")
+    return f"  {path.name}：✓ 已注入（+{len(THEME.splitlines())} 行）"
+
+
+print("=== 注入终端主题 ===")
+for name in ("base.html", "auth_base.html"):
+    print(inject(ROOT / name, "终端主题（覆盖层"))
+
+# 自检：变量覆盖项是否都在
+base = (ROOT / "base.html").read_text(encoding="utf-8")
+need = ["--paper:#000", "--card:#0a0f0a", "--ink:#00ff00",
+        "--ok-fg:#00ff00", "--warn-fg:#ffb000", "--bad-fg:#ff5f56",
+        "@keyframes ta-blink"]
+missing = [n for n in need if n not in base]
+print(f"\n=== 自检 ===\n  关键变量：{'✓ 全部就位' if not missing else '✗ 缺 ' + str(missing)}")
+print(f"  </style> 数量：{base.count('</style>')}（应为 1）")
+
+# 备份原有浅色主题的痕迹：确认旧变量名仍被覆盖
+old = ["--paper:", "--card:", "--ink:", "--sunken:"]
+print(f"  旧变量名覆盖：{'✓' if all(o in base for o in old) else '✗'}")
