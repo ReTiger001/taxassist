@@ -274,7 +274,11 @@ def apply_enrichment(conn, doc_uid: str, detail) -> str:
     if detail.page_title:
         old_title = existing["title"] or ""
         if old_title.endswith(("...", "..", "…")):
-            core = old_title.rstrip(".．。… ").strip()
+            # 去掉尾省略号，并**剥掉列表页的前导项目符号** —— 陕西的列表标题
+            # 形如 "• 关于《…》的解读"，而详情页标题没有那个 "•"，
+            # 不剥就一条都定位不上（实测 233 条全卡在这一个字符上）。
+            core = (old_title.rstrip(".．。… ")
+                    .lstrip("•·-—–*　 ").strip())
             idx = detail.page_title.find(core) if core else -1
             if idx >= 0:
                 fixed = detail.page_title[idx:].strip()
