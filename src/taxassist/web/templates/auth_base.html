@@ -96,8 +96,19 @@ html,body{background:#000}
 body{font:13px/1.7 "Cascadia Mono",Consolas,"NSimSun",SimSun,
   "Courier New",monospace}
 
-/* CRT 质感：只留文字荧光晕（见 base.html 的说明 —— 扫描线会导致布局异常）。 */
-body{text-shadow:0 0 1.5px rgba(0,255,0,.32)}
+/* ── CRT 质感，按 CSS-Tricks《Old Timey Terminal Styling》的做法 ──
+   （完整说明见 base.html 的注释：径向渐变发光背景 / text-shadow 荧光晕 /
+  扫描线用 absolute+四边显式声明（不用 inset，那会撑开页面）/
+  pointer-events:none 保证文字可选中） */
+html,body{background:#000}
+body{position:relative;min-height:100vh;
+  background-image:radial-gradient(rgba(0,150,0,.16),transparent 85%);
+  text-shadow:0 0 5px rgba(0,255,0,.45)}
+body::after{content:"";position:absolute;top:0;left:0;
+  width:100vw;height:100vh;pointer-events:none;z-index:2;
+  background:repeating-linear-gradient(0deg,
+    rgba(0,0,0,.22) 0 1px, transparent 1px 2px)}
+::selection{background:#00ff00;color:#000;text-shadow:none}
 
 /* 滚动条 —— 细节，但它是"运行框"观感的一部分 */
 ::-webkit-scrollbar{width:10px;height:10px}

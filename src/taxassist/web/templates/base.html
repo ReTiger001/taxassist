@@ -393,11 +393,32 @@ body{font:13px/1.7 "Cascadia Mono",Consolas,"NSimSun",SimSun,
 /* 汉字与数字对齐：等宽字体下用表格数字，扫列不跳动 */
 td,.d,.n,.cit,.docno{font-variant-numeric:tabular-nums}
 
-/* CRT 质感：只留文字荧光晕。
-   **扫描线去掉了** —— 加上它之后页面出现大片异常空白、文字被推开
-   （实测截图一眼可见）。荧光晕不参与布局，留着是安全的。
-   如果以后还想要扫描线，得换一种不参与布局的实现方式再验证。 */
-body{text-shadow:0 0 1.5px rgba(0,255,0,.32)}
+/* ── CRT 质感，按 CSS-Tricks《Old Timey Terminal Styling》的做法 ──
+   （参考实现见 https://css-tricks.com/old-timey-terminal-styling/） */
+
+/* ① 背景：**不是纯黑，是"阴极射线管通电发光"**。
+   纯黑只是关机状态；径向渐变才有屏幕中心发亮、四周暗下去的感觉。 */
+html,body{background:#000}
+body{position:relative;min-height:100vh;
+  background-image:radial-gradient(rgba(0,150,0,.16),transparent 85%)}
+
+/* ② 文字的荧光晕。参考那篇特意选了 text-shadow 而不是 filter:blur ——
+   后者要么太糊要么不够糊，还会拖慢滚动。 */
+body{text-shadow:0 0 5px rgba(0,255,0,.45)}
+
+/* ③ 扫描线。**这次用 absolute + 四边显式声明，不用 inset。**
+   上一版的根因：`position:fixed; inset:0` —— inset 简写在部分浏览器
+   不支持，退化成 left/top 皆 auto 的静态位置，于是**它参与了文档流**，
+   把页面撑出大片空白（实测截图一眼可见）。
+   必须带 pointer-events:none，否则文字选不中/点不动 ——
+   那篇文章的评论区里好几个人踩了这个坑（Firefox 上尤其明显）。 */
+body::after{content:"";position:absolute;top:0;left:0;
+  width:100vw;height:100vh;pointer-events:none;z-index:2;
+  background:repeating-linear-gradient(0deg,
+    rgba(0,0,0,.22) 0 1px, transparent 1px 2px)}
+
+/* ④ 选中时去掉荧光晕 —— 选中的文字必须清晰，模糊了会影响复制核对。 */
+::selection{background:#00ff00;color:#000;text-shadow:none}
 
 /* 滚动条 —— 细节，但它是"运行框"观感的一部分 */
 ::-webkit-scrollbar{width:10px;height:10px}
