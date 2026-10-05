@@ -379,13 +379,25 @@ html,body{background:#000}
 ::selection{background:#00ff00;color:#000}
 
 /* 中英混排：等宽排最前，中文自动回退到雅黑（见文件头理由 ②） */
-body{font:14px/1.68 "Cascadia Mono",Consolas,"SF Mono",Menlo,
-  "DejaVu Sans Mono","Courier New",monospace,"Microsoft YaHei",
-  "PingFang SC",sans-serif}
-code,kbd,.docno,.d,.en,.n,.cit{font-family:"Cascadia Mono",Consolas,
-  "SF Mono",Menlo,monospace}
-/* 数字对齐：表格里的日期/条数/编号用等宽数字，扫列时不会跳动 */
-td,.d,.n,.cit{font-variant-numeric:tabular-nums}
+/* 字体：**这才是"代码感"的决定因素**。
+   之前把中文回退到「微软雅黑」—— 那是现代无衬线，跟终端毫无关系，
+   所以只有颜色像、字体不像。实测（canvas 量字符宽度）：
+     NSimSun / SimSun 的中英宽度比正好 2.00（标准 CJK 等宽）
+     Consolas 1.82 / Cascadia 1.71（只覆盖拉丁，中文仍要回退）
+     微软雅黑 1.02（比例字体，完全不是等宽）
+   而且宋体在 13px 这种小字号下是**点阵渲染** —— 那个颗粒感正是
+   「远古终端」的来源，不是靠调颜色能得到的。
+   顺序：现代等宽管拉丁与数字，NSimSun/SimSun 管中文。 */
+body{font:13px/1.7 "Cascadia Mono",Consolas,"NSimSun",SimSun,
+  "Courier New",monospace}
+/* 汉字与数字对齐：等宽字体下用表格数字，扫列不跳动 */
+td,.d,.n,.cit,.docno{font-variant-numeric:tabular-nums}
+
+/* CRT 质感：只留文字荧光晕。
+   **扫描线去掉了** —— 加上它之后页面出现大片异常空白、文字被推开
+   （实测截图一眼可见）。荧光晕不参与布局，留着是安全的。
+   如果以后还想要扫描线，得换一种不参与布局的实现方式再验证。 */
+body{text-shadow:0 0 1.5px rgba(0,255,0,.32)}
 
 /* 滚动条 —— 细节，但它是"运行框"观感的一部分 */
 ::-webkit-scrollbar{width:10px;height:10px}
