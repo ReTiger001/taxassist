@@ -129,7 +129,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="知识库接口：启动本机 JSON 接口（只读），或自检知识库")
     kbp.add_argument("--host", default="127.0.0.1",
                      help="绑定地址。默认 127.0.0.1（仅本机）。改绑其他地址会告警：此接口无认证")
-    kbp.add_argument("--port", type=int, default=8766)
+    kbp.add_argument("--port", type=int, default=8767,
+                     help="端口，默认 8767（同 kb_api.DEFAULT_PORT）。被占用时自动往后找空闲端口")
     kbp.add_argument("--selftest", action="store_true",
                      help="不启动服务，只跑一遍自检（库能否读、检索能否命中、是否真的只读）")
 
@@ -145,8 +146,16 @@ def build_parser() -> argparse.ArgumentParser:
     w = sub.add_parser(
         "worker",
         help="后台工作者：抓取/校对/翻译/上架四阶段守候运行（独立进程，不靠人盯）")
+    # **不要加 choices**：下面（worker 分支）支持逗号分隔的组合，例如
+    # --stage fetch,publish,verify（故意不带 translate —— 翻译有 11:00-19:00
+    # 的时间窗约束，见 scripts/translate_all.py，而 worker 的 translate 阶段
+    # 不受它管，一起跑会违反那个约束）。
+    # 加了 choices 就只认单值，逗号写法会被 argparse 直接拒掉 —— 实测踩过：
+    # `--stage fetch,publish,verify` 报 invalid choice，而那段逗号逻辑
+    # 根本执行不到。合法性校验交给下面那段（它会打印可用阶段）。
     w.add_argument("--stage", default="all",
-                   choices=("all", "fetch", "publish", "verify", "translate"))
+                   help="阶段，可逗号组合：all / fetch / publish / verify / "
+                        "translate，如 --stage fetch,publish,verify")
     w.add_argument("--interval", type=int, default=1800, help="每轮间隔秒（默认 1800）")
     w.add_argument("--rounds", type=int, default=0, help="跑多少轮（0=无限）")
     w.add_argument("--once", action="store_true", help="只跑一轮就退出")
@@ -199,18 +208,55 @@ def cmd_collect(args) -> int:
 
 
 def cmd_provincial(args) -> int:
-    """抓省级税务局的政策列表。这些站点在 WAF 后面，走真浏览器。"""
-    conn = dbmod.connect()
-    dbmod.init_db(conn)
-    results = pipeline.collect_provincial(conn, source_ids=args.source or None)
-    print(pipeline.summarize(results))
-    stats = effect.judge_effects(conn)
-    print(f"效力判定：{stats['judged']} 条（来源分布 {stats['by_source']}）")
-    bad = [r for r in results if r["status"] != "ok"]
-    for r in bad:
-        print(f"    失败 {r['source_id']}（{r.get('region', '?')}）：{r.get('error', '')}")
-    conn.close()
-    return 1 if bad else 0
+    """抓省级税务局的政策列表。这些站点在 WAF 后面，走真浏览器。
+
+    **整个命令持写锁**。它做完两件写库的事 —— 抓取入库、再对全库跑效力
+    判定（judge_effects）。实测过没有这把锁的后果：6 个 provincial 进程
+    同时跑（其中几个还是上一轮没结束的），互相抢 SQLite 写锁，后启动的
+    那些长时间堵在 database is locked 上，fetch_log 里留下一堆迟迟不结束
+    的 running 记录。
+
+    拿不到锁就**退出**而不是排队等：一轮要好几分钟，两个一起跑只会在锁上
+    互撞、并不会更快。要并行就按源分批（--source）。
+
+    等待上限取 30 秒而不是几分钟：它只用于覆盖"刚好在收尾"的瞬间，够判断
+    「有人在跑」就够了。设成 600 秒的后果是使用者干等十分钟才看到一句
+    「有人在跑」——那比直接告诉他更糟。
+    """
+    from . import writelock
+
+    if not writelock.acquire("provincial", timeout=30):
+        print(f"另一个写库任务正在跑（{writelock.holder()}），本次退出。\n"
+              f"  两个写库任务一起跑只会在 SQLite 写锁上互撞，不会更快 ——\n"
+              f"  等它结束后再跑，或确认那个进程是不是已经不响应了"
+              f"（旧锁靠心跳租约自动过期，最多等 {writelock.LEASE_SEC:.0f} 秒）。")
+        return 1
+    try:
+        conn = dbmod.connect()
+        try:
+            dbmod.init_db(conn)
+            results = pipeline.collect_provincial(conn,
+                                                  source_ids=args.source or None)
+            print(pipeline.summarize(results))
+            stats = effect.judge_effects(conn)
+            print(f"效力判定：{stats['judged']} 条（来源分布 {stats['by_source']}）")
+            bad = [r for r in results if r["status"] != "ok"]
+            for r in bad:
+                print(f"    失败 {r['source_id']}（{r.get('region', '?')}）："
+                      f"{r.get('error', '')}")
+        finally:
+            conn.close()
+        # 长写事务结束后回收 WAL：实测 -wal 已涨到 35MB，不 checkpoint 会一直长。
+        # 失败不报错 —— 它只是磁盘占用问题，不该让整轮采集显示成失败。
+        try:
+            c2 = dbmod.connect()
+            c2.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+            c2.close()
+        except Exception as exc:  # noqa: BLE001
+            print(f"（WAL 回收跳过：{type(exc).__name__}）")
+        return 1 if bad else 0
+    finally:
+        writelock.release()
 
 
 def cmd_status(args) -> int:
@@ -786,10 +832,11 @@ def _kb_selftest() -> int:
     except Exception:  # noqa: BLE001 - 写被拒就是期望结果
         print("[√] 只读：写入已被 SQLite 拒绝")
 
-    from . import mcp_server
+    from . import kb_api, mcp_server
     print(f"[√] MCP 工具：{', '.join(mcp_server._TOOL_FUNCS)}")
     print("-" * 60)
-    print("自检通过。启动接口：python -m taxassist kb（默认 http://127.0.0.1:8766/）")
+    print(f"自检通过。启动接口：python -m taxassist kb"
+          f"（默认 http://127.0.0.1:{kb_api.DEFAULT_PORT}/，被占用时自动往后找）")
     return 0
 
 
