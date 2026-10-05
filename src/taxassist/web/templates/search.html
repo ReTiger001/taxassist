@@ -17,6 +17,64 @@
 {% endif %}
 
 <form method="get" action="/search" class="filters">
+  {# ---------------------------------------------------------------
+     快捷筛选：年份与地区做成「点一下就生效」的按钮条。
+     为什么加它：这两个是最常用的维度，而政策查询的典型动作是
+     "先圈年份、再圈地区"。用下拉框要点两次（展开 + 选择），
+     一轮筛下来四五个动作；按钮条点一下就到。
+     链接由后端 url_with() 生成，会**带上当前其它条件** ——
+     改年份不会把地区丢掉。
+     --------------------------------------------------------------- #}
+  <div class="f-quick">
+    {% if years %}
+    <div class="f-q-row">
+      <span class="f-q-label">年份</span>
+      <a class="q-chip{% if not year %} on{% endif %}"
+         href="{{ url_with(year='') }}">全部</a>
+      {# 默认只放最近 12 年。库里的年份跨了 40 多年（1984 起），
+         全铺出来是 44 个 chip、第一屏就被占满 —— 与"精简筛选"相反。
+         更早的收进 <details>，要找的时候点开。 #}
+      {% for y in years[:12] %}
+        <a class="q-chip{% if y|string == year %} on{% endif %}"
+           href="{{ url_with(year=y) }}">{{ y }}</a>
+      {% endfor %}
+      {% if years|length > 12 %}
+      <details class="q-more">
+        <summary>更早（{{ years|length - 12 }}）</summary>
+        <div class="q-more-body">
+          {% for y in years[12:] %}
+            <a class="q-chip{% if y|string == year %} on{% endif %}"
+               href="{{ url_with(year=y) }}">{{ y }}</a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
+    {% endif %}
+    {% if regions %}
+    <div class="f-q-row">
+      <span class="f-q-label">地区</span>
+      <a class="q-chip{% if not region %} on{% endif %}"
+         href="{{ url_with(region='') }}">全部</a>
+      {% for name, n in regions[:14] %}
+        <a class="q-chip{% if name == region %} on{% endif %}"
+           href="{{ url_with(region=name) }}">{{ name }}<i>{{ n }}</i></a>
+      {% endfor %}
+      {% if regions|length > 14 %}
+      <details class="q-more">
+        <summary>更多地区（{{ regions|length - 14 }}）</summary>
+        <div class="q-more-body">
+          {% for name, n in regions[14:] %}
+            <a class="q-chip{% if name == region %} on{% endif %}"
+               href="{{ url_with(region=name) }}">{{ name }}<i>{{ n }}</i></a>
+          {% endfor %}
+        </div>
+      </details>
+      {% endif %}
+    </div>
+    {% endif %}
+  </div>
+
   <div class="f-main">
     <input type="search" name="q" value="{{ q or '' }}"
            placeholder="如：研发费用加计扣除、国家税务总局公告2026年第19号">
