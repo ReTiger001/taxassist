@@ -35,7 +35,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date        # 吉林列表页只给「月-日」，补年份要用
 from urllib.parse import urljoin
 
@@ -877,6 +877,153 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         needs_js=True,
         wait_ms=12000,
     ),
+    # ==================================================================
+    # 缺口补充源（2026-10-06，重叠检测后加）
+    # ------------------------------------------------------------------
+    # 由来：tools/check_overlap.py 对 29 个候选栏目做了重叠检测。判据是
+    # **URL 路径或标题命中其一即算「已在库里」** —— 只比 URL 会严重漏判：
+    # 省级站大量转载总局文件（URL 指向总局站），按 URL 判北京库内 4190 条
+    # 却是「已有 0」。结论：9 个栏目 100% 重复（不补），20 个栏目确有
+    # 文章不在库里（合计约 114 篇）。
+    #
+    # **为什么不都塞进现有源的 extra_urls**：extra_urls 与 list_url 共用
+    # 同一个 detail_href_re 与 base_url（见 `urls = [adapter.list_url,
+    # *adapter.extra_urls]`）。形态一致时加 extra_urls 最省事；
+    # 形态不同（相对路径基准不同、文章路径规律不同）就必须另立源，
+    # 否则**静默抓不到** —— 上海踩过：base_url 少一层 /zcfw/zcfgk/，
+    # 拼出来的地址不存在，一条也抓不回来。
+    #
+    # 下面这些是**形态不同**、只能另立源的；形态相同的补在各自源的
+    # extra_urls 里（见上面各源的改动）。
+    # ==================================================================
+    ListPageAdapter(
+        source_id="sh_zcfw",
+        region="上海",
+        site_name="国家税务总局上海市税务局（政策服务总栏目）",
+        list_url="http://shanghai.chinatax.gov.cn/zcfw/",
+        # 这个总栏目下挂 zcjd（政策解读）/ tjss（图解税收）/ rdwd（热点问答）
+        # 三个子目录。相对路径是 "./xxx/…"，所以 base_url 必须是 /zcfw/
+        # 本身 —— 与 sh_zcfgk（base_url=…/zcfw/zcfgk/）不同，这正是它
+        # 不能并进那个源 extra_urls 的原因。
+        detail_href_re=r"\./(?:zcjd|tjss|rdwd)/\d{6}/t\d+\.html",
+        base_url="http://shanghai.chinatax.gov.cn/zcfw/",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="gz_tysb",
+        region="贵州",
+        site_name="国家税务总局贵州省税务局（通用申报·政策文件）",
+        list_url="http://guizhou.chinatax.gov.cn/znydjqr/yhznfl/tysb/zcwj/",
+        # 同站的另一条文章路径（/znydjqr/…），与 gz_zcwj 的
+        # /wjjb/zcfgk/[a-z]+/[a-z]+/… 不重合，所以另立源。
+        detail_href_re=r"/znydjqr/yhznfl/tysb/zcwj/\d{6}/t\d+_\d+\.html",
+        base_url="http://guizhou.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="gz_jwlk",
+        region="贵州",
+        site_name="国家税务总局贵州省税务局（税务师·政策文件）",
+        list_url="http://guizhou.chinatax.gov.cn/znydjqr/yhznfl/jwlk/zcwj/",
+        detail_href_re=r"/znydjqr/yhznfl/jwlk/zcwj/\d{6}/t\d+_\d+\.html",
+        base_url="http://guizhou.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="bj_sszc_local",
+        region="北京",
+        site_name="国家税务总局北京市税务局（税费政策专栏）",
+        list_url="http://beijing.chinatax.gov.cn/bjswj/c104343/sszc.shtml",
+        # 这个栏目的文章落在**栏目自己的编号目录**（/bjswj/c104277/、
+        # /bjswj/c105390/…），而不是 bj_sszc 的 /bjswj/sszc/zxwj/，
+        # 所以正则按 c+编号 写通配。
+        detail_href_re=r"/bjswj/c\d+/\d{6}/[0-9a-f]{32}\.shtml",
+        base_url="http://beijing.chinatax.gov.cn",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="gx_zxwj",
+        region="广西",
+        site_name="国家税务总局广西壮族自治区税务局（最新文件）",
+        list_url="https://guangxi.chinatax.gov.cn/zcwj/zxwj/",
+        # href 形如 "./202608/t20260807_438100.html"（**不带子目录前缀**），
+        # 而 gx_zcwj 的正则要求 (?:zxwj|zcjd|rdwd)/… —— 匹配不到，只能
+        # 另立源；base_url 也必须指到 /zcwj/zxwj/ 这一层。
+        detail_href_re=r"\./\d{6}/t\d+_\d+\.html",
+        base_url="https://guangxi.chinatax.gov.cn/zcwj/zxwj/",
+        needs_js=True,
+    ),
+    ListPageAdapter(
+        source_id="xj_sszc",
+        region="新疆",
+        site_name="国家税务总局新疆维吾尔自治区税务局（税收政策）",
+        list_url="https://xinjiang.chinatax.gov.cn/sszc/",
+        # 同站三个子目录（zxwj 政策文件 / zcjd 解读 / rdwt 热点问答）。
+        # xinjiang_zcwj 只管 /sszc/zxwj/ 且 base_url 到那一层，覆盖不了
+        # 另两个目录。注意后缀有 .htm 也有 .html。
+        detail_href_re=r"\./(?:zxwj|zcjd|rdwt)/\d{6}/t\d+_\d+\.html?",
+        base_url="https://xinjiang.chinatax.gov.cn/sszc/",
+        needs_js=True,
+    ),
+)
+
+# ======================================================================
+# 形态相同的缺口栏目：派生补 extra_urls（2026-10-06）
+# ----------------------------------------------------------------------
+# 这些栏目与现有源**形态一致** —— 同一个 detail_href_re 与 base_url 就能
+# 命中它们的文章，所以最省事的补法是加进 extra_urls（采集时
+# `urls = [adapter.list_url, *adapter.extra_urls]`，共用那两字段）。
+#
+# **为什么不直接改那 10 个源的字段**：把「原有配置」与「后来补的缺口」
+# 混在一处，日后分不清哪条 URL 是补的、凭什么补、能不能删。集中在这里
+# 派生，数据与理由放一处，回退也简单（删掉本块即恢复补之前的状态）。
+#
+# 每条 URL 后标的是重叠检测算出的「库里还缺几篇」。数字小的（1-2 篇）
+# 也一并补：这些栏目会持续更新，补上之后新政策就不会再漏。
+# 检测工具：tools/check_overlap.py
+# 判据：URL 路径或标题命中其一即算「已在库里」（只比 URL 会漏判 ——
+#       省级站大量转载总局文件，按 URL 判北京 4190 条会显示成「已有 0」）。
+# ======================================================================
+_GAP_EXTRA_URLS: dict[str, tuple[str, ...]] = {
+    "liaoning_zcwj": (
+        "https://liaoning.chinatax.gov.cn/col/col1777/index.html",   # 缺 21
+    ),
+    "gz_zcwj": (
+        "http://guizhou.chinatax.gov.cn/wjjb/zcfgk/",                # 缺 11
+    ),
+    "hn_zcwj": (
+        "http://hunan.chinatax.gov.cn/category/20190624092865",      # 缺 6
+    ),
+    "gs_zcwj": (
+        "http://gansu.chinatax.gov.cn/col/col70/index.html",         # 缺 5
+    ),
+    "henan_zcwj": (
+        "https://henan.chinatax.gov.cn/zcwj/zcfgk/",                 # 缺 3
+        "https://henan.chinatax.gov.cn/zcwj/zxwj/",                  # 缺 3
+    ),
+    "shaanxi_zcwj": (
+        "http://shaanxi.chinatax.gov.cn/col/col7526/index.html",     # 缺 2
+    ),
+    "jl_zcwj": (
+        "http://jilin.chinatax.gov.cn/col/col311/index.html",        # 缺 2
+    ),
+    "zj_zcwj": (
+        "http://zhejiang.chinatax.gov.cn/col/col13300/index.html",   # 缺 1
+        "http://zhejiang.chinatax.gov.cn/col/col23175/index.html",   # 缺 2
+    ),
+    "sc_zcfg": (
+        "https://sichuan.chinatax.gov.cn/col/col320/index.html",     # 缺 2
+        "https://sichuan.chinatax.gov.cn/col/col19973/index.html",   # 缺 1
+    ),
+    "nx_zcwj": (
+        "http://ningxia.chinatax.gov.cn/col/col13850/index.html",    # 缺 1
+    ),
+}
+
+ADAPTERS = tuple(
+    replace(ad, extra_urls=(*ad.extra_urls, *_GAP_EXTRA_URLS[ad.source_id]))
+    if ad.source_id in _GAP_EXTRA_URLS else ad
+    for ad in ADAPTERS
 )
 
 ADAPTERS_BY_ID: dict[str, ListPageAdapter] = {a.source_id: a for a in ADAPTERS}
