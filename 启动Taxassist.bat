@@ -60,7 +60,13 @@ REM Skip if one is already running: a second worker would just fight for
 REM the write lock and sit idle, which reads as a fault to whoever is
 REM watching the windows. (The lock would keep the data safe, but a
 REM silently idle window is a bad thing to hand someone.)
-wmic process where "name='python.exe'" get CommandLine 2>nul | findstr /i "taxassist worker" >nul
+REM
+REM **Do NOT use wmic here.** Modern Windows ships without it (removed in
+REM Windows 11), and with its error swallowed by 2^>nul the whole script
+REM just dies silently -- which is exactly what happened the first time
+REM this launcher was tested: output stopped right before this line and
+REM the exit code was 255. PowerShell takes ~1-2s to start but is there.
+powershell -NoProfile -Command "if (Get-CimInstance Win32_Process -Filter \"name='python.exe'\" | Where-Object { $_.CommandLine -match 'taxassist worker' }) { exit 0 } else { exit 1 }"
 if %errorlevel%==0 (
   echo [skip]  worker already running
 ) else (
