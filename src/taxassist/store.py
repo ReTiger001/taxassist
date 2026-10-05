@@ -244,7 +244,8 @@ def apply_enrichment(conn, doc_uid: str, detail) -> str:
     - ``cwrq``：已有时不覆盖（列表接口填充率 100%，更可靠）
     """
     existing = conn.execute(
-        "SELECT id, content, p_doc_no_full, o_aging, cwrq FROM policy WHERE doc_uid=?",
+        "SELECT id, content, p_doc_no_full, o_aging, cwrq, title"
+        " FROM policy WHERE doc_uid=?",
         (doc_uid,),
     ).fetchone()
     if existing is None:
@@ -264,6 +265,21 @@ def apply_enrichment(conn, doc_uid: str, detail) -> str:
         updates["cwrq"] = detail.cwrq
     if detail.effective_date:
         updates["p_effective_date"] = detail.effective_date
+
+    # 标题修复：列表页标题被站点截断成 "…的发..."，而详情页 <title> 是完整的
+    # （实测河北 817 / 新疆 257 / 陕西 234 / 辽宁 16 条都栽在这，用户得点原
+    # 链接才看得到全称）。**只修以省略号结尾的**，并用列表标题做前缀定位 ——
+    # 详情标题前面挂着站点名与栏目名（"国家税务总局浙江省税务局 政策解读
+    # 关于《…》的公告的解读"），整条存进去会把站点名带进标题。
+    if detail.page_title:
+        old_title = existing["title"] or ""
+        if old_title.endswith(("...", "..", "…")):
+            core = old_title.rstrip(".．。… ").strip()
+            idx = detail.page_title.find(core) if core else -1
+            if idx >= 0:
+                fixed = detail.page_title[idx:].strip()
+                if len(fixed) > len(old_title):
+                    updates["title"] = fixed
 
     updates["p_detail_fetched_at"] = now_iso()
     assignments = ",".join(f"{k}=?" for k in updates)

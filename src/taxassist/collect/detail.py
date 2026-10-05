@@ -145,6 +145,13 @@ class DetailResult:
     aging_official: str | None = None
     cwrq: str | None = None
     effective_date: str | None = None
+    #: 详情页 ``<title>`` 里的完整标题。**为什么要它**：不少省级站的列表页把
+    #: 标题截断显示（"…的通..."），照抄进库会让列表和详情页都显示省略号，
+    #: 用户得点原链接才看得到全称 —— 实测河北 817 / 新疆 257 / 陕西 234 /
+    #: 辽宁 16 条都栽在这。详情页 <title> 是完整的，但前面挂着站点名与栏目名
+    #: （"国家税务总局浙江省税务局 政策解读 关于…"），所以这里**原样保留**，
+    #: 由调用方拿列表标题去定位、切掉前缀（见 pipeline.enrich_details）。
+    page_title: str | None = None
     attachments: list[dict] = field(default_factory=list)
     related_titles: list[str] = field(default_factory=list)
 
@@ -185,6 +192,16 @@ def parse_detail(html_text: str, base_url: str = "",
             parent.remove(bad)
 
     result = DetailResult()
+
+    # ---------------------------------------------------------- 完整标题
+    # 列表页标题常被站点截断成 "…的通..."，只靠它会让列表和详情页都显示
+    # 省略号。详情页 <title> 是完整的，但形如
+    #   "国家税务总局浙江省税务局 政策解读 关于《…》的公告的解读"
+    # 前缀是站点名与栏目名、各省写法不一，**剥不干净** —— 所以这里原样存下，
+    # 由调用方拿列表标题去定位并切掉前缀（见 pipeline.enrich_details）。
+    mt = re.search(r"<title[^>]*>(.*?)</title>", html_text, re.S | re.I)
+    if mt:
+        result.page_title = norm_text(re.sub(r"<[^>]+>", "", mt.group(1))) or None
 
     # ---------------------------------------------------------- 正文
     body_el = None
