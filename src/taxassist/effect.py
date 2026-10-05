@@ -172,6 +172,28 @@ def extract_title_refs(text: str | None) -> list[str]:
     return found
 
 
+def _title_gram_index(titles: list[tuple[str, str, str]]) -> dict[str, list[int]]:
+    """标题的 3-gram 倒排索引 —— **只用于筛候选，不参与打分**。
+
+    为什么这样筛不会漏：``partial_ratio`` 的分数来自两串的最长公共块；
+    若两串没有任何共同的 3-gram，最长公共块至多 2 字符，分数必然低于阈值
+    （88/90）。所以「共享至少一个 3-gram」是**超集**筛选，最终仍由
+    ``partial_ratio`` 打分、仍取最高分 —— 结果与全量扫描完全一致。
+
+    为什么需要它：原实现对**每个**书名号引用都全量扫一遍全库标题，而一篇
+    政策正文常引用十几个文件。实测 judge 一轮要跑好几分钟，整段时间写锁
+    被占着，其它写库任务全在等（这就是 fetch_log 里那些迟迟不结束的
+    status='running' 的成因之一）。
+    """
+    idx: dict[str, list[int]] = {}
+    for i, (_uid, title, _no) in enumerate(titles):
+        if not title or len(title) < 3:
+            continue
+        for g in {title[j:j + 3] for j in range(len(title) - 2)}:
+            idx.setdefault(g, []).append(i)
+    return idx
+
+
 def _best_title_match(
     target: str,
     titles: list[tuple[str, str, str]],
@@ -179,6 +201,7 @@ def _best_title_match(
     exclude: str,
     threshold: int = 90,
     skip_statutes: bool = False,
+    index: dict[str, list[int]] | None = None,
 ) -> tuple[str | None, str, int]:
     """在库内标题中找最匹配的一条。
 
@@ -196,7 +219,18 @@ def _best_title_match(
     from rapidfuzz import fuzz
 
     best: tuple[str | None, str, int] = (None, "", 0)
-    for uid, title, docno in titles:
+    # 候选来源：给了 index 就只扫可能与 target 达标的那些（见 _title_gram_index
+    # 的说明 —— 它是超集筛选，不改结果）；没给就退回全量扫描（保持兼容）。
+    # **候选按原顺序（索引升序）**：下面用 `score > best[2]` 严格大于，
+    # 平局取先出现者 —— 顺序一致才与原实现完全等价。
+    if index and len(target) >= 3:
+        cand: set[int] = set()
+        for g in {target[j:j + 3] for j in range(len(target) - 2)}:
+            cand.update(index.get(g, ()))
+        pairs = (titles[i] for i in sorted(cand))
+    else:
+        pairs = iter(titles)
+    for uid, title, docno in pairs:
         if uid == exclude or not title:
             continue
         if skip_statutes and _SKIP_REPEAL_SRC_RE.match(title):
@@ -376,6 +410,8 @@ def apply_repeal_catalogs(conn) -> dict:
     titles: list[tuple[str, str, str]] = []
     for r in conn.execute("SELECT doc_uid, title, p_doc_no_full FROM policy"):
         titles.append((r["doc_uid"], _normalise_title(r["title"]), r["p_doc_no_full"] or ""))
+    # 建一次 3-gram 索引，给下面**每一处**匹配复用（见 _title_gram_index）
+    tidx = _title_gram_index(titles)
 
     targets = matched = 0
     for cat in catalogs:
@@ -398,7 +434,7 @@ def apply_repeal_catalogs(conn) -> dict:
                 if dst_uid is None and title:
                     dst_uid, _matched_no, _score = _best_title_match(
                         _normalise_title(title), titles, exclude=cat["doc_uid"],
-                        threshold=92, skip_statutes=True)
+                        threshold=92, skip_statutes=True, index=tidx)
                 if dst_uid:
                     matched += 1
                 _insert_relation(conn, Relation(
@@ -453,6 +489,12 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
             by_docno[key] = r["doc_uid"]
         titles.append((r["doc_uid"], _normalise_title(r["title"]), r["p_doc_no_full"] or ""))
 
+    # 3-gram 索引建一次，给下面每一处匹配复用（见 _title_gram_index 的说明）。
+    # 这是本函数唯一的热点：原来每个书名号引用都要全量扫一遍 titles ——
+    # 全库一万多条标题 × 每篇十几个引用，实测 judge 一轮要好几分钟，
+    # 那段时间写锁被占着，其它写库任务全在等。
+    tidx = _title_gram_index(titles)
+
     # ---------------- 阶段 1：抽取（不判定）
     relation_rows: list[Relation] = []
     for r in rows:
@@ -498,7 +540,8 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
             if not key or key == own_title:
                 continue
             dst_uid, dst_no, score = _best_title_match(
-                key, titles, exclude=doc_uid, threshold=max(fuzzy_threshold, 90))
+                key, titles, exclude=doc_uid, threshold=max(fuzzy_threshold, 90),
+                index=tidx)
             relation_rows.append(Relation(
                 src_doc_uid=doc_uid, relation="cites", dst_doc_uid=dst_uid,
                 dst_doc_no=dst_no or title_ref,
@@ -527,7 +570,7 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
             if dst_uid is None:
                 dst_uid, matched_no, _score = _best_title_match(
                     _normalise_title(target), titles, exclude=doc_uid,
-                    threshold=fuzzy_threshold, skip_statutes=True)
+                    threshold=fuzzy_threshold, skip_statutes=True, index=tidx)
                 if dst_uid:
                     dst_no = matched_no or target
             relation_rows.append(Relation(
