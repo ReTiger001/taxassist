@@ -1,12 +1,90 @@
 {
+  "ah_zcfg": {
+    "list_url": "http://anhui.chinatax.gov.cn/col/col9416/index.html",
+    "min_items": 24,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
   "bj_sszc_local": {
     "list_url": "http://beijing.chinatax.gov.cn/bjswj/c104343/sszc.shtml",
     "min_items": 8,
     "needs_js": true,
     "note": "min_items 为取样时实测；判据是「不低于」它"
   },
+  "cq_zcjd": {
+    "list_url": "https://chongqing.chinatax.gov.cn/cqtax/zcwj/zcjd/",
+    "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "cq_zxwj": {
+    "list_url": "https://chongqing.chinatax.gov.cn/cqtax/zcwj/zxwj/",
+    "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "fj_zcfg": {
+    "list_url": "http://fujian.chinatax.gov.cn/sszczl/",
+    "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "gd_zcwj": {
+    "list_url": "http://guangdong.chinatax.gov.cn/gdsw/zcwj/zcwj.shtml",
+    "min_items": 28,
+    "needs_js": false,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "gs_zcwj": {
+    "list_url": "http://gansu.chinatax.gov.cn/col/col4/index.html",
+    "min_items": 22,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "gx_zcwj": {
+    "list_url": "https://guangxi.chinatax.gov.cn/zcwj/",
+    "min_items": 14,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
   "gx_zxwj": {
     "list_url": "https://guangxi.chinatax.gov.cn/zcwj/zxwj/",
+    "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "gz_jwlk": {
+    "list_url": "http://guizhou.chinatax.gov.cn/znydjqr/yhznfl/jwlk/zcwj/",
+    "min_items": 9,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "gz_tysb": {
+    "list_url": "http://guizhou.chinatax.gov.cn/znydjqr/yhznfl/tysb/zcwj/",
+    "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "gz_zcwj": {
+    "list_url": "http://guizhou.chinatax.gov.cn/wjjb/",
+    "min_items": 8,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "hainan_zcwj": {
+    "list_url": "http://hainan.chinatax.gov.cn/zcwj",
+    "min_items": 17,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "hb_zcwj": {
+    "list_url": "http://hubei.chinatax.gov.cn/hbsw/zcwj/zcfgk/index.html",
+    "min_items": 2735,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "hebei_zcjd": {
+    "list_url": "http://hebei.chinatax.gov.cn/hbsw/sszc/zcjd/",
     "min_items": 15,
     "needs_js": true,
     "note": "min_items 为取样时实测；判据是「不低于」它"
@@ -17,9 +95,87 @@
     "needs_js": true,
     "note": "min_items 为取样时实测；判据是「不低于」它"
   },
+  "henan_zcwj": {
+    "list_url": "https://henan.chinatax.gov.cn/zcwj/",
+    "min_items": 34,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "hlj_zcwj": {
+    "list_url": "http://heilongjiang.chinatax.gov.cn/col/col7573/index.html",
+    "min_items": 23,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
   "hn_zcwj": {
     "list_url": "http://hunan.chinatax.gov.cn/lists/20190725027557",
     "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "jl_zcwj": {
+    "list_url": "http://jilin.chinatax.gov.cn/col/col6311/index.html",
+    "min_items": 44,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "js_zcfg": {
+    "list_url": "http://jiangsu.chinatax.gov.cn/col/col8199/index.html",
+    "min_items": 34,
+    "needs_js": false,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "jx_zcwj": {
+    "list_url": "http://jiangxi.chinatax.gov.cn/col/col31015/index.html",
+    "min_items": 22,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "liaoning_zcwj": {
+    "list_url": "https://liaoning.chinatax.gov.cn/col/col2000/index.html",
+    "min_items": 32,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "nmg_zcwj": {
+    "list_url": "http://neimenggu.chinatax.gov.cn/zcwj",
+    "min_items": 26,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "nx_zcwj": {
+    "list_url": "http://ningxia.chinatax.gov.cn/col/col10983/index.html",
+    "min_items": 26,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "qinghai_zcfg": {
+    "list_url": "http://qinghai.chinatax.gov.cn/web/zcfg/zcwj.shtml",
+    "min_items": 16,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "qinghai_zxfg": {
+    "list_url": "http://qinghai.chinatax.gov.cn/web/zxfg/xxgk_fdzd_list.shtml",
+    "min_items": 10,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "sc_zcfg": {
+    "list_url": "https://sichuan.chinatax.gov.cn/col/col280/index.html",
+    "min_items": 24,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "sd_zcwj": {
+    "list_url": "http://shandong.chinatax.gov.cn/col/col5/index.html",
+    "min_items": 28,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "sh_zcfgk": {
+    "list_url": "http://shanghai.chinatax.gov.cn/zcfw/zcfgk/",
+    "min_items": 14,
     "needs_js": true,
     "note": "min_items 为取样时实测；判据是「不低于」它"
   },
@@ -29,9 +185,63 @@
     "needs_js": true,
     "note": "min_items 为取样时实测；判据是「不低于」它"
   },
+  "shaanxi_zcwj": {
+    "list_url": "http://shaanxi.chinatax.gov.cn/col/col3899/index.html",
+    "min_items": 32,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "sx_zcwj": {
+    "list_url": "http://shanxi.chinatax.gov.cn/zcwj",
+    "min_items": 25,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "tianjin_zlm": {
+    "list_url": "https://tianjin.chinatax.gov.cn/u_zlmView.action?fjdm=11200000000&lmdm=030001",
+    "min_items": 1,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "tianjin_zxwj": {
+    "list_url": "https://tianjin.chinatax.gov.cn/u_zlmViewMx.action?fjdm=11200000000&lmdm=030001&downbz=null",
+    "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "xinjiang_zcjd": {
+    "list_url": "https://xinjiang.chinatax.gov.cn/sszc/zcjd/",
+    "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
   "xinjiang_zcwj": {
     "list_url": "https://xinjiang.chinatax.gov.cn/sszc/zxwj/",
     "min_items": 15,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "xizang_zcwj": {
+    "list_url": "https://xizang.chinatax.gov.cn/col/col5350/index.html",
+    "min_items": 24,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "xj_sszc": {
+    "list_url": "https://xinjiang.chinatax.gov.cn/sszc/",
+    "min_items": 24,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "yn_zcwj": {
+    "list_url": "http://yunnan.chinatax.gov.cn/col/col3831/index.html",
+    "min_items": 33,
+    "needs_js": true,
+    "note": "min_items 为取样时实测；判据是「不低于」它"
+  },
+  "zj_zcwj": {
+    "list_url": "http://zhejiang.chinatax.gov.cn/col/col13296/index.html",
+    "min_items": 39,
     "needs_js": true,
     "note": "min_items 为取样时实测；判据是「不低于」它"
   }
