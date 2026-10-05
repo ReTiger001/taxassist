@@ -104,7 +104,11 @@ _SUBSTANTIVE_FIRST = filters.substantive_first_sql("p")
 #: 介绍页放在这里是有意的：它不含任何政策数据，是给潜在使用者看的第一眼 ——
 #: "要登录才能看介绍"等于把人挡在门外，而第一眼被拦住的人不会再回来。
 PUBLIC_PATHS = frozenset({"/login", "/register", "/logout", "/favicon.ico",
-                          "/about"})
+                          "/about",
+                          # 系统自检。放这里是为了"未登录也能探活"（监控、
+                          # 隧道排障）。它只返回运行状态 —— 条数、时间戳、
+                          # PID、模型可用性 —— **不含客户数据与政策正文**。
+                          "/health"})
 
 
 def _is_local_request(request: Request) -> bool:
@@ -838,6 +842,68 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         if not changed:
             return _admin_back(err=f"没有找到账号 {target}")
         return _admin_back(msg=f"{target} 已{'设为' if want_owner else '取消'}超级管理员")
+
+    # ------------------------------------------------------------ 健康自检
+
+    @app.get("/health")
+    def health_check(request: Request):
+        """系统自检：一眼看出"哪里不对"。
+
+        **为什么放 PUBLIC_PATHS**：它的用途就是"还没登录也能查系统活着没"
+        （监控探活、隧道排障）。返回的全是运行状态 —— 条数、时间戳、PID、
+        模型可用性 —— **不含任何客户数据或政策正文**。
+
+        **为什么需要它**：这个系统出故障的表现是"默默不动"（worker 卡死、
+        写锁没释放、ollama 没起、调度没跑），而不是抛错。有了这个端点，
+        排障从"翻三个日志文件"变成"看一个 JSON"。每一项独立 try ——
+        某个子系统坏了不能导致整个自检返回 500，那样最需要它的时候它反而
+        不可用。
+        """
+        import datetime as _dt
+
+        from .. import writelock
+
+        out: dict = {"now": _dt.datetime.now().isoformat(timespec="seconds")}
+
+        try:                       # ① 库
+            conn = dbmod.connect()
+            try:
+                n = conn.execute("SELECT COUNT(*) FROM policy").fetchone()[0]
+                last = conn.execute(
+                    "SELECT MAX(started_at) FROM fetch_log").fetchone()[0]
+                out["db"] = {"policies": n, "last_fetch_at": last}
+            finally:
+                conn.close()
+        except Exception as exc:   # noqa: BLE001
+            out["db"] = {"error": f"{type(exc).__name__}: {exc}"[:120]}
+
+        try:                       # ② 写锁（卡死时这里能看出来）
+            held = writelock.holder()
+            out["write_lock"] = {"held_by": held}
+        except Exception as exc:   # noqa: BLE001
+            out["write_lock"] = {"error": type(exc).__name__}
+
+        try:                       # ③ worker 最近一轮
+            from .. import worker as worker_mod
+            st = worker_mod.read_status()
+            out["worker"] = {"rounds": st.get("回合"),
+                             "started": st.get("开始"),
+                             "finished": st.get("结束"),
+                             "stages": st.get("阶段"),
+                             "note": st.get("说明")}
+        except Exception as exc:   # noqa: BLE001
+            out["worker"] = {"error": type(exc).__name__}
+
+        try:                       # ④ 对话用的本机模型
+            from .. import assistant as am
+            ok, msg = am.is_available()
+            out["ollama"] = {"ok": ok, "detail": msg}
+        except Exception as exc:   # noqa: BLE001
+            out["ollama"] = {"error": type(exc).__name__}
+
+        out["ok"] = not any("error" in (out.get(k) or {})
+                            for k in ("db", "write_lock", "worker"))
+        return JSONResponse(out)
 
     # ------------------------------------------------------------ 税务助手
 
