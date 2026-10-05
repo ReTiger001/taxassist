@@ -5,6 +5,7 @@
 跑一遍。这里复用同一条路径（parse_detail + apply_enrichment），
 不另写一套合并逻辑，免得两处行为不一致。
 """
+import gzip
 import sys
 from pathlib import Path
 
@@ -49,7 +50,16 @@ for i, r in enumerate(rows, 1):
     if rel:
         p = RAW_DIR / rel
         if p.exists():
-            text = p.read_text(encoding="utf-8", errors="replace")
+            # **快照是 gzip 压缩的原始响应**：store.archive_payload 对 bytes
+            # 直接 gzip 写入，文件名虽叫 .json.gz，内容就是 HTML。
+            # 直接 read_text 会把压缩字节当文本读 —— 里面既没有 <title> 也没有
+            # 正文，parse_detail 只会返回一堆 None。河北 817 / 陕西 234 一条
+            # 都没修好，就是这个原因（我第一版回填脚本踩的）。
+            try:
+                blob = gzip.decompress(p.read_bytes())
+            except OSError:
+                blob = p.read_bytes()          # 未压缩的存量兼容一下
+            text = blob.decode("utf-8", "replace")
     if text is None:
         raw = pages.get(r["url"])
         if isinstance(raw, BaseException) or not raw:
