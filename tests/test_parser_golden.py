@@ -9,6 +9,11 @@
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
+import pytest
+
 from taxassist.collect.detail import parse_detail
 from taxassist.collect.normalize import doc_no_year
 
@@ -90,3 +95,47 @@ def test_province_title_strips_date_prefix():
         "国家税务总局关于发布裁量基准的公告"
     # 只有日期、后面没内容的，保留原样 —— 让"没抓到标题"这件事在数据里看得见
     assert _clean_title("2026-09-28") == "2026-09-28"
+
+
+# ---------------------------------------------------------------- 整页样本
+#
+# 上面几条测的是**单个解析点**（从真实页面截的最小片段）；这一组测**整条
+# 链路**：真实的省级列表页整页 HTML → parse_list_page → 条目。
+#
+# 为什么要它：解析退化在「条数变少但没到零」时是**静默的** ——
+# parse_list_page 只在零条目时才抛错，而 fetch_log 仍记 ok（就是本模块头部
+# 说的「假成功」）。样本 + 下限断言能在改完解析器后立刻抓到某个源退化。
+#
+# 样本用 tools/snapshot_list_pages.py 生成，放在 tests/golden/。
+
+_GOLDEN_DIR = Path(__file__).parent / "golden"
+_GOLDEN_MANIFEST = _GOLDEN_DIR / "manifest.json"
+
+
+def _golden_cases() -> list[tuple[str, dict]]:
+    """读 manifest，返回有对应 HTML 的样本；没有样本时返回空（测试自动跳过）。"""
+    if not _GOLDEN_MANIFEST.exists():
+        return []
+    man = json.loads(_GOLDEN_MANIFEST.read_text(encoding="utf-8"))
+    return [(sid, info) for sid, info in sorted(man.items())
+            if (_GOLDEN_DIR / f"{sid}.html").exists()]
+
+
+@pytest.mark.parametrize("source_id,info", _golden_cases())
+def test_provincial_list_page_still_parses(source_id: str, info: dict):
+    """存档的省级列表页要能解析出条目，且条数不低于取样时的值。
+
+    **判据用「不低于」而非「相等」**：站点会陆续发新政策，列表页条数只增
+    不减，下限是稳定判据；要等值的话每次站点更新都得重做样本，测试会被
+    频繁改动而失去意义。
+    """
+    from taxassist.province import ADAPTERS_BY_ID, parse_list_page
+
+    ad = ADAPTERS_BY_ID.get(source_id)
+    if ad is None:
+        pytest.skip(f"{source_id} 已不在 ADAPTERS 中（源被删或改名？）")
+    html = (_GOLDEN_DIR / f"{source_id}.html").read_text(encoding="utf-8")
+    items = parse_list_page(html, ad)
+    assert len(items) >= info["min_items"], (
+        f"{source_id} 只解析出 {len(items)} 条，低于取样时的 "
+        f"{info['min_items']} 条 —— 解析器可能被改坏了")
