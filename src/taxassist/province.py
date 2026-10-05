@@ -318,6 +318,20 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # /zcfw/zcfgk/，变成不存在的地址。
         base_url="http://shanghai.chinatax.gov.cn/zcfw/zcfgk/",
         needs_js=True,
+        # **分页是真的，而且当初漏配了** —— 这就是"上海只有 3 条"的根因。
+        # 实测首页 / index_1 / index_2 / index_6 的首条各不相同
+        # （./cztdsys/… / ./ccs/… / ./grsds/…），共 25 页、每页约 14 条，
+        # 即 350 条左右。
+        page_url_template=("http://shanghai.chinatax.gov.cn"
+                           "/zcfw/zcfgk/index_{n}.html"),
+        page_count=25,
+        # 另两个栏目**不单独配**（实测过）：
+        #   「最新文件」/zcfw/zxwj/   链接是 ../zcfgk/zzs/… —— 只是按税种重排的
+        #   「优惠政策」/zcfw/yhzc/   视图，抓 zcfgk 本身已覆盖
+        #   「政策解读」/zcfw/zcjd/   链接是 ./N/tN.html，**不带税种段**，
+        #   「通知公告」/xxgk/tzgg/    与本栏目的 detail_href_re 不兼容；而
+        # extra_urls 与主栏目共用这个正则，配了也匹配不到。且它们是解读与
+        # 通知，不是政策本体，暂不纳入。
     ),
     ListPageAdapter(
         source_id="zj_zcwj",
