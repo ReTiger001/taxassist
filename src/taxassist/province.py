@@ -768,8 +768,14 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         list_url="https://xinjiang.chinatax.gov.cn/sszc/zxwj/",
         detail_href_re=r"\./\d{6}/t\d+_\d+\.html?",
         base_url="https://xinjiang.chinatax.gov.cn/sszc/zxwj/",
+        # 【2026-10-06 提速】实测四档 wait_ms（3000/6000/9000/14000）解出的
+        # 条目数与字节数**完全一致**（都是 15 条 / 27226 字节）—— 那 14 秒
+        # 是纯等待，什么也没多拿到。降到 3000 后每页 15.8s → 4.5s，
+        # 60 页 984s → 270s。
+        # 注意这个源**必须走浏览器**：它的 index_N.htm 直连一律返回 412
+        # （有 JS 挑战），这是它不能像河北那样改直连的原因。
         needs_js=True,
-        wait_ms=14000,
+        wait_ms=3000,
         timeout_ms=90000,
         # 列表页有**静态分页**（index_1.htm …）—— 实测页内同时有 15 个文章链接
         # 和 11 个 index_N.htm 分页链接。只抓第一页会漏掉全部历史政策。
@@ -832,15 +838,31 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"(?:\./|hebei\.chinatax\.gov\.cn/hbsw/sszc/zxwj/)"
                        r"\d{6}/t\d+_\d+\.html",
         base_url="http://hebei.chinatax.gov.cn/hbsw/sszc/zxwj/",
+        # 【2026-10-06】**必须走浏览器**（试过直连，失败，已回退）。
+        #
+        # 直连能拿到 HTTP 200 / 38286 字节，看着挺正常，但页面是**空壳**：
+        # 21 条详情链接全在 JS 变量里（`var doctitle = '<a href="./202609/…">'`），
+        # DOM 里一个匹配的 <a href> 都没有 —— 实测 //a[@href] 有 38 个、
+        # 命中详情的 0 个。parse_list_page 走的就是 DOM 路径，所以直接报
+        # "未解析出任何条目"。
+        #
+        # **教训（这次栽了两遍）**：探测要用**生产的解析路径**。
+        #   第一遍用裸 httpx 探（会走系统代理，而生产 trust_env=False），
+        #   第二遍用整份文本 findall 探 —— 两次都得出"直连可用"，
+        #   而两次都不是 parse_list_page 实际做的事。
+        #   文本里有这个字符串 ≠ DOM 里有这个元素。
         needs_js=True,
-        # 普通列表页的 index_N.html **只到第 66 页**（约 990 条）就没了，
-        # 而站点声明 4938 条。全量的 330 页在**无障碍版**的 TRS 检索系统里
-        # （GET 参数分页）—— 这一点是从浏览器里"尾页"链接找到的，
+        # 真正的提速在 perpage：**15 → 500 条/页**，页数 330 → 10。
+        # 走浏览器 10.5 秒/页 × 10 页 ≈ 105 秒（原为 3474 秒）。
+        # 普通列表页的 index_N.html 只到第 66 页（约 990 条）就没了，
+        # 而站点声明 4938 条；全量的分页在**无障碍版**的 TRS 检索系统里
+        # （GET 参数分页）—— 这一点是从浏览器"尾页"链接找到的，
         # 首页分页控件只显示到"尾页"却不会告诉你它指向别处。
+        # 注意 perpage 只认特定档位：15 ✓、100 ✓、500 ✓；50 ✗、200 ✗（返回 412）。
         page_url_template="http://wzyy.hebei.chinatax.gov.cn/was5/web/search?"
                           "&channelid=245955&searchword=docchannel=45812"
-                          "&perpage=15&page={n}",
-        page_count=330,
+                          "&perpage=500&page={n}",
+        page_count=10,           # 约 4938 条 ÷ 500/页 → 10 页足够
     ),
     ListPageAdapter(
         source_id="hebei_zcjd",

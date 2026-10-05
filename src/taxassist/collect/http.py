@@ -17,6 +17,7 @@ from urllib.parse import urlencode
 import httpx
 
 from ..config import (
+    CHALLENGE_RETRY_SEC,
     FORBIDDEN_EXTRA_FILE,
     FORBIDDEN_OUTBOUND_PATTERNS,
     MAX_RETRIES,
@@ -134,6 +135,16 @@ class GuardedClient:
                     raise httpx.HTTPStatusError(
                         f"服务端错误 {resp.status_code}", request=resp.request, response=resp
                     )
+                # **412 要退避重试，其他 4xx 不要。**
+                # 412 是挑战页（"你请求太密了"），语义是"稍后再来"，与
+                # 403/404（重试无意义）根本不同。实测河北的 TRS 检索页：
+                # 连续请求必 412，隔 3 秒仍有 —— 而它一页能给近 1000 条，
+                # 放弃重试就等于静默漏掉整页数据，且状态仍记 ok。
+                if resp.status_code == 412 and attempt < retries:
+                    wait = CHALLENGE_RETRY_SEC * (attempt + 1)
+                    log.warning("遇到挑战页（412），%.0f 秒后重试：%s", wait, url)
+                    time.sleep(wait)
+                    continue
                 return resp
             except Exception as e:  # noqa: BLE001 - 需要统一重试判定
                 last_err = e

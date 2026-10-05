@@ -40,6 +40,12 @@ REQUEST_INTERVAL_SEC = 1.5
 REQUEST_TIMEOUT_SEC = 40
 MAX_RETRIES = 3
 RETRY_BACKOFF_SEC = 3.0
+# 遇到挑战页（HTTP 412）时的退避基数（秒）：第 n 次重试等 n × 这个值。
+# 为什么单独给它一个常量：412 的语义是"你请求太密了，稍后再来"，与
+# 403/404（重试无意义）不同，值得用比普通失败**更长的**等待。
+# 实测河北的 TRS 检索页：连续请求必 412，隔 3 秒仍有；而它一页能给近
+# 1000 条，放弃重试等于静默漏掉整页，且状态还记 ok。
+CHALLENGE_RETRY_SEC = 5.0
 
 # 服务端固定每页 10 条（已实测：传 pageSize=50 仍只返回 10 条）
 FGK_PAGE_SIZE = 10
