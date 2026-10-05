@@ -35,7 +35,15 @@
 
 # 全文检索
 .venv/Scripts/python.exe -m taxassist search 研发费用加计扣除
+
+# 让 AI 直接查这个库（两条路，都只读、都在本机跑）
+.venv/Scripts/python.exe -m taxassist mcp    # MCP stdio 服务，挂给 Claude Desktop / Cursor 等
+.venv/Scripts/python.exe -m taxassist kb     # 本机 JSON 接口 http://127.0.0.1:8766/
+.venv/Scripts/python.exe -m taxassist kb --selftest   # 自检：库能否读、检索能否命中、是否真的只读
 ```
+
+AI 接入的完整说明（客户端配置、端点清单、数据边界）见
+**[docs/AI接入.md](docs/AI接入.md)**。
 
 调试单个源的结构（**源改版后第一步就跑它**）：
 
@@ -105,11 +113,15 @@ src/taxassist/
     store.py           入库：upsert、按页归档、抓取日志
     pipeline.py        编排：抓取→清洗→入库→归档→日志
     cli.py             命令行入口
+    kb.py              AI 检索内核：只读、结构化、可溯源（网页与 AI 共用）
+    mcp_server.py      MCP stdio 服务：把库挂给 Claude Desktop / Cursor 等
+    kb_api.py          本机 JSON 接口（FastAPI，仅回环地址，无认证）
     collect/
         http.py        带出网守卫与限速的 HTTP 客户端
         fgk.py         法规库采集器（含实测结论）
         normalize.py   字段清洗、文号重建
 scripts/probe_source.py   源探测：结构、新鲜度、JS 渲染判定
+docs/AI接入.md            AI 接入说明：客户端配置、数据边界、已知限制
 tests/                    不变量测试
 data/                     数据库与原文归档（不入版本库）
 ```

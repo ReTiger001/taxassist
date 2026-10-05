@@ -124,6 +124,19 @@ def build_parser() -> argparse.ArgumentParser:
 
     sub.add_parser("dedupe", help="清理跨源重复（同一文件被总局与省级站各抓一次）")
 
+    kbp = sub.add_parser(
+        "kb",
+        help="知识库接口：启动本机 JSON 接口（只读），或自检知识库")
+    kbp.add_argument("--host", default="127.0.0.1",
+                     help="绑定地址。默认 127.0.0.1（仅本机）。改绑其他地址会告警：此接口无认证")
+    kbp.add_argument("--port", type=int, default=8766)
+    kbp.add_argument("--selftest", action="store_true",
+                     help="不启动服务，只跑一遍自检（库能否读、检索能否命中、是否真的只读）")
+
+    sub.add_parser(
+        "mcp",
+        help="以 MCP stdio 服务方式运行，供 Claude Desktop / Cursor 等 AI 客户端直接调用")
+
     b = sub.add_parser("backfill", help="从已有正文补全施行日期与文号（不联网）")
     rp = sub.add_parser(
         "reparse",
@@ -702,6 +715,84 @@ def cmd_worker(args) -> int:
     return 0
 
 
+def cmd_mcp(args) -> int:
+    """把政策库以 MCP stdio 服务挂给 AI 客户端。
+
+    **stdout 是协议通道**：这里绝不能 print 任何东西，日志一律走 stderr
+    （``main`` 已把 StreamHandler 指向 stderr）。混一行日志进 stdout，
+    客户端的表现是「服务挂上去没反应」，而不是报错。
+    """
+    from . import mcp_server
+
+    # 客户端会把 stderr 收进它自己的日志窗口，压到 WARNING 免得刷屏
+    logging.getLogger().setLevel(logging.WARNING)
+    return mcp_server.main()
+
+
+def cmd_kb(args) -> int:
+    """启动本机 JSON 接口，或跑自检。"""
+    if args.selftest:
+        return _kb_selftest()
+
+    from . import kb_api
+
+    return kb_api.main(host=args.host, port=args.port)
+
+
+def _kb_selftest() -> int:
+    """知识库自检：不启动服务，逐项验证 AI 侧要用到的能力。
+
+    存在的理由：MCP 客户端报错往往只有一句「工具调用失败」，人根本不知道
+    是库没建好、数据没采到，还是检索写错了。在这里一次看清楚。
+    """
+    from . import kb
+
+    print("知识库自检")
+    print("-" * 60)
+
+    try:
+        ov = kb.overview()
+    except kb.KBError as e:
+        print(f"[x] 库不可读：{e}")
+        return 2
+
+    print(f"[√] 库可读：共 {ov['total_policies']} 条政策")
+    print("    效力分布：" + "，".join(f"{k} {v}" for k, v in ov["by_effect_status"].items()))
+    print(f"    可筛税种 {len(ov['tax_types'])} 个，地区 {len(ov['regions'])} 个")
+    fresh = ov["data_freshness"]
+    print(f"    最近一次成功抓取：{fresh['last_successful_fetch'] or '（无记录）'}"
+          f"（源 {fresh['last_fetch_source'] or '-'}）")
+    if ov["needs_manual_review"]:
+        print(f"    待人工确认效力：{ov['needs_manual_review']} 条")
+
+    res = kb.search("研发费用加计扣除", limit=1)
+    if res["error"]:
+        print(f"[x] 检索不可用：{res['error']}")
+        return 3
+    print(f"[√] 检索可用：「研发费用加计扣除」命中 {res['total_matched']} 条"
+          f"（{res['mode']} 模式）")
+    if res["hits"]:
+        print(f"    示例：{res['hits'][0]['title'][:50]}")
+
+    # 只读是硬约束：AI 层能被写，就有和采集/翻译抢写锁的风险
+    try:
+        conn = kb.connect_readonly()
+        try:
+            conn.execute("CREATE TABLE _selftest_should_fail (x)")
+        finally:
+            conn.close()
+        print("[x] 只读检查未通过：连接居然可写！")
+        return 4
+    except Exception:  # noqa: BLE001 - 写被拒就是期望结果
+        print("[√] 只读：写入已被 SQLite 拒绝")
+
+    from . import mcp_server
+    print(f"[√] MCP 工具：{', '.join(mcp_server._TOOL_FUNCS)}")
+    print("-" * 60)
+    print("自检通过。启动接口：python -m taxassist kb（默认 http://127.0.0.1:8766/）")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_console()
@@ -742,6 +833,8 @@ def main(argv: list[str] | None = None) -> int:
         "worker": cmd_worker,
         "status": cmd_status,
         "search": cmd_search,
+        "kb": cmd_kb,
+        "mcp": cmd_mcp,
     }
     return handlers[args.command](args)
 
