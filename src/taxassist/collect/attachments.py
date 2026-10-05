@@ -184,6 +184,31 @@ def _run_parser(parser, path: Path) -> tuple[str | None, str]:
     return text, "ok"
 
 
+@_register(["txt", "csv", "md", "log", "json", "text"])
+def parse_text(path: Path) -> str:
+    """纯文本直接读。
+
+    **编码必须逐个试**：中文 Windows 上的 .txt/.csv 常是 GBK/GB18030，
+    直接按 utf-8 读会乱码甚至抛异常。政务附件里的 CSV 尤其如此。
+    顺序是 utf-8-sig → utf-8 → gb18030 → utf-16：前者能读就用前者
+    （utf-8 是当下默认，gb18030 能解码绝大多数遗留文本，兜底最后）。
+
+    这个解析器原来是缺的 —— PARSERS 里只有 pdf/xlsx/xls/docx/zip/rar，
+    因为**政策附件里几乎没有纯文本**。对话窗口上线后暴露：用户最常传的
+    就是 .txt 摘录，结果报"这个格式读不了"（实测 2026-10-06）。
+    """
+    raw = path.read_bytes()
+    if not raw.strip():
+        return ""
+    for enc in ("utf-8-sig", "utf-8", "gb18030", "utf-16"):
+        try:
+            return raw.decode(enc)
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    # 全部失败也要给出内容（有乱码好过空白），并在结尾说明
+    return raw.decode("utf-8", "replace")
+
+
 @_register(["zip"])
 def parse_zip(path: Path) -> str:
     """解压后逐一解析内部文件并拼接文本。

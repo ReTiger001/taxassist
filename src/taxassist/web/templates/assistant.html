@@ -1,0 +1,418 @@
+{% extends "base.html" %}
+{% block title %}税务助手 · 税务智能知识助手{% endblock %}
+{% block body %}
+
+<style>
+/* =================================================================
+   对话窗口
+   -----------------------------------------------------------------
+   使用者是税务师，任务是把一份合同/方案/想法丢进来，拿到"合不合规、
+   有没有更省的做法、风险在哪"。生成要 90-150 秒（14B 本地推理，部分层
+   跑在 CPU），所以界面必须做到三件事：
+
+     ① **立刻有反应** —— 进度文案、拆出的事实、命中的依据先显示出来，
+        不让人对着空白等；依据先到，也让人能马上看出"它找对政策没有"。
+     ② **依据独立呈现** —— 效力标签、文号、链接取自服务端返回的 policies
+        数组，**不是从模型输出里解析的**。模型会改写它读到的效力状态
+        （实测把"现行有效"写进"已废止"栏），所以这一块绝不采信它的文字。
+     ③ **正文流式** —— 逐字出现，和豆包一样。
+
+   样式沿用站内规范：直角、语义色只用于状态、无彩色装饰。
+   ================================================================= */
+.chat{max-width:940px;margin:0 auto}
+.log{min-height:120px}
+
+/* 字号/行高**必须显式声明**：实测（2026-10-06）.ans 在父级全为 14px/22.4px
+   的情况下被算成了 14.5px/28.275px（来源不明，遍历样式表也查不到命中规则），
+   结果整块文字的间距被拉得很松。显式声明既修掉它，也避免以后再被别的
+   规则碰到。 */
+.ans{font-size:14px;line-height:1.65}
+
+/* 消息块：用户一句、助手一块，靠左边线区分，不做气泡 —— 气泡会让
+   长报告变得很难读（每行都在窄框里折行）。 */
+.msg{margin:0 0 22px}
+.msg .who-line{font-size:11.5px;font-weight:600;color:var(--ink-3);
+  letter-spacing:.8px;margin-bottom:7px}
+.msg.user .body{background:var(--sunken);border:1px solid var(--line);
+  border-radius:3px;padding:11px 14px;white-space:pre-wrap;
+  word-break:break-word;max-height:280px;overflow:auto}
+.msg.bot .body{padding:0}
+
+/* 助手正文：markdown 渲染后的排版 */
+.ans h3{font-size:14px;font-weight:600;margin:20px 0 8px;padding-bottom:5px;
+  border-bottom:1px solid var(--line-2);color:var(--brand)}
+.ans h3:first-child{margin-top:6px}
+.ans h4{font-size:13px;font-weight:600;margin:14px 0 5px;color:var(--ink-2)}
+.ans p{margin:7px 0}
+.ans ul{margin:6px 0;padding-left:20px}
+.ans li{margin:3px 0}
+.ans strong{font-weight:600;color:var(--ink)}
+/* 依据编号：与下方依据卡片的序号一一对应，点不动，但颜色要能一眼找到 */
+.cit{background:#e8eef3;color:var(--brand);border-radius:2px;padding:0 3px;
+  font-size:12px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* 状态行（进度/错误） */
+.stage{font-size:12.5px;color:var(--ink-3);margin:6px 0;
+  display:flex;align-items:center;gap:7px}
+.stage .dot{width:6px;height:6px;border-radius:50%;background:var(--brand-2);
+  animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.25}50%{opacity:1}}
+.err{background:var(--bad-bg);color:var(--bad-fg);border:1px solid #eccfd0;
+  border-radius:3px;padding:10px 13px;font-size:13px;margin:8px 0}
+.warn-bar{background:var(--warn-bg);color:var(--warn-fg);
+  border:1px solid #ecdcbb;border-radius:3px;padding:9px 13px;font-size:12.5px;
+  margin:0 0 16px}
+
+/* 事实/依据：助手回答的"输入侧"，先于正文出现 */
+.facts{margin:10px 0 4px}
+.fact{font-size:12.5px;color:var(--ink-2);margin:3px 0 3px 0;
+  padding-left:11px;border-left:2px solid var(--line)}
+.fact b{color:var(--ink);font-weight:600}
+/* 依据卡片：可折叠，默认展开（用户要看的就是它） */
+.evi{margin:12px 0 4px;border:1px solid var(--line);border-radius:3px;
+  background:var(--card)}
+.evi > summary{padding:8px 13px;font-size:12px;font-weight:600;color:var(--ink-3);
+  letter-spacing:.5px;cursor:pointer;background:var(--sunken);
+  border-bottom:1px solid var(--line);border-radius:3px 3px 0 0}
+.evi > summary::marker{color:var(--ink-3)}
+.evi .rows{padding:4px 0}
+.evi .row{display:flex;gap:10px;padding:7px 13px;font-size:12.5px;
+  border-bottom:1px solid var(--line-2);align-items:baseline}
+.evi .row:last-child{border-bottom:0}
+.evi .n{flex:none;width:22px;color:var(--ink-3);font-variant-numeric:tabular-nums;
+  font-weight:600}
+.evi .t{flex:1;min-width:0}
+.evi .t a{color:var(--brand-2)}
+.evi .meta{color:var(--ink-3);font-size:11.5px;margin-top:2px}
+.evi .st{flex:none;white-space:nowrap}
+.group-hd{font-size:11.5px;font-weight:600;color:var(--ink-3);
+  padding:9px 13px 3px;letter-spacing:.6px}
+
+/* 输入区：贴在底部，滚到哪都在 */
+.composer{border:1px solid var(--line);border-radius:4px;background:var(--card);
+  margin-top:16px;position:sticky;bottom:12px;box-shadow:0 2px 10px rgba(0,0,0,.05)}
+.composer .files{display:flex;flex-wrap:wrap;gap:6px;padding:9px 11px 0}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--sunken);
+  border:1px solid var(--line);border-radius:3px;padding:3px 8px;font-size:12px}
+.chip button{border:0;background:none;color:var(--ink-3);cursor:pointer;
+  font-size:14px;line-height:1;padding:0 0 0 2px}
+.chip button:hover{color:var(--bad-fg)}
+.composer .row{display:flex;gap:9px;align-items:flex-end;padding:9px 11px}
+.composer textarea{flex:1;min-height:52px;max-height:220px;resize:vertical;
+  border:1px solid var(--line);border-radius:3px;padding:9px 11px;
+  font:inherit;font-size:13.5px;background:#fdfdfc;color:var(--ink)}
+.composer textarea:focus{outline:none;border-color:var(--brand-2);
+  background:#fff}
+.ibtn{border:1px solid var(--line);background:#fbfbfa;border-radius:3px;
+  cursor:pointer;font:inherit;font-size:13px;padding:0 13px;height:36px;
+  color:var(--ink-2);flex:none;white-space:nowrap}
+.ibtn:hover{background:var(--sunken);border-color:var(--line-2)}
+.ibtn:disabled{opacity:.5;cursor:not-allowed}
+.ibtn.go{background:var(--brand);color:#fff;border-color:var(--brand);
+  font-weight:600;padding:0 20px}
+.ibtn.go:hover{background:var(--brand-2)}
+.hint{font-size:11.5px;color:var(--ink-3);padding:0 12px 9px;line-height:1.5}
+.kbd{background:var(--sunken);border:1px solid var(--line);border-radius:2px;
+  padding:0 4px;font-size:11px}
+@media (max-width:760px){
+  .composer .row{flex-wrap:wrap}
+  .composer textarea{order:1;flex:1 0 100%}
+  .ibtn{order:2}
+}
+</style>
+
+<h1>税务助手</h1>
+<p class="sub" style="margin-bottom:16px">
+  把合同、方案、或一个想法放进来，它对照本机政策库给出四节报告：
+  <b>合规判断</b>　<b>适用政策</b>　<b>优化空间</b>（税负最低 / 风险最低分开列）　
+  <b>风险与待确认</b>。每条结论都标依据编号，依据卡片可点回政策原文。
+</p>
+
+{% if not model_ok %}
+<div class="warn-bar">
+  <b>模型当前不可用，无法分析。</b>{{ model_msg }}
+  <div style="margin-top:5px">
+    先启动 ollama（<code>D:\longvideocrater\Ollama\ollama.exe</code>），
+    确认已有 <code>{{ model }}</code> 模型，再刷新本页。
+  </div>
+</div>
+{% endif %}
+
+<div class="chat">
+  <div class="log" id="log">
+    <div class="msg bot">
+      <div class="who-line">税务助手</div>
+      <div class="body">
+        <div class="ans">
+          <p>说一件事我就开始分析。例如：</p>
+          <ul>
+            <li>我们是一家做软件的公司，年收入 5000 万，有 80 名研发人员，
+              老板想用期权激励核心团队，同时打算把闲置厂房租给关联公司 —— 税务上怎么处理？</li>
+            <li>（上传一份合同或方案，直接问它有没有税务风险、有没有更省的做法）</li>
+          </ul>
+          <p style="color:var(--ink-3);font-size:12.5px">
+            数据全程在本机处理：检索走本机政策库，推理走本机
+            <code>{{ model }}</code>，不联网、不外传。
+          </p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="composer">
+    <div class="files" id="files"></div>
+    <div class="row">
+      <button class="ibtn" id="pick" type="button" title="上传文件（PDF / Word / Excel / 文本）">＋ 文件</button>
+      <textarea id="q" placeholder="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"></textarea>
+      <button class="ibtn go" id="send" type="button" {% if not model_ok %}disabled{% endif %}>发送</button>
+    </div>
+    <div class="hint">
+      支持 PDF / Word / Excel / CSV / TXT（扫描件没有文字层，读不了）。
+      单次分析约 1–2 分钟，正文会边生成边出现。
+    </div>
+  </div>
+</div>
+
+<input type="file" id="pick-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip,.rar" hidden>
+
+<script>
+(function () {
+  var log = document.getElementById('log');
+  var q = document.getElementById('q');
+  var sendBtn = document.getElementById('send');
+  var pickBtn = document.getElementById('pick');
+  var fileInput = document.getElementById('pick-file');
+  var filesBox = document.getElementById('files');
+  var files = [];          // [{id, name, chars}]
+  var busy = false;
+
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+    });
+  }
+
+  /* 极简 markdown → HTML。
+     **必须先转义再套标签**：模型输出会带用户上传材料里的原文，那些文本
+     里出现 <script> 是完全可能的，直接 innerHTML 就是 XSS。 */
+  function md(s) {
+    var h = esc(s);
+    h = h.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+    h = h.replace(/^### (.+)$/gm, '<h4>$1</h4>');
+    h = h.replace(/^## (.+)$/gm, '<h3>$1</h3>');
+    h = h.replace(/^# (.+)$/gm, '<h3>$1</h3>');
+    h = h.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    h = h.replace(/^\s*[-*·]\s+(.+)$/gm, '<li>$1</li>');
+    h = h.replace(/(<li>[\s\S]*?<\/li>)(?!\s*<li>)/g, '<ul>$1</ul>');
+    h = h.replace(/\[(\d+)\]/g, '<span class="cit">[$1]</span>');
+    h = h.replace(/\n{2,}/g, '</p><p>');
+    h = h.replace(/\n/g, '<br>');
+    return '<p>' + h + '</p>';
+  }
+
+  /* 依据卡片：效力标签用站内规范的颜色类，与检索页一致。
+     注意 status 与 source 都来自服务端 policies 数组，不解析模型输出。 */
+  function badge(st) {
+    var map = {'现行有效': 'b-ok', '已废止': 'b-bad', '尚未生效': 'b-warn',
+               '部分失效': 'b-warn'};
+    return '<span class="badge ' + (map[st] || 'b-mut') + '">' +
+           esc(st || '未判定') + '</span>';
+  }
+  function srcMark(s) {
+    var map = {official: '官方标注', inferred: '据他文判定',
+               default: '未发现废止', manual: '人工确认'};
+    return map[s] ? '<span class="src src-' + esc(s) + '">' + map[s] + '</span>' : '';
+  }
+  function renderEvidence(policies, groups, facts) {
+    if (!policies || !policies.length) return '';
+    var rows = '';
+    var n = 0;
+    function row(p, num) {
+      var link = p.doc_uid ? '/policy/' + encodeURIComponent(p.doc_uid) : (p.url || '#');
+      return '<div class="row">' +
+        '<div class="n">' + num + '</div>' +
+        '<div class="t"><a href="' + esc(link) + '" target="_blank">' +
+          esc(p.title || '（无标题）') + '</a>' +
+        '<div class="meta">' + esc(p.doc_no || '文号待补') +
+          '　' + esc(p.region || '全国') +
+          (p.cwrq ? '　' + esc(p.cwrq) : '') + '</div></div>' +
+        '<div class="st">' + badge(p.effect_status) + srcMark(p.effect_source) + '</div>' +
+        '</div>';
+    }
+    var useGroups = groups && typeof groups === 'object' &&
+                    Object.keys(groups).length > 0;
+    if (useGroups) {
+      /* 按事实分组：让用户看出"哪几条依据是冲着哪件事找的" */
+      (facts || []).forEach(function (f, i) {
+        var idxs = groups[String(i)] || groups[i] || [];
+        if (!idxs.length) return;
+        rows += '<div class="group-hd">事实 ' + (i + 1) + '：' + esc(f.fact) + '</div>';
+        idxs.forEach(function (k) {
+          var p = policies[k - 1];      // groups 里存的是 1-based 编号
+          if (p) { n++; rows += row(p, k); }
+        });
+      });
+    } else {
+      /* 降级：没有 groups 就平铺。**宁可少一层分组，也不能整块不显示** ——
+         踩过：服务端漏发 groups 时这里直接跳过，用户一条依据都看不到，
+         会以为系统压根没检索到政策。 */
+      policies.forEach(function (p, k) { n++; rows += row(p, k + 1); });
+    }
+    if (!n) return '';
+    return '<details class="evi" open><summary>依据 ' + n +
+           ' 条（效力标签与文号取自政策库，非模型生成）</summary>' +
+           '<div class="rows">' + rows + '</div></details>';
+  }
+
+  function addUser(text) {
+    var d = document.createElement('div');
+    d.className = 'msg user';
+    d.innerHTML = '<div class="who-line">我</div><div class="body">' + esc(text) + '</div>';
+    log.appendChild(d);
+    window.scrollTo(0, document.body.scrollHeight);
+  }
+
+  function addBot() {
+    var d = document.createElement('div');
+    d.className = 'msg bot';
+    d.innerHTML = '<div class="who-line">税务助手</div>' +
+      '<div class="body"><div class="stage"><span class="dot"></span>' +
+      '<span class="st">正在准备…</span></div><div class="pre"></div>' +
+      '<div class="ans"></div></div>';
+    log.appendChild(d);
+    return {
+      box: d,
+      st: d.querySelector('.stage .st'),
+      pre: d.querySelector('.pre'),
+      ans: d.querySelector('.ans'),
+      stage: d.querySelector('.stage')
+    };
+  }
+
+  function refreshFiles() {
+    filesBox.innerHTML = files.map(function (f, i) {
+      return '<span class="chip">' + esc(f.name) + '　' + f.chars + ' 字' +
+        '<button type="button" data-i="' + i + '" title="移除">×</button></span>';
+    }).join('');
+    filesBox.querySelectorAll('button').forEach(function (b) {
+      b.onclick = function () {
+        files.splice(parseInt(b.dataset.i, 10), 1);
+        refreshFiles();
+      };
+    });
+  }
+
+  pickBtn.onclick = function () { fileInput.click(); };
+  fileInput.onchange = function () {
+    var f = fileInput.files[0];
+    fileInput.value = '';
+    if (!f) return;
+    if (f.size > 40 * 1024 * 1024) { alert('文件超过 40MB，请拆分后再传'); return; }
+    var rd = new FileReader();
+    pf('正在读取 ' + f.name + '…');
+    rd.onload = function () {
+      fetch('/api/assistant/upload', {
+        method: 'POST', headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({name: f.name, data: rd.result})
+      }).then(function (r) { return r.json().then(function (j) { return [r.ok, j]; }); })
+        .then(function (pair) {
+          if (!pair[0]) { alert('解析失败：' + (pair[1].error || '未知原因')); return; }
+          files.push({id: pair[1].file_id, name: pair[1].name, chars: pair[1].chars});
+          refreshFiles();
+          pf('已解析 ' + pair[1].name + '（' + pair[1].chars + ' 字），可以提问了');
+        }).catch(function (e) { alert('上传失败：' + e); });
+    };
+    rd.readAsDataURL(f);
+  };
+
+  /* 上传进度的提示条：不给提示的话，几十页 PDF 的解析会让人以为没反应 */
+  function pf(text) {
+    var b = addBot();
+    b.stage.outerHTML = '<div class="stage">' + esc(text) + '</div>';
+    setTimeout(function () { b.box.remove(); }, 4000);
+  }
+
+  function ask() {
+    var text = q.value.trim();
+    if (!text && !files.length) { q.focus(); return; }
+    if (busy) return;
+    busy = true;
+    sendBtn.disabled = true;
+    addUser(text || '（仅分析上传的文件）');
+    var shown = text;
+    if (files.length) {
+      shown += (text ? '\n\n' : '') + '附件：' + files.map(function (f) { return f.name; }).join('、');
+    }
+    var b = addBot();
+    var raw = '';
+    q.value = '';
+    var usedFiles = files.slice();
+    files = [];
+    refreshFiles();
+
+    fetch('/api/assistant/ask', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        text: text || '请分析我上传的文件，重点看税务合规与优化空间。',
+        file_ids: usedFiles.map(function (f) { return f.id; })
+      })
+    }).then(function (resp) {
+      if (!resp.ok) {
+        return resp.json().then(function (j) {
+          throw new Error(j.error || ('HTTP ' + resp.status));
+        });
+      }
+      var reader = resp.body.getReader();
+      var dec = new TextDecoder();
+      var buf = '';
+      function pump() {
+        return reader.read().then(function (r) {
+          if (r.done) return;
+          buf += dec.decode(r.value, {stream: true});
+          var i;
+          while ((i = buf.indexOf('\n\n')) >= 0) {
+            var chunk = buf.slice(0, i);
+            buf = buf.slice(i + 2);
+            if (chunk.indexOf('data: ') !== 0) continue;
+            var obj;
+            try { obj = JSON.parse(chunk.slice(6)); } catch (e) { continue; }
+            if (obj.stage) b.st.textContent = obj.stage;
+            if (obj.facts) {
+              b.pre.innerHTML = '<div class="facts">' + obj.facts.map(function (f, i) {
+                return '<div class="fact"><b>' + (i + 1) + '.</b> ' + esc(f.fact) +
+                  (f.keywords && f.keywords.length
+                    ? '　<span style="color:var(--ink-3)">检索词：' +
+                      esc(f.keywords.join(' / ')) + '</span>' : '') + '</div>';
+              }).join('') + '</div>';
+              b.pre.innerHTML += renderEvidence(obj.policies, obj.groups, obj.facts);
+            }
+            if (obj.delta) {
+              raw += obj.delta;
+              b.ans.innerHTML = md(raw);
+            }
+            if (obj.error) {
+              b.stage.outerHTML = '<div class="err">' + esc(obj.error) + '</div>';
+            }
+            if (obj.done) { b.stage.remove(); }
+          }
+          return pump();
+        });
+      }
+      return pump();
+    }).catch(function (e) {
+      b.stage.outerHTML = '<div class="err">分析失败：' + esc(e.message || e) + '</div>';
+    }).then(function () {
+      busy = false;
+      sendBtn.disabled = false;
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+  }
+
+  sendBtn.onclick = ask;
+  q.onkeydown = function (e) {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); ask(); }
+  };
+})();
+</script>
+
+{% endblock %}
