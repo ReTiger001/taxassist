@@ -441,7 +441,7 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
         for adapter in adapters:
             log_id = store.log_fetch_start(conn, adapter.source_id, "list_page")
             try:
-                items = fetch_list_pages(client, adapter)
+                items, truncated = fetch_list_pages(client, adapter)
             except Exception as e:  # noqa: BLE001 - 单源失败不阻断其它源
                 store.log_fetch_finish(
                     conn, log_id, reported_total=None, fetched_count=0,
@@ -480,12 +480,24 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
                     updated += 1
             conn.commit()
 
-            status = store.log_fetch_finish(
-                conn, log_id, reported_total=None, fetched_count=len(items),
-                new_count=new, updated_count=updated, status="ok")
+            # **不再硬编码 "ok"**：超时截断时必须记 incomplete 并写明原因。
+            # 否则"只抓了一半"与"抓全了"在 fetch_log 里完全一样，读的人会
+            # 以为今天就这么多 —— 而配套的那几条 status='running'（开始了
+            # 但从未结束）更是连"结束了没"都看不出来。
+            if truncated:
+                status = store.log_fetch_finish(
+                    conn, log_id, reported_total=None, fetched_count=len(items),
+                    new_count=new, updated_count=updated, status="incomplete",
+                    error=f"总时长超限（{adapter.max_seconds} 秒），"
+                          f"已抓 {len(items)} 条后停止翻页")
+            else:
+                status = store.log_fetch_finish(
+                    conn, log_id, reported_total=None, fetched_count=len(items),
+                    new_count=new, updated_count=updated, status="ok")
             out.append({"source_id": adapter.source_id, "region": adapter.region,
                         "status": status, "fetched": len(items),
-                        "new": new, "updated": updated, "skipped_duplicates": skipped})
+                        "new": new, "updated": updated,
+                        "skipped_duplicates": skipped, "truncated": truncated})
 
     # 抓完立即判定：否则新入库条目的效力状态会一直停在 'unknown'，
     # 界面上显示"未判定"，看起来像系统坏了（实测发生过）。

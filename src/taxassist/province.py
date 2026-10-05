@@ -124,6 +124,13 @@ class ListPageAdapter:
     #: 不是 AJAX），所以不用扒接口，按页抓即可。{n} 替换成 1..page_count。
     page_url_template: str = ""
     page_count: int = 0
+    #: 单个源的**总时长上限**（秒）。0 = 不限。
+    #: 为什么需要它：抓取是"逐页循环"，某一页卡住就整源卡住。fetch_log 里
+    #: 现在躺着 5 条 status='running' 且 finished_at 为空的记录
+    #: （jx_zcwj / bj_sszc / shaanxi_zcwj / nmg_zcwj / gz_zcwj）—— 那是
+    #: "开始了但从未结束"的痕迹，事后分不清是卡死、被杀、还是别的。
+    #: 默认 900 秒：目前最慢的河北 290 秒、新疆 338 秒，留了 2 倍余量。
+    max_seconds: int = 900
 
 
 # 已实测可解析的省级源。新增省级源必须先跑 scripts/probe_source.py 验证，
@@ -1418,7 +1425,8 @@ def _fetch_json_api(client: GuardedClient, adapter: ListPageAdapter) -> list[dic
     return out
 
 
-def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
+def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter,
+                     ) -> tuple[list[dict], bool]:
     """抓取适配器配置的**所有**列表页并合并去重。
 
     为什么要支持多个：省级站的「最新文件」是**固定展示最近一二十条的单页列表**
@@ -1426,8 +1434,22 @@ def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[di
 
     单个子栏目空/失败**不算整源失败**，全都拿不到才算 —— "零条目即报错"这条
     防线针对的是"栏目 URL 猜错或页面改版"，而不是"某个子栏目恰好没内容"。
+
+    返回 ``(items, truncated)``。``truncated`` 为真表示**因超过总时长上限
+    （``adapter.max_seconds``）中途停止**，拿到的不是全部。
+
+    **为什么要显式返回它、而不是静默截断**：调用方（pipeline）以前把
+    ``status`` 硬编码成 "ok"，于是"只抓了一半"与"抓全了"在 fetch_log 里
+    长得一模一样；再加上几条 status='running' 且无结束时间的记录，事后
+    根本分不清哪个源不完整、为什么。抓不全可以接受，**不知道自己没抓全
+    才致命**。
     """
+    import time
     from dataclasses import replace
+
+    started = time.monotonic()
+    limit = adapter.max_seconds
+    truncated = False
 
     urls = [adapter.list_url, *adapter.extra_urls]
     # 静态分页（河北 index_1.html … index_330.html）：展开成额外列表页。
@@ -1447,6 +1469,16 @@ def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[di
             seen.add(item["url"])
             out.append(item)
     for url in urls:
+        # **每抓一页前查总时长**：这是"卡死"的兜底。单页已有超时
+        # （timeout_ms / 浏览器 wait_ms），但 N 页累加没有上限 ——
+        # 河北在没有上限时单个源跑过 3474 秒。
+        if limit and (time.monotonic() - started) > limit:
+            truncated = True
+            log.warning("[%s] 总时长超限（%.0f 秒），停止翻页：已抓 %d 条，"
+                        "还有 %d 个列表页未抓",
+                        adapter.source_id, limit, len(out),
+                        len(urls) - urls.index(url))
+            break
         try:
             items = fetch_list_page(client, replace(adapter, list_url=url))
         except Exception as e:  # noqa: BLE001 - 单个子栏目失败不该拖垮整个源
@@ -1463,7 +1495,7 @@ def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter) -> list[di
             f"[{adapter.source_id}] 配置的 {len(urls)} 个列表页都没有解析出条目："
             + "；".join(errors or list(urls))
             + "。页面可能已改版，或该栏目实际是 JS 异步加载。")
-    return out
+    return out, truncated
 
 
 def fetch_list_page(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
