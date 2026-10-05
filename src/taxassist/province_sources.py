@@ -981,12 +981,15 @@ _GAP_EXTRA_URLS: dict[str, tuple[str, ...]] = {
         "http://jilin.chinatax.gov.cn/col/col311/index.html",        # 缺 2
     ),
     "zj_zcwj": (
-        "http://zhejiang.chinatax.gov.cn/col/col13300/index.html",   # 缺 1
+        # col13300 已移除（2026-10-06）：诊断发现该栏目**只有 1 篇**（2021-11-10），
+        # 正则也匹配得到 —— 不是"JS 抓不到"，是它本身几乎空。而每轮为它渲染
+        # 一次浏览器要十几秒，成本远大于那 1 篇老文件的价值。
         "http://zhejiang.chinatax.gov.cn/col/col23175/index.html",   # 缺 2
     ),
     "sc_zcfg": (
+        # col19973 同理已移除：只有 1 篇（2025-12），正则匹配得到，
+        # 不值得每轮为它多渲染一次浏览器。
         "https://sichuan.chinatax.gov.cn/col/col320/index.html",     # 缺 2
-        "https://sichuan.chinatax.gov.cn/col/col19973/index.html",   # 缺 1
     ),
     "nx_zcwj": (
         "http://ningxia.chinatax.gov.cn/col/col13850/index.html",    # 缺 1
