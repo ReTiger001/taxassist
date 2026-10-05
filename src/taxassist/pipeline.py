@@ -13,6 +13,7 @@ HTTP 200、JSON 结构正常、但内容为空或只返回了一部分。没有�
 from __future__ import annotations
 
 import logging
+import threading
 
 from . import effect, store
 from .collect.detail import fetch_detail
@@ -425,6 +426,49 @@ def fetch_attachments(conn, *, limit: int = 20, only_pending: bool = True) -> di
 
 # ---------------------------------------------------------------- 省级源
 
+#: 省级抓取的并发度。
+#: **上限由浏览器决定，不是 CPU**：实测 44 个源全部 needs_js=True（列表页
+#: 受 JS 挑战保护），每个并发任务会起一个 Playwright/Chrome 实例（几百 MB）。
+#: 取 3 是"内存"与"提速"的折中：一轮从 45 个源串行变成 3 路并行。
+CONCURRENCY = 3
+
+#: 按域名持有的互斥锁：**同一个站的源必须串行**。
+#: 为什么不能只按源并行：bj_sszc 与 bj_sszc_local 同属
+#: beijing.chinatax.gov.cn，两个线程同时打它等于把自己的请求频率翻倍 ——
+#: 站点看到的是"这人在并发抓我"，而不是"这人守规矩地隔 1.5 秒来一次"。
+_host_locks: dict[str, threading.Lock] = {}
+_host_locks_guard = threading.Lock()
+
+
+def _host_lock(host: str) -> threading.Lock:
+    with _host_locks_guard:
+        lock = _host_locks.get(host)
+        if lock is None:
+            lock = threading.Lock()
+            _host_locks[host] = lock
+        return lock
+
+
+def _fetch_source(adapter) -> tuple[list[dict] | None, str | None, bool]:
+    """抓一个源，返回 ``(items, error, truncated)``。
+
+    **每个线程用独立的 GuardedClient**：它的节流状态（``_last_host_request``）
+    是实例级的，共享一个实例时两个线程的"读-改-写"会互相覆盖，导致同一个站
+    被同时请求两次 —— 节流就失效了，而那正是要避免的事。
+    """
+    from urllib.parse import urlsplit
+
+    from .province import fetch_list_pages
+
+    with _host_lock(urlsplit(adapter.list_url).netloc):
+        with GuardedClient() as client:
+            try:
+                items, truncated = fetch_list_pages(client, adapter)
+                return items, None, truncated
+            except Exception as exc:  # noqa: BLE001 - 单源失败不阻断其它源
+                return None, f"{type(exc).__name__}: {exc}", False
+
+
 def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dict]:
     """抓取省级静态列表页源。
 
@@ -432,72 +476,89 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
     ``reported_total`` 留空（表示"该源本来就没有总数"），
     完整性由"零条目即抛错"来保障 —— 见 province.parse_list_page。
     """
-    from .province import ADAPTERS, build_provincial_row, fetch_list_pages
+    from .province import ADAPTERS, build_provincial_row
 
     adapters = [a for a in ADAPTERS if not source_ids or a.source_id in source_ids]
     out: list[dict] = []
 
-    with GuardedClient() as client:
-        for adapter in adapters:
-            log_id = store.log_fetch_start(conn, adapter.source_id, "list_page")
-            try:
-                items, truncated = fetch_list_pages(client, adapter)
-            except Exception as e:  # noqa: BLE001 - 单源失败不阻断其它源
-                store.log_fetch_finish(
-                    conn, log_id, reported_total=None, fetched_count=0,
-                    status="failed", error=f"{type(e).__name__}: {e}")
-                log.warning("省级源抓取失败 %s: %s", adapter.source_id, e)
-                out.append({"source_id": adapter.source_id, "region": adapter.region,
-                            "status": "failed", "fetched": 0, "error": str(e)})
+    # **先并行抓完，再串行入库。**
+    # 分两步的理由：SQLite 是单写者、conn 也不是线程安全的，入库必须串行；
+    # 而抓取的时间几乎全花在等网络（每页 1.5 秒节流 + 浏览器渲染的十秒级），
+    # 并行收益大。解耦后"抓"与"写"各在自己最合适的并发度上跑。
+    fetched: dict[str, tuple[list[dict] | None, str | None, bool]] = {}
+    if adapters:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        with ThreadPoolExecutor(max_workers=CONCURRENCY) as pool:
+            futures = {pool.submit(_fetch_source, a): a for a in adapters}
+            for fut in as_completed(futures):
+                ad = futures[fut]
+                fetched[ad.source_id] = fut.result()
+                log.info("已抓取 %s（%d/%d）", ad.source_id,
+                         len(fetched), len(adapters))
+
+    # 串行入库 —— 按 adapters 的原始顺序，便于读日志与复现
+    for adapter in adapters:
+        items, err, truncated = fetched.get(adapter.source_id,
+                                            (None, "未执行", False))
+        log_id = store.log_fetch_start(conn, adapter.source_id, "list_page")
+        if err:
+            store.log_fetch_finish(
+                conn, log_id, reported_total=None, fetched_count=0,
+                status="failed", error=err)
+            log.warning("省级源抓取失败 %s: %s", adapter.source_id, err)
+            out.append({"source_id": adapter.source_id, "region": adapter.region,
+                        "status": "failed", "fetched": 0, "error": err})
+            continue
+        items = items or []
+
+        new = updated = skipped = 0
+        for item in items:
+            row = build_provincial_row(item, adapter)
+
+            # 跨源去重：同一份文件可能既在总局库、又被省级站转载
+            # （实测：广东站转载了多份总局公告，不去重会出现两条标题完全
+            # 相同的记录，让人以为系统重复了）。保留先入库的那条。
+            #
+            # **判重必须连成文日期一起看 —— 同名不等于重复。**
+            # 实测：总局库里有 14 条"关于调整增值税纳税申报有关事项的
+            # 公告"，是 2011–2026 年间逐年发布的**不同修订版本**（日期、
+            # 内容、效力各不相同）。只按标题判重会把它们当成一条；更糟
+            # 的是省级站转载的若是较新版本，会被误判成重复而丢弃。
+            duplicate = conn.execute(
+                "SELECT 1 FROM policy WHERE title = ? AND doc_uid <> ?"
+                " AND IFNULL(cwrq,'') = IFNULL(?,'') LIMIT 1",
+                (row["title"], row["doc_uid"], row.get("cwrq")),
+            ).fetchone()
+            if duplicate is not None:
+                skipped += 1
                 continue
 
-            new = updated = skipped = 0
-            for item in items:
-                row = build_provincial_row(item, adapter)
+            result = store.upsert_policy(conn, row)
+            if result == "new":
+                new += 1
+            elif result == "updated":
+                updated += 1
+        conn.commit()
 
-                # 跨源去重：同一份文件可能既在总局库、又被省级站转载
-                # （实测：广东站转载了多份总局公告，不去重会出现两条标题完全
-                # 相同的记录，让人以为系统重复了）。保留先入库的那条。
-                #
-                # **判重必须连成文日期一起看 —— 同名不等于重复。**
-                # 实测：总局库里有 14 条"关于调整增值税纳税申报有关事项的
-                # 公告"，是 2011–2026 年间逐年发布的**不同修订版本**（日期、
-                # 内容、效力各不相同）。只按标题判重会把它们当成一条；更糟
-                # 的是省级站转载的若是较新版本，会被误判成重复而丢弃。
-                duplicate = conn.execute(
-                    "SELECT 1 FROM policy WHERE title = ? AND doc_uid <> ?"
-                    " AND IFNULL(cwrq,'') = IFNULL(?,'') LIMIT 1",
-                    (row["title"], row["doc_uid"], row.get("cwrq")),
-                ).fetchone()
-                if duplicate is not None:
-                    skipped += 1
-                    continue
-
-                result = store.upsert_policy(conn, row)
-                if result == "new":
-                    new += 1
-                elif result == "updated":
-                    updated += 1
-            conn.commit()
-
-            # **不再硬编码 "ok"**：超时截断时必须记 incomplete 并写明原因。
-            # 否则"只抓了一半"与"抓全了"在 fetch_log 里完全一样，读的人会
-            # 以为今天就这么多 —— 而配套的那几条 status='running'（开始了
-            # 但从未结束）更是连"结束了没"都看不出来。
-            if truncated:
-                status = store.log_fetch_finish(
-                    conn, log_id, reported_total=None, fetched_count=len(items),
-                    new_count=new, updated_count=updated, status="incomplete",
-                    error=f"总时长超限（{adapter.max_seconds} 秒），"
-                          f"已抓 {len(items)} 条后停止翻页")
-            else:
-                status = store.log_fetch_finish(
-                    conn, log_id, reported_total=None, fetched_count=len(items),
-                    new_count=new, updated_count=updated, status="ok")
-            out.append({"source_id": adapter.source_id, "region": adapter.region,
-                        "status": status, "fetched": len(items),
-                        "new": new, "updated": updated,
-                        "skipped_duplicates": skipped, "truncated": truncated})
+        # **不再硬编码 "ok"**：超时截断时必须记 incomplete 并写明原因。
+        # 否则"只抓了一半"与"抓全了"在 fetch_log 里完全一样，读的人会
+        # 以为今天就这么多 —— 而配套的那几条 status='running'（开始了
+        # 但从未结束）更是连"结束了没"都看不出来。
+        if truncated:
+            status = store.log_fetch_finish(
+                conn, log_id, reported_total=None, fetched_count=len(items),
+                new_count=new, updated_count=updated, status="incomplete",
+                error=f"总时长超限（{adapter.max_seconds} 秒），"
+                      f"已抓 {len(items)} 条后停止翻页")
+        else:
+            status = store.log_fetch_finish(
+                conn, log_id, reported_total=None, fetched_count=len(items),
+                new_count=new, updated_count=updated, status="ok")
+        out.append({"source_id": adapter.source_id, "region": adapter.region,
+                    "status": status, "fetched": len(items),
+                    "new": new, "updated": updated,
+                    "skipped_duplicates": skipped, "truncated": truncated})
 
     # 抓完立即判定：否则新入库条目的效力状态会一直停在 'unknown'，
     # 界面上显示"未判定"，看起来像系统坏了（实测发生过）。
