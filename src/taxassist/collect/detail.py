@@ -199,9 +199,24 @@ def parse_detail(html_text: str, base_url: str = "",
     #   "国家税务总局浙江省税务局 政策解读 关于《…》的公告的解读"
     # 前缀是站点名与栏目名、各省写法不一，**剥不干净** —— 所以这里原样存下，
     # 由调用方拿列表标题去定位并切掉前缀（见 pipeline.enrich_details）。
-    mt = re.search(r"<title[^>]*>(.*?)</title>", html_text, re.S | re.I)
-    if mt:
-        result.page_title = norm_text(re.sub(r"<[^>]+>", "", mt.group(1))) or None
+    # 三级取法，从最可信的开始：
+    #   ① <meta name="ArticleTitle"> —— 有的站（河北）用它单独存标题，
+    #      **没有站点名与栏目名污染**，最干净
+    #   ② <h1> —— 正文大标题。注意某些站的 h1 是站点名而非文章名，
+    #      所以只作为候选，最终由调用方用「列表标题做前缀匹配」把关
+    #   ③ <title> —— 兜底。但不少站的 <title> 只有"站点名 栏目名"
+    #      （实测河北就是："国家税务总局河北省税务局 最新文件"），压根不含标题
+    for pat in (r'<meta[^>]+name=["\']ArticleTitle["\'][^>]*content=["\']([^"\']+)["\']',
+                r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*name=["\']ArticleTitle["\']',
+                r"<h1[^>]*>(.*?)</h1>",
+                r"<title[^>]*>(.*?)</title>"):
+        mt = re.search(pat, html_text, re.S | re.I)
+        if not mt:
+            continue
+        cand = norm_text(re.sub(r"<[^>]+>", "", mt.group(1)))
+        if cand and len(cand) > 8:
+            result.page_title = cand
+            break
 
     # ---------------------------------------------------------- 正文
     body_el = None
