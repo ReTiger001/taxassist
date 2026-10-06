@@ -302,10 +302,18 @@ def cmd_search(args) -> int:
     conn = dbmod.connect()
     dbmod.init_db(conn)
     # trigram 分词器要求按短语检索，用双引号包裹
+    # 排序与 Web 保持一致：**相关度优先**（bm25 越小越相关），日期只作次级键。
+    # 原先是纯 ORDER BY p.cwrq DESC —— 全量测试时搜「研发费用加计扣除」，
+    # 前 5 条全是安徽「便民办税春风行动」之类的无关文件，真正该排第一的
+    # 《研发费用加计扣除政策执行指引（2.0版）》被埋在日期里。同一个库、
+    # 同一张 FTS 表，Web 排得对而 CLI 排不对，纯粹是当初给 Web 加相关性
+    # 排序时没同步改这里。权重与 kb.py 的 rank_expr 一致（列序为
+    # title, p_doc_no_full, pub_name, content, o_keywords）。
     sql = (
         "SELECT p.cwrq, p.title, p.p_doc_no_full, p.p_effect_status, p.o_column, p.url "
         "FROM policy_fts f JOIN policy p ON p.id = f.rowid "
-        "WHERE policy_fts MATCH ? ORDER BY p.cwrq DESC LIMIT ?"
+        "WHERE policy_fts MATCH ? "
+        "ORDER BY bm25(policy_fts, 12.0, 8.0, 4.0, 1.0, 2.0), p.cwrq DESC LIMIT ?"
     )
     try:
         rows = conn.execute(sql, (f'"{args.keyword}"', args.limit)).fetchall()

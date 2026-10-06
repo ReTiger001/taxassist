@@ -416,7 +416,14 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             "pending": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='尚未生效'")["c"],
             "repealed": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='已废止'")["c"],
             "review": _one("SELECT COUNT(*) c FROM policy WHERE p_review_state='needs_review'")["c"],
-            "attachments": _one("SELECT COUNT(*) c FROM attachment")["c"],
+            # **只算真正解析成功的**。原来这里是 COUNT(*) 全表 —— 而页面上
+            # 那个数字的标签写的是「已解析附件」，于是 4275 里混进了
+            # BadZipFile 388、download_failed 372、no_text_layer 243 等等，
+            # 与实际能检索到的正文数（3244）差了 1031 条，名实不符。
+            # 全量测试比对「页面显示 vs 库内真值」时揪出来的。
+            "attachments": _one(
+                "SELECT COUNT(*) c FROM attachment"
+                " WHERE parse_status='ok'")["c"],
             "relations": _one("SELECT COUNT(*) c FROM policy_relation")["c"],
             "last_fetch": _one(
                 "SELECT started_at FROM fetch_log ORDER BY id DESC LIMIT 1"),
