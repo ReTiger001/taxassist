@@ -51,8 +51,30 @@ def _hash(text: str) -> str:
     return hashlib.sha256((text or "").encode("utf-8")).hexdigest()[:32]
 
 
+# 与 assistant.is_available 同样的理由：这个探测要 ~0.8 秒，而它每次都
+# httpx 打一次 ollama —— 慢的是 **httpx 库自身**，不是 ollama（实测同一
+# 时刻同一 URL：socket 裸连 6ms、urllib 38ms、httpx 793-933ms；已排除
+# 代理与冷启动，详见 assistant.py 里 _AVAIL_CACHE 的注释）。
+# /health 每次请求都会调它，翻译任务也会。30 秒内复用结果。
+_AVAIL_CACHE = None
+_AVAIL_TTL = 30.0
+
+
 def is_available(model: str = DEFAULT_MODEL) -> tuple[bool, str]:
-    """本地模型是否就绪。返回 (可用, 说明)。"""
+    """本地模型是否就绪。返回 (可用, 说明)。**带 30 秒缓存**。"""
+    global _AVAIL_CACHE
+    import time
+
+    now = time.time()
+    if _AVAIL_CACHE is not None and now - _AVAIL_CACHE[0] < _AVAIL_TTL:
+        return _AVAIL_CACHE[1]
+    result = _probe_available(model)
+    _AVAIL_CACHE = (now, result)
+    return result
+
+
+def _probe_available(model: str) -> tuple[bool, str]:
+    """实际探测一次。"""
     try:
         r = httpx.get("http://127.0.0.1:11434/api/tags", timeout=10)
         r.raise_for_status()
