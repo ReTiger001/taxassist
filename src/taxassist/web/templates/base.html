@@ -47,6 +47,10 @@ a:hover{text-decoration:underline}
 /* ---------------- 顶栏 ---------------- */
 .top{background:var(--brand);color:#fff;border-bottom:1px solid rgba(0,0,0,.22)}
 .top .wrap{display:flex;align-items:center;gap:12px;height:52px}
+/* 品牌名不要去动它的收缩行为：**踩过坑** —— 在 auth_base.html 上给同类规则加
+   min-width:0 + overflow:hidden 本想"挤的时候省略号"，实测 flex 把品牌名一路
+   压到 0 宽，顶栏只剩一个语言按钮。收缩到 0 与"优雅截断"之间的界线不可控。
+   英文名写短才是解法。 */
 .brand{color:#fff;font-size:14.5px;font-weight:600;letter-spacing:.3px;
   white-space:nowrap;flex:none}
 .brand:hover{text-decoration:none;color:#fff}
@@ -599,7 +603,7 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
 <header class="top">
   <div class="wrap">
     <a class="brand" href="/"><span data-zh="税务智能知识助手"
-       data-en="Tax Policy Knowledge Assistant">税务智能知识助手</span><span
+       data-en="TaxAssist">税务智能知识助手</span><span
        class="local {{ 'mode-out' if exposed else '' }}"
        data-zh="{{ '对外' if exposed else '本地' }}"
        data-en="{{ 'Public' if exposed else 'Local' }}">{{ '对外' if exposed else '本地' }}</span></a>

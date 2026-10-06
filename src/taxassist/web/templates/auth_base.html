@@ -27,6 +27,9 @@ body{margin:0;background:var(--paper);color:var(--ink);
   -webkit-font-smoothing:antialiased;display:flex;flex-direction:column;min-height:100vh}
 header.top{background:var(--brand);color:#fff;height:52px;display:flex;
   align-items:center;padding:0 20px;flex:none}
+/* 品牌名不要去动它的收缩行为：**踩过坑** —— 加 min-width:0 + overflow:hidden
+   本想"挤的时候省略号"，实测 flex 把品牌名一路压到 0 宽，顶栏只剩一个语言
+   按钮。英文名写短（TaxAssist）才是解法，不是让布局去兜。 */
 header.top .brand{color:#fff;font-size:14.5px;font-weight:600;letter-spacing:.3px;
   text-decoration:none;white-space:nowrap}
 header.top .mode{font-size:10.5px;font-weight:400;letter-spacing:0;
@@ -39,8 +42,14 @@ header.top .mode-out{background:rgba(255,214,145,.16);
    排版与 base.html 同规矩：**宽度自适应 + 不换行**，不给固定宽度。
    "中文" 是 2 个 CJK 字（约 26px），"EN" 只有 2 个拉丁字母（约 17px），
    给固定宽度就会有一边明显空着或挤着。margin-left:auto 把它推到最右，
-   与主站顶栏的位置感一致。 */
+   与主站顶栏的位置感一致。
+
+   **必须显式覆盖 width 与 margin-top**：本文件上面有一条给表单提交按钮用的
+   `button{width:100%;margin-top:22px}`，它是元素选择器、会命中所有 button。
+   不覆盖的话这个按钮会变成 width:100% 的整条横杠 —— 配合 margin-left:auto
+   实测从 146px 一路拉到 1377px，把页面撑出横向滚动条。 */
 header.top .lang-toggle{margin-left:auto;flex:none;white-space:nowrap;
+  width:auto;margin-top:0;
   font:inherit;font-size:12.5px;padding:3px 9px;cursor:pointer;
   border:1px solid #0e3a0e;background:#001a00;color:#00cc00;
   border-radius:0;line-height:1.5}
@@ -147,6 +156,10 @@ a{color:#00cc00;border-bottom-color:#0e3a0e}
 a:hover{background:#00ff00;color:#000;border-bottom-color:#00ff00}
 
 /* 顶栏 */
+/* 品牌名不要去动它的收缩行为：**踩过坑** —— 加 min-width:0 + overflow:hidden
+   本想"挤的时候省略号"，实测 flex 把品牌名一路压到 0 宽，顶栏只剩一个语言
+   按钮。收缩到 0 与"优雅截断"之间的界线不可控，所以不用这招。
+   真正的解法是把英文名写短（TaxAssist），而不是让布局去兜。 */
 .top{background:#000;border-bottom-color:#0e3a0e}
 .top nav a{color:#008800}
 .top nav a:hover{background:none;color:#00ff00;
@@ -237,7 +250,7 @@ button:hover,.ibtn:hover{background:#002a00;border-color:#00cc00;
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="/"><span data-zh="税务智能知识助手" data-en="Tax Policy Knowledge Assistant">税务智能知识助手</span><span
+  <a class="brand" href="/"><span data-zh="税务智能知识助手" data-en="TaxAssist">税务智能知识助手</span><span
      class="mode {{ 'mode-out' if exposed else '' }}"
      data-zh="{{ '对外' if exposed else '本地' }}"
      data-en="{{ 'Public' if exposed else 'Local' }}">{{ '对外' if exposed else '本地' }}</span></a>
