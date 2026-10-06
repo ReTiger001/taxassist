@@ -25,7 +25,7 @@
       {%- else %}<span><b data-zh="施行日期" data-en="In force from">施行日期</b><span class="d"><span data-zh="未标注 —— " data-en="Not stated — "></span><span data-zh="{{ '未抓取到正文，无法抽取' if not p.content else '正文中没有「自…年…月…日起施行」这类表述' }}" data-en="{{ 'full text not collected, cannot extract' if not p.content else 'the full text has no wording like \u201ceffective from \u2026\u201d' }}"></span></span></span>{% endif %}
       {% if p.pub_date %}<span><b data-zh="发布日期" data-en="Published">发布日期</b>{{ p.pub_date }}</span>{% endif %}
       <span><b data-zh="发文机关" data-en="Issued by">发文机关</b>{{ p.pub_name or '—' }}</span>
-      <span><b data-zh="栏目" data-en="Column">栏目</b>{{ p.o_column or '—' }}</span>
+      <span><b data-zh="栏目" data-en="Column">栏目</b><span data-zh="{{ p.o_column or '—' }}" data-en="{{ en(p.o_column) if p.o_column else '—' }}">{{ p.o_column or '—' }}</span></span>
       <span><b data-zh="效力" data-en="Validity">效力</b>{{ effect_badge(p.p_effect_status) }}{{ source_mark(p.p_effect_source) }}</span>
     </div>
   </div>

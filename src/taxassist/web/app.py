@@ -31,11 +31,22 @@ from fastapi.templating import Jinja2Templates
 from .. import db as dbmod
 from ..translate import to_chinese_query
 from .. import auth, filters
+from . import labels
 
 log = logging.getLogger(__name__)
 
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+
+# 数据值的英文标签注册成 Jinja 全局（见 web/labels.py）：
+# 模板里写 {{ en(r.p_region) }} 即可，不用每个路由都把它塞进 context ——
+# 这类值出现在分组标题、筛选下拉、结果行、徽章等十几处，逐个传太容易漏。
+# 注意 `en` 这个名字会遮蔽 Jinja 内置的同名过滤器（一个"把值转成英文"的
+# 老过滤器），本项目模板里没有用过它，换掉是安全的。
+templates.env.globals["en"] = labels.en
+# 整张表也暴露出去：助手页那部分文字是 JS 现场拼的（依据卡片里的地区、
+# 栏目、效力状态），拿不到服务端渲染好的 data-en，只能把表带进页面自己查。
+templates.env.globals["labels"] = labels.LABELS
 
 
 def _highlight(text: str, terms: list[str]):

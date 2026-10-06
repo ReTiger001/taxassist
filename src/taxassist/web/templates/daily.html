@@ -22,7 +22,8 @@
       {% for r in items %}
         <tr>
           <td style="width:20%">
-            <span class="badge b-mut">{{ r.o_column or '—' }}</span>
+            <span class="badge b-mut" data-zh="{{ r.o_column or '—' }}"
+                  data-en="{{ en(r.o_column) if r.o_column else '—' }}">{{ r.o_column or '—' }}</span>
             {% if r.n_attach %}<span class="badge b-warn"><span data-zh="附件 " data-en=""></span>{{ r.n_attach }}<span data-zh="" data-en=" files"></span></span>{% endif %}
           </td>
           <td>

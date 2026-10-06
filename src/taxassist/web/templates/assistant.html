@@ -263,6 +263,13 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
 <input type="file" id="pick-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip,.rar" hidden>
 
 <script>
+/* 数据值的英文标签，由服务端带进页面（见 web/labels.py，与其它页面的 en() 调用
+   同源）—— 这一页的依据卡片是 JS 现场拼的，拿不到服务端渲染好的 data-en。
+   只带这一张表，不重复维护第二份。 */
+var LABELS_EN = {{ labels | tojson }};
+</script>
+
+<script>
 // 示例可点：填进输入框并聚焦 —— 省掉"照着抄一遍"这一步。
 // 放在独立 script 里，不碰下面的主逻辑。
 document.querySelectorAll('.ex').forEach(function (b) {
@@ -346,6 +353,16 @@ document.querySelectorAll('.ex').forEach(function (b) {
     };
   }
 
+  /* 数据值（地区、栏目、效力状态）跟着语言走。
+     表来自服务端 labels.py —— 与检索页、资料库页用同一份，免得同一地区在
+     两个页面翻成两种写法。查不到就原样返回（宁可看到中文，也不要空白）。 */
+  function L(v) {
+    if (v === null || v === undefined || v === '') return '';
+    var s = String(v);
+    return (document.documentElement.lang === 'en')
+      ? (LABELS_EN[s] || s) : s;
+  }
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -375,10 +392,10 @@ document.querySelectorAll('.ex').forEach(function (b) {
   function badge(st) {
     var map = {'现行有效': 'b-ok', '已废止': 'b-bad', '尚未生效': 'b-warn',
                '部分失效': 'b-warn'};
-    /* 效力状态本身是库里的中文值，不翻译（要与详情页、检索页对得上）；
-       只有"未判定"这个兜底词是界面文案，跟着语言走。 */
+    /* 颜色映射按**库里的中文值**来（这层不翻译），显示的文字才跟着语言走。
+       查不到就显示兜底词，不留空白。 */
     return '<span class="badge ' + (map[st] || 'b-mut') + '">' +
-           esc(st || T().unknown) + '</span>';
+           esc(L(st) || T().unknown) + '</span>';
   }
   function srcMark(s) {
     var t = T();
@@ -398,7 +415,7 @@ document.querySelectorAll('.ex').forEach(function (b) {
         '<div class="t"><a href="' + esc(link) + '" target="_blank">' +
           esc(p.title || t.noTitle) + '</a>' +
         '<div class="meta">' + esc(p.doc_no || t.noDocNo) +
-          '　' + esc(p.region || t.national) +
+          '　' + esc(L(p.region) || t.national) +
           (p.cwrq ? '　' + esc(p.cwrq) : '') + '</div></div>' +
         '<div class="st">' + badge(p.effect_status) + srcMark(p.effect_source) + '</div>' +
         '</div>';

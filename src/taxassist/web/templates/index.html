@@ -53,14 +53,18 @@
     <div class="fgroups">
       {% for g in region_groups %}
         <div class="fgroup">
-          <span class="fglabel">{{ g.label }}</span>
+          <span class="fglabel" data-zh="{{ g.label }}" data-en="{{ en(g.label) }}">{{ g.label }}</span>
           <span class="fgitems">
             {% for name, n in g.regions %}
               {# 「全国」是库里的存储值（总局文件），但分组名就叫"总局" ——
-                 显示成"全国"会被读成"全国总数"，和总数 5510 一比就对不上。 #}
+                 显示成"全国"会被读成"全国总数"，和总数 5510 一比就对不上。
+                 英文同理：这一格该是 Nationwide（同那个分组名），不是 National
+                 （National 是"地区"这一格的取值，两者语境不同）。 #}
               <a class="chip{% if not n %} chip-empty{% endif %}"
                  href="/search?region={{ name }}"
-                 {% if not n %}title="库内暂无该地区的政策"{% endif %}>{{ '总局' if name == '全国' else name }}<i>{{ n }}</i></a>
+                 {% if not n %}title="库内暂无该地区的政策"{% endif %}
+                 data-zh="{{ '总局' if name == '全国' else name }}"
+                 data-en="{{ 'Nationwide' if name == '全国' else en(name) }}">{{ '总局' if name == '全国' else name }}<i>{{ n }}</i></a>
             {% endfor %}
           </span>
         </div>
@@ -70,8 +74,10 @@
   <div class="fblock">
     <b class="flabel" data-zh="按栏目" data-en="By column">按栏目</b>
     <div class="fgitems">
+      {#- href 里的值必须保持库里的中文（后端按它过滤），只翻显示出来的那层 -#}
       {% for c in by_column %}
-        <a class="chip" href="/search?column={{ c.v }}">{{ c.v }}<i>{{ c.c }}</i></a>
+        <a class="chip" href="/search?column={{ c.v }}" data-zh="{{ c.v }}"
+           data-en="{{ en(c.v) }}">{{ c.v }}<i>{{ c.c }}</i></a>
       {% endfor %}
     </div>
   </div>
@@ -79,7 +85,8 @@
     <b class="flabel" data-zh="按效力" data-en="By validity">按效力</b>
     <div class="fgitems">
       {% for e in by_effect %}
-        <a class="chip" href="/search?effect={{ e.v }}">{{ e.v }}<i>{{ e.c }}</i></a>
+        <a class="chip" href="/search?effect={{ e.v }}" data-zh="{{ e.v }}"
+           data-en="{{ en(e.v) }}">{{ e.v }}<i>{{ e.c }}</i></a>
       {% endfor %}
     </div>
   </div>
@@ -102,8 +109,8 @@
         <td class="d">{{ r.cwrq or '—' }}</td>
         <td><a class="tt" href="/policy/{{ r.doc_uid }}">{{ r.title }}</a></td>
         <td>{{ docno_cell(r.p_doc_no_full, r.p_doc_no_confidence) }}</td>
-        <td class="d">{{ r.p_region or '' }}<span data-zh="{{ '' if r.p_region else '全国' }}" data-en="{{ '' if r.p_region else 'National' }}"></span></td>
-        <td class="d">{{ r.o_column or '—' }}</td>
+        <td class="d" data-zh="{{ r.p_region or '全国' }}" data-en="{{ en(r.p_region or '全国') }}">{{ r.p_region or '全国' }}</td>
+        <td class="d" data-zh="{{ r.o_column or '—' }}" data-en="{{ en(r.o_column) if r.o_column else '—' }}">{{ r.o_column or '—' }}</td>
         <td>{{ effect_bar(r.p_effect_status) }}{{ effect_badge(r.p_effect_status) }}{{ source_mark(r.p_effect_source) }}</td>
       </tr>
     {% endfor %}

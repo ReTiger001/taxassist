@@ -61,7 +61,8 @@
          href="{{ url_with(region='') }}" data-zh="全部" data-en="All">全部</a>
       {% for name, n in regions[:14] %}
         <a class="q-chip{% if name == region %} on{% endif %}"
-           href="{{ url_with(region=name) }}">{{ name }}<i>{{ n }}</i></a>
+           href="{{ url_with(region=name) }}" data-zh="{{ name }}"
+           data-en="{{ en(name) }}">{{ name }}<i>{{ n }}</i></a>
       {% endfor %}
       {% if regions|length > 14 %}
       <details class="q-more">
@@ -69,7 +70,8 @@
         <div class="q-more-body">
           {% for name, n in regions[14:] %}
             <a class="q-chip{% if name == region %} on{% endif %}"
-               href="{{ url_with(region=name) }}">{{ name }}<i>{{ n }}</i></a>
+               href="{{ url_with(region=name) }}" data-zh="{{ name }}"
+               data-en="{{ en(name) }}">{{ name }}<i>{{ n }}</i></a>
           {% endfor %}
         </div>
       </details>
@@ -92,7 +94,10 @@
       <select name="column">
         <option value="" data-zh="全部" data-en="All">全部</option>
         {% for c in columns %}
-          <option value="{{ c }}" {% if c == column %}selected{% endif %}>{{ c }}</option>
+          {#- option 里没有子元素，可以直接挂成对属性；值保持中文（后端按它过滤），
+              只翻显示层。带计数的下拉同理，英文计数用半角括号。 -#}
+          <option value="{{ c }}" {% if c == column %}selected{% endif %}
+                  data-zh="{{ c }}" data-en="{{ en(c) }}">{{ c }}</option>
         {% endfor %}
       </select>
     </label>
@@ -100,7 +105,9 @@
       <select name="tax">
         <option value="" data-zh="全部" data-en="All">全部</option>
         {% for t, n in tax_counts.items() | sort %}
-          <option value="{{ t }}" {% if t == tax %}selected{% endif %}>{{ t }}（{{ n }}）</option>
+          <option value="{{ t }}" {% if t == tax %}selected{% endif %}
+                  data-zh="{{ t }}（{{ n }}）"
+                  data-en="{{ en(t) }} ({{ n }})">{{ t }}（{{ n }}）</option>
         {% endfor %}
       </select>
     </label>
@@ -108,7 +115,9 @@
       <select name="region">
         <option value="" data-zh="全部" data-en="All">全部</option>
         {% for name, n in regions %}
-          <option value="{{ name }}" {% if name == region %}selected{% endif %}>{{ name }}（{{ n }}）</option>
+          <option value="{{ name }}" {% if name == region %}selected{% endif %}
+                  data-zh="{{ name }}（{{ n }}）"
+                  data-en="{{ en(name) }} ({{ n }})">{{ name }}（{{ n }}）</option>
         {% endfor %}
       </select>
     </label>
@@ -116,7 +125,9 @@
       <select name="effect">
         <option value="" data-zh="全部" data-en="All">全部</option>
         {% for name, n in effect_counts %}
-          <option value="{{ name }}" {% if name == effect %}selected{% endif %}>{{ name }}（{{ n }}）</option>
+          <option value="{{ name }}" {% if name == effect %}selected{% endif %}
+                  data-zh="{{ name }}（{{ n }}）"
+                  data-en="{{ en(name) }} ({{ n }})">{{ name }}（{{ n }}）</option>
         {% endfor %}
       </select>
     </label>
@@ -163,8 +174,8 @@
         {{ effect_badge(r.p_effect_status) }}{{ source_mark(r.p_effect_source) }}
         {{ docno_cell(r.p_doc_no_full, r.p_doc_no_confidence) }}
         <span class="d">{{ r.cwrq or '—' }}</span>
-        <span class="d">{{ r.p_region or '' }}<span data-zh="{{ '' if r.p_region else '全国' }}" data-en="{{ '' if r.p_region else 'National' }}"></span></span>
-        <span class="d">{{ r.o_column or '—' }}</span>
+        <span class="d" data-zh="{{ r.p_region or '全国' }}" data-en="{{ en(r.p_region or '全国') }}">{{ r.p_region or '全国' }}</span>
+        <span class="d" data-zh="{{ r.o_column or '—' }}" data-en="{{ en(r.o_column) if r.o_column else '—' }}">{{ r.o_column or '—' }}</span>
         {% if r.pub_name %}<span class="d">{{ r.pub_name }}</span>{% endif %}
       </div>
     </li>
