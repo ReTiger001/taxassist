@@ -398,8 +398,8 @@ def test_mcp_malformed_json_does_not_kill_service():
     out = io.BytesIO()
     rc = mcp_server.serve(stdin=io.BytesIO(payload), stdout=out)
     assert rc == 0
-    lines = [json.loads(l) for l in out.getvalue().decode("utf-8").splitlines() if l.strip()]
-    assert [l["id"] for l in lines] == [1, 2]
+    lines = [json.loads(ln) for ln in out.getvalue().decode("utf-8").splitlines() if ln.strip()]
+    assert [ln["id"] for ln in lines] == [1, 2]
 
 
 def test_mcp_ping():

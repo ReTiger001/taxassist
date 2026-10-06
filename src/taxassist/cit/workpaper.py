@@ -26,7 +26,6 @@ from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
-from openpyxl.utils import get_column_letter
 
 from .engine import CitInputs, CitResult, compute
 from .rules import FIELD_LABELS, RULES, rules_digest
@@ -222,7 +221,7 @@ def export_workpaper(result: CitResult, path: str | Path) -> Path:
         ("加：纳税调整增加额", result.total_increase),
         ("减：纳税调整减少额", result.total_decrease),
         ("纳税调整后所得", result.taxable_income),
-        (f"税率", f"{result.rate:.0%}"),
+        ("税率", f"{result.rate:.0%}"),
         ("应纳税额（按单一税率计算）", result.tax_payable),
     ]
     s.append([])

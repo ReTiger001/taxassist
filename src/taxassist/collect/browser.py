@@ -131,13 +131,13 @@ def fetch_bytes(url: str, *, timeout_ms: int = 45000,
 
 
 def fetch_many(
-    urls: "list[str] | tuple[str, ...]",
+    urls: list[str] | tuple[str, ...],
     *,
     concurrency: int = 5,
     timeout_ms: int = 25000,
     wait_ms: int = _CHALLENGE_WAIT_MS,
     warm_wait_ms: int = 900,
-) -> dict[str, "str | BaseException"]:
+) -> dict[str, str | BaseException]:
     """并发抓多个页面：**一个浏览器、按域名复用上下文**。
 
     为什么不循环调 ``fetch_html``：那样每条都要新建一个 Chromium（1-2 秒）
@@ -175,7 +175,7 @@ def fetch_many(
         try:
             html = await asyncio.wait_for(
                 _load(page, url, wait, t), timeout=t / 1000 + 20)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             raise RuntimeError(f"抓取超时（>{t} ms）") from None
         finally:
             try:
@@ -187,10 +187,10 @@ def fetch_many(
                 f"页面内容过短（{len(html) if html else 0} 字节），可能仍被拦")
         return html
 
-    async def _run() -> dict[str, "str | BaseException"]:
+    async def _run() -> dict[str, str | BaseException]:
         from urllib.parse import urlsplit
 
-        out: dict[str, "str | BaseException"] = {}
+        out: dict[str, str | BaseException] = {}
         groups: dict[str, list[str]] = {}
         for u in urls:
             groups.setdefault(urlsplit(u).netloc, []).append(u)

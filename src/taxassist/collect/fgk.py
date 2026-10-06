@@ -30,11 +30,10 @@
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterator
 from dataclasses import dataclass
 from datetime import date, timedelta
-from typing import Iterator
 
-from .. import db as dbmod
 from ..config import FGK_PAGE_SIZE
 from .http import GuardedClient
 
@@ -166,7 +165,7 @@ class FgkClient:
         if self._own_client:
             self.client.close()
 
-    def __enter__(self) -> "FgkClient":
+    def __enter__(self) -> FgkClient:
         return self
 
     def __exit__(self, *exc) -> None:

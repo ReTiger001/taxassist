@@ -538,7 +538,6 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
     2. 关系落库（应用层去重）
     3. 基于**完整**关系集判定效力（官方标注 > 被废止 > 推定有效）
     """
-    from rapidfuzz import fuzz
 
     # 关系是**派生数据**：每次重跑先清掉自动派生的关系。
     # 实测教训：修正文号提取规则后，旧的错误引用（如被 PDF 空格截断的
@@ -551,7 +550,9 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
     conn.commit()
 
     # 阶段 0：先把官方《失效废止目录》里的点名废止关系落库（来源最权威）
-    catalog_stats = apply_repeal_catalogs(conn)
+    # 返回值是各类目录的命中统计，目前只作观察用；落库才是目的，所以不接收它。
+    # （原来写成 catalog_stats = ... 却从未使用 —— 全量审计时 ruff F841 报出。）
+    apply_repeal_catalogs(conn)
 
     # 施行日期在未来的也要识别出来：官方时效标注缺失时，这类文件会被误判为
     # "现行有效"（实测：某管理办法 2026-11-01 才施行，而其配套公告已标"尚未生效"，

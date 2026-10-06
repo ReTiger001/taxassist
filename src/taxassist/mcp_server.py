@@ -187,7 +187,7 @@ def _tool_lookup(args: dict) -> dict:
     return kb.lookup_by_doc_no(doc_no, limit=_as_int(args.get("limit"), 10))
 
 
-def _tool_overview(args: dict) -> dict:  # noqa: ARG001 - 无参数
+def _tool_overview(args: dict) -> dict:
     return kb.overview()
 
 
@@ -222,7 +222,7 @@ def _tools_call(params: dict) -> dict:
     except kb.KBError as e:
         # 知识库自身的问题（库不存在/未初始化）：这是使用者需要看到的信息
         return _tool_text(f"知识库不可用：{e}", is_error=True)
-    except Exception as e:  # noqa: BLE001 - 任何异常都不能让服务退出
+    except Exception as e:
         log.exception("工具 %s 执行失败", name)
         return _tool_text(f"工具执行失败（{type(e).__name__}）。"
                           "可换一种查询方式或稍后重试。", is_error=True)
@@ -277,7 +277,7 @@ def handle_message(msg: dict) -> dict | None:
             result = {"prompts": []}
         else:
             return _error(msg_id, -32601, f"未实现的方法：{method}")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         log.exception("处理 %s 时出错", method)
         return _error(msg_id, -32603, f"服务内部错误：{type(e).__name__}")
     return {"jsonrpc": "2.0", "id": msg_id, "result": result}

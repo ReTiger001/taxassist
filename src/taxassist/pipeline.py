@@ -84,7 +84,7 @@ def collect_window(
                 elif result == "updated":
                     updated += 1
             conn.commit()
-    except Exception as e:  # noqa: BLE001 - 需要落日志后原样抛出
+    except Exception as e:
         error = f"{type(e).__name__}: {e}"
         store.log_fetch_finish(
             conn, log_id, reported_total=reported_total, fetched_count=fetched,
@@ -198,10 +198,10 @@ class _PrefetchedClient:
         def raise_for_status(self) -> None:
             return None
 
-    def __init__(self, pages: dict[str, "str | BaseException"]) -> None:
+    def __init__(self, pages: dict[str, str | BaseException]) -> None:
         self._pages = pages
 
-    def get(self, url: str, **_kw) -> "_PrefetchedClient._Resp":
+    def get(self, url: str, **_kw) -> _PrefetchedClient._Resp:
         item = self._pages.get(url)
         if item is None:
             raise RuntimeError(f"详情页未预取：{url}")
@@ -327,7 +327,7 @@ def reparse_details_from_snapshots(conn, *, limit: int = 0) -> dict:
     seen: set[str] = set()
     updated = failed = missing = 0
     errors: list[str] = []
-    for rel, doc_uid, url, cwrq in rows:
+    for rel, doc_uid, url, _ in rows:
         if doc_uid in seen:
             continue
         seen.add(doc_uid)
@@ -473,13 +473,12 @@ def _fetch_source(adapter) -> tuple[list[dict] | None, str | None, bool]:
 
     from .province import fetch_list_pages
 
-    with _host_lock(urlsplit(adapter.list_url).netloc):
-        with GuardedClient() as client:
-            try:
-                items, truncated = fetch_list_pages(client, adapter)
-                return items, None, truncated
-            except Exception as exc:  # noqa: BLE001 - 单源失败不阻断其它源
-                return None, f"{type(exc).__name__}: {exc}", False
+    with _host_lock(urlsplit(adapter.list_url).netloc), GuardedClient() as client:
+        try:
+            items, truncated = fetch_list_pages(client, adapter)
+            return items, None, truncated
+        except Exception as exc:  # noqa: BLE001 - 单源失败不阻断其它源
+            return None, f"{type(exc).__name__}: {exc}", False
 
 
 def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dict]:

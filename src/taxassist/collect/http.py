@@ -146,7 +146,7 @@ class GuardedClient:
                     time.sleep(wait)
                     continue
                 return resp
-            except Exception as e:  # noqa: BLE001 - 需要统一重试判定
+            except Exception as e:
                 last_err = e
                 if isinstance(e, httpx.HTTPStatusError) and e.response is not None \
                         and 400 <= e.response.status_code < 500:
@@ -188,7 +188,7 @@ class GuardedClient:
                         request=resp.request, response=resp)
                 resp.raise_for_status()
                 return resp.json()
-            except Exception as e:  # noqa: BLE001 - 需要统一重试判定
+            except Exception as e:
                 last_err = e
                 if isinstance(e, httpx.HTTPStatusError) and e.response is not None \
                         and 400 <= e.response.status_code < 500:
@@ -225,7 +225,7 @@ class GuardedClient:
                         request=resp.request, response=resp)
                 resp.raise_for_status()
                 return resp
-            except Exception as e:  # noqa: BLE001 - 需要统一重试判定
+            except Exception as e:
                 last_err = e
                 if isinstance(e, httpx.HTTPStatusError) and e.response is not None \
                         and 400 <= e.response.status_code < 500:
@@ -240,7 +240,7 @@ class GuardedClient:
     def close(self) -> None:
         self._client.close()
 
-    def __enter__(self) -> "GuardedClient":
+    def __enter__(self) -> GuardedClient:
         return self
 
     def __exit__(self, *exc) -> None:

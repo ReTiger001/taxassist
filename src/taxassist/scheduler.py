@@ -20,10 +20,10 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 from . import db as dbmod
-from . import effect, pipeline, store, writelock
+from . import effect, pipeline, writelock
 
 log = logging.getLogger(__name__)
 
@@ -128,7 +128,7 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
 
         # 校对阶段复用 worker 的实现（不联网）：用归档快照重解析 + 补文号/施行日。
         # 两处逻辑必须是一份，否则"日更跑的校对"和"worker 跑的校对"会慢慢分叉。
-        from .worker import stage_verify  # noqa: PLC0415 - 避免与 worker 循环导入
+        from .worker import stage_verify
 
         result["steps"]["verify"] = stage_verify(conn, {"days": days})
 
@@ -136,7 +136,7 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
 
         result["ok"] = len(bad) == 0
         status = "ok" if result["ok"] else "incomplete"
-    except Exception as e:  # noqa: BLE001 - 必须记录后抛出，不允许静默
+    except Exception as e:
         result["error"] = f"{type(e).__name__}: {e}"
         status = "failed"
         _record(conn, started, status, result)
@@ -267,5 +267,5 @@ def _job_run_daily() -> None:
     """调度触发的日更任务。异常必须记录，不能让它静默杀掉调度线程。"""
     try:
         run_daily()
-    except Exception:  # noqa: BLE001
+    except Exception:
         log.exception("日更任务失败（已记录到 fetch_log，请查看 taxassist status）")

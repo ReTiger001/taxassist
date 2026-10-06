@@ -35,8 +35,8 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
-from dataclasses import dataclass, replace
-from datetime import date        # 吉林列表页只给「月-日」，补年份要用
+from dataclasses import replace
+from datetime import date  # 吉林列表页只给「月-日」，补年份要用
 from urllib.parse import urljoin
 
 from lxml import html as LH
@@ -73,13 +73,11 @@ class ListPageError(RuntimeError):
 
 # 源配置已切到 province_sources（见该文件头部的说明）：
 # 这里 re-export，外部 `from .province import ADAPTERS` 等用法不变。
-from .province_sources import (  # noqa: F401
+from .province_sources import (  # noqa: F401, E402 - 有意放在此处做 re-export
     ADAPTERS,
     ADAPTERS_BY_ID,
     ListPageAdapter,
 )
-
-
 
 _JS_WRAP_RE = re.compile(r"document\.write\(\s*['\"]|['\"]\s*\)\s*;?")
 # 天津等站的 <a title="[发文机关]标题"> 把发文机关塞进方括号前缀，
@@ -121,8 +119,8 @@ def _clean_title(raw: str | None) -> str:
 # layui 表格站：**数据全塞在 <script> 的 datajson.push({...}) 里**，
 # DOM 只渲染当前页。实测湖北政策法规库 DOM 10 条 / 脚本 2749 条，差 275 倍 ——
 # 只按 DOM 解析会安静地少抓 99%，而且页面"看起来是好的"，极难发现。
-_LAYUI_ENTRY_RE = re.compile(r"datajson\.push\(\s*\{(?P<body>.*?)\}\s*\)", re.S)
-_LAYUI_TITLE_RE = re.compile(r'href="([^"]+)"[^>]*>(.*?)</a>', re.S)
+_LAYUI_ENTRY_RE = re.compile(r"datajson\.push\(\s*\{(?P<body>.*?)\}\s*\)", re.DOTALL)
+_LAYUI_TITLE_RE = re.compile(r'href="([^"]+)"[^>]*>(.*?)</a>', re.DOTALL)
 _LAYUI_DATE_RE = re.compile(r'"publishDate"\s*:\s*[\'"]([^\'"]+)[\'"]')
 
 
@@ -161,7 +159,7 @@ def _parse_layui_datajson(html_text: str, pattern: re.Pattern,
     return items
 
 
-def _parse_js_url_arrays(html_text: str, pattern: "re.Pattern[str]",
+def _parse_js_url_arrays(html_text: str, pattern: re.Pattern[str],
                          adapter: ListPageAdapter) -> list[dict]:
     """从页内 JS 数组里取条目（陕西型）。
 
@@ -468,7 +466,6 @@ def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter,
     才致命**。
     """
     import time
-    from dataclasses import replace
 
     started = time.monotonic()
     limit = adapter.max_seconds

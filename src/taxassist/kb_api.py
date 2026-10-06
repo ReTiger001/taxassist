@@ -21,6 +21,7 @@ Tailscale 对外。本模块面向**程序**：纯 JSON、无会话、无 Cookie
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from fastapi import FastAPI, Query
@@ -153,10 +154,8 @@ def main(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> int:
     # 是使用者唯一的信息来源。通过管道或重定向启动时 Python 默认全缓冲，
     # 会出现「窗口里什么都没有，服务其实已经起来了」（实测过一次），
     # 也会让双击 bat 的人以为卡住了。
-    try:
+    with contextlib.suppress(AttributeError, ValueError, OSError):
         sys.stdout.reconfigure(line_buffering=True)
-    except (AttributeError, ValueError, OSError):
-        pass
 
     actual = _pick_port(host, port)
     if actual is None:

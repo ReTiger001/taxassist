@@ -20,7 +20,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
@@ -29,3 +29,37 @@ where = ["src"]
 testpaths = ["tests"]
 addopts = "-q"
 filterwarnings = ["ignore::DeprecationWarning"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+# **规则集刻意保持精简**：只选"能抓到真问题、且修得完"的规则。
+# 教训（2026-10 引入 ruff 时踩到）：一开始把 S(安全)/PL(pylint)/RUF 全打开，
+# 报出 6682 条 —— 绝大多数是裸 assert、行长、magic value 这类风格偏好，
+# 噪音把信号淹了。真正有价值的是下面这几组：
+select = [
+    "E4", "E7", "E9",  # pycodestyle 的错误子集（不含 E501 行长等风格项）
+    "F",               # pyflakes：未使用导入/未定义名/重复定义 —— P0 bug 正是这类
+    "I",               # isort：导入顺序
+    "UP",              # pyupgrade：过时写法
+    "B",               # bugbear：常见陷阱（可变默认参数、循环闭包等）
+    "SIM",             # 可简化的写法
+]
+
+# 有意为之、不打算改的规则。**每条都写清理由** —— 否则后来人无法判断
+# 这是"约定"还是"还没修"，会当成债重新捡起来。
+ignore = [
+    "B023",     # browser.py 的 sem/ctx 定义在循环外，闭包捕获共享 semaphore 即意图
+    "B017",     # 测试里断言"抛出任意异常"是常用手法
+    # 下面两条是纯风格建议，与现有写法**语义完全等价**，不值得为此改动已带
+    # 说明注释的代码：SIM105 建议 try/except/pass 改 contextlib.suppress，
+    # SIM102 建议合并嵌套 if —— 改了两者都不影响行为，但会让原有注释错位。
+    "SIM105",
+    "SIM102",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# 测试代码允许 assert、允许较长的函数
+"tests/*" = ["S101"]

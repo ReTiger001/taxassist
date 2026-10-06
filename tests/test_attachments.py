@@ -9,8 +9,6 @@ import pytest
 
 from taxassist.collect.attachments import (
     parse_attachment,
-    parse_pdf,
-    parse_xlsx,
     safe_filename,
 )
 

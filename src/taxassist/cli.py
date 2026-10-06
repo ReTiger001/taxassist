@@ -9,13 +9,13 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import os
 import sys
 
-from . import db as dbmod
 from . import auth, backfill, effect, pipeline, store
-from .collect.fgk import COLUMNS
+from . import db as dbmod
 
 log = logging.getLogger("taxassist")
 
@@ -36,10 +36,8 @@ def _setup_console() -> None:
         except Exception:  # noqa: BLE001 - 没有控制台（管道/重定向）时忽略
             pass
     for stream in (sys.stdout, sys.stderr):
-        try:
+        with contextlib.suppress(AttributeError, ValueError, OSError):
             stream.reconfigure(encoding="utf-8", errors="replace")
-        except (AttributeError, ValueError, OSError):
-            pass
 
 
 def build_parser() -> argparse.ArgumentParser:

@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import DB_PATH, ensure_dirs
@@ -240,7 +240,7 @@ def now_iso() -> str:
 
 
 def utc_iso() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:

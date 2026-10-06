@@ -74,7 +74,7 @@ _EFFECTIVE_RE = re.compile(
     r"\s*(?:(?:施行|执行|实施|生效|适用))?"
 )
 
-_ATTACH_EXT_RE = re.compile(r"\.(pdf|docx?|xlsx?|pptx?|zip|rar|wps|et)(?:\?|$)", re.I)
+_ATTACH_EXT_RE = re.compile(r"\.(pdf|docx?|xlsx?|pptx?|zip|rar|wps|et)(?:\?|$)", re.IGNORECASE)
 
 
 def _ymd_tuple(value) -> tuple[int, int, int] | None:
@@ -210,7 +210,7 @@ def parse_detail(html_text: str, base_url: str = "",
                 r'<meta[^>]+content=["\']([^"\']+)["\'][^>]*name=["\']ArticleTitle["\']',
                 r"<h1[^>]*>(.*?)</h1>",
                 r"<title[^>]*>(.*?)</title>"):
-        mt = re.search(pat, html_text, re.S | re.I)
+        mt = re.search(pat, html_text, re.DOTALL | re.IGNORECASE)
         if not mt:
             continue
         cand = norm_text(re.sub(r"<[^>]+>", "", mt.group(1)))

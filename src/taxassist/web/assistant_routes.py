@@ -13,6 +13,7 @@
 """
 from __future__ import annotations
 
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -21,7 +22,13 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from .. import db as dbmod
-from .app import _origin_ok, _read_json   # noqa: F401 - 模块级辅助，无闭包依赖
+from .app import _origin_ok, _read_json
+
+#: 这个模块此前**漏了 logger 定义**，而 except 块里调用了 log.warning ——
+#: 后果不是"少一条日志"，而是异常发生时 NameError 顶掉后面的 emit({"error"})，
+#: 前端拿不到错误、只收到 finally 里的 done，**助手失败会静默显示成"完成"**。
+#: （2026-10 全量审计发现；全项目只有这一个模块漏了。）
+log = logging.getLogger(__name__)
 
 
 def register(app, *, ctx, templates) -> None:
@@ -124,8 +131,6 @@ def register(app, *, ctx, templates) -> None:
         import asyncio
         import json as _json
         import threading
-
-        from fastapi.responses import StreamingResponse
 
         from .. import assistant as am
 

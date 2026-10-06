@@ -17,21 +17,23 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 import sqlite3
-import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
-                               RedirectResponse, Response)
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    RedirectResponse,
+    Response,
+)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
+from .. import auth, filters
 from .. import db as dbmod
 from ..translate import to_chinese_query
-from .. import auth, filters
 from . import labels
 
 log = logging.getLogger(__name__)
@@ -855,7 +857,7 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             # 这些话面向的是运维者，客户看不懂、也不该看到 —— 移到只对超管
             # 可见的后台。数据来源与总览页一致，页面不再各自算一遍。
             # scheduler 与总览页一样在函数内导入（模块顶部刻意没导它）。
-            from .. import scheduler  # noqa: PLC0415
+            from .. import scheduler
 
             health = scheduler.fetch_health(conn)
             gap = scheduler.days_since_last_success(conn)

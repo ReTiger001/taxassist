@@ -124,7 +124,8 @@ def test_archive_page_writes_gzip_and_index(tmp_path, conn, monkeypatch):
     )
     path = tmp_path / rel
     assert path.exists() and path.suffix == ".gz"
-    import gzip, json
+    import gzip
+    import json
     with gzip.open(path, "rb") as fh:
         assert json.loads(fh.read())["searchResultAll"]["total"] == 1
     n = conn.execute("SELECT COUNT(*) FROM raw_snapshot WHERE kind='api_json_page'").fetchone()[0]

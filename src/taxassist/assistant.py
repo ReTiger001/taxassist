@@ -62,7 +62,6 @@ from __future__ import annotations
 import json
 import logging
 import re
-from typing import Any
 
 from . import kb
 
@@ -133,7 +132,7 @@ def chat(messages: list[dict], *, model: str = DEFAULT_MODEL,
         resp = httpx.post(f"{OLLAMA_URL}/api/chat", json=payload,
                           timeout=timeout)
         resp.raise_for_status()
-    except Exception as exc:  # noqa: BLE001 - 上层要拿到人话错误
+    except Exception as exc:
         raise RuntimeError(
             f"调用本地模型失败（{model}）：{type(exc).__name__}: {exc}"
         ) from exc

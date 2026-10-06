@@ -65,7 +65,6 @@ def _ocr_pdf(path: Path) -> str:
     """
     import numpy as np
     import pymupdf
-
     from rapidocr_onnxruntime import RapidOCR
 
     ocr = RapidOCR()
@@ -435,7 +434,7 @@ def download(client: GuardedClient, url: str, dest: Path) -> int:
 
     try:
         data = fetch_bytes(u)
-    except Exception as e2:  # noqa: BLE001
+    except Exception as e2:
         raise RuntimeError(
             f"httpx 失败（{first_err}）；"
             f"浏览器兜底也失败（{type(e2).__name__}: {e2}）"

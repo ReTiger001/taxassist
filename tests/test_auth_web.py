@@ -7,6 +7,7 @@ next 参数能否被当成开放重定向跳板、登出是否真的清掉了会
 from __future__ import annotations
 
 import base64
+from datetime import UTC
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -657,8 +658,8 @@ def test_pages_survive_extreme_values(db_path):
     189 字符文号、246 字符附件文件名、空标题。这些都是会真实入库的值（抓来的
     标题长短不一），页面必须照样出得来，且内容不能被静默丢掉。
     """
-    from datetime import datetime, timezone
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    from datetime import datetime
+    now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%S")
     conn = dbmod.connect()
     try:
         conn.execute(

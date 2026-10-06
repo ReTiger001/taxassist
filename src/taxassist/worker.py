@@ -49,13 +49,14 @@
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import time
+from collections.abc import Callable
 from datetime import datetime
-from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from . import db as dbmod
 from . import effect, pipeline, writelock
@@ -206,10 +207,8 @@ def stage_verify(conn, cfg: dict) -> dict:
         note = "解析器未改动，跳过重解析"
     else:
         reparsed = pipeline.reparse_details_from_snapshots(conn)
-        try:
+        with contextlib.suppress(OSError):
             FP_FILE.write_text(fp, encoding="utf-8")
-        except OSError:
-            pass
         note = None
 
     filled = backfill.backfill_from_content(conn)
@@ -311,10 +310,8 @@ def request_stop() -> None:
 
 
 def clear_stop() -> None:
-    try:
+    with contextlib.suppress(OSError):
         STOP_FILE.unlink()
-    except OSError:
-        pass
 
 
 def stop_requested() -> bool:
@@ -336,7 +333,7 @@ def run_round(conn, stages: tuple[str, ...], cfg: dict) -> dict:
         started = time.time()
         try:
             out[stage] = STAGES[stage](conn, cfg)
-        except Exception as e:  # noqa: BLE001 - 记下来继续，不能悄悄失败
+        except Exception as e:
             log.exception("阶段 %s 失败", stage)
             out[stage] = {"错误": f"{type(e).__name__}: {e}"}
         finally:
