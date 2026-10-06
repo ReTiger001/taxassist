@@ -3,7 +3,7 @@
 {% block title %}检索{% if q %}：{{ q }}{% endif %} · 税务智能知识助手{% endblock %}
 {% block body %}
 
-<h1>政策检索</h1>
+<h1 data-zh="政策检索" data-en="Policy Search">政策检索</h1>
 <p class="sub">检索范围：标题 / 文号 / 发文机关 / 正文 / 关键词 —— 命中处会高亮。
   可只按条件浏览，不输关键词。</p>
 
@@ -28,7 +28,7 @@
   <div class="f-quick">
     {% if years %}
     <div class="f-q-row">
-      <span class="f-q-label">年份</span>
+      <span class="f-q-label" data-zh="年份" data-en="Year">年份</span>
       <a class="q-chip{% if not year %} on{% endif %}"
          href="{{ url_with(year='') }}">全部</a>
       {# 默认只放最近 12 年。库里的年份跨了 40 多年（1984 起），
@@ -53,7 +53,7 @@
     {% endif %}
     {% if regions %}
     <div class="f-q-row">
-      <span class="f-q-label">地区</span>
+      <span class="f-q-label" data-zh="地区" data-en="Region">地区</span>
       <a class="q-chip{% if not region %} on{% endif %}"
          href="{{ url_with(region='') }}">全部</a>
       {% for name, n in regions[:14] %}
@@ -78,7 +78,7 @@
   <div class="f-main">
     <input type="search" name="q" value="{{ q or '' }}"
            placeholder="如：研发费用加计扣除、国家税务总局公告2026年第19号">
-    <button type="submit">检索</button>
+    <button type="submit" data-zh="检索" data-en="Search">检索</button>
   </div>
   <div class="f-row">
     <label>栏目
@@ -123,13 +123,13 @@
     </label>
     <label>排序
       <select name="sort">
-        <option value="relevance" {% if sort == 'relevance' %}selected{% endif %}>相关度优先</option>
-        <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %}>日期 新→旧</option>
-        <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %}>日期 旧→新</option>
+        <option value="relevance" {% if sort == 'relevance' %}selected{% endif %} data-zh="相关度优先" data-en="Relevance">相关度优先</option>
+        <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %} data-zh="日期 新→旧" data-en="Newest first">日期 新→旧</option>
+        <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %} data-zh="日期 旧→新" data-en="Oldest first">日期 旧→新</option>
       </select>
     </label>
-    <button type="submit" class="f-go">应用筛选</button>
-    <a class="f-clear" href="/search">清空</a>
+    <button type="submit" class="f-go" data-zh="应用筛选" data-en="Apply filters">应用筛选</button>
+    <a class="f-clear" href="/search" data-zh="清空" data-en="Clear">清空</a>
   </div>
 </form>
 
