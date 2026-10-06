@@ -85,6 +85,51 @@ def fetch_html(url: str, *, timeout_ms: int = 45000,
     return html
 
 
+def fetch_bytes(url: str, *, timeout_ms: int = 45000,
+                wait_ms: int = _CHALLENGE_WAIT_MS) -> bytes:
+    """下载**二进制附件**（PDF/Excel/Word），能过 WAF 挑战。
+
+    与 ``fetch_html`` 的关键差别：附件是二进制，``page.content()`` 只能拿到
+    HTML 文本，取不到原始字节。所以这里用 ``ctx.request.get()`` —— 它共享
+    同一个 context 的 cookie，因此同样过了挑战，却返回原始响应体。
+
+    先 ``goto`` 一次再 ``request.get``：前者只为让挑战脚本跑完、把 cookie
+    落进 context。附件地址直接 goto 常会触发下载、导航本身报错，所以那一步
+    的异常要吞掉，真正取数据的是后面的 API 请求。
+    """
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError as e:  # pragma: no cover - 环境相关
+        raise RuntimeError(
+            "未安装 playwright：pip install playwright 且 playwright install chromium"
+        ) from e
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=True, args=[
+            "--disable-blink-features=AutomationControlled",
+        ])
+        try:
+            ctx = browser.new_context(user_agent=_UA, locale="zh-CN",
+                                      viewport={"width": 1440, "height": 900},
+                                      ignore_https_errors=_IGNORE_TLS)
+            page = ctx.new_page()
+            try:
+                page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+                page.wait_for_timeout(wait_ms)
+            except Exception:  # noqa: BLE001 - 见 docstring：导航报错不代表失败
+                pass
+            resp = ctx.request.get(url, timeout=timeout_ms)
+            if not resp.ok:
+                raise RuntimeError(f"浏览器取附件返回 HTTP {resp.status}")
+            data = resp.body()
+        finally:
+            browser.close()
+
+    if not data:
+        raise RuntimeError("浏览器取回的附件为空")
+    return data
+
+
 def fetch_many(
     urls: "list[str] | tuple[str, ...]",
     *,

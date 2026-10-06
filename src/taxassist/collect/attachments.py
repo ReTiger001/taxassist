@@ -392,9 +392,29 @@ def normalise_url(url: str) -> str:
 
 
 def download(client: GuardedClient, url: str, dest: Path) -> int:
-    """下载附件到 dest，返回字节数。"""
-    resp = client.get(normalise_url(url))
-    resp.raise_for_status()
+    """下载附件到 dest，返回字节数。
+
+    先走 httpx（快）；**失败时改走真浏览器兜底**。实测 165 份附件下载失败
+    里有 155 份是 HTTP 412 —— 它们的链接同样在加速乐那类 WAF 后面，httpx
+    过不了挑战。浏览器的 cookie 能过同一个挑战，代价是慢得多（每条要走一次
+    浏览器），所以只在前者失败时才用。
+    """
+    u = normalise_url(url)
+    try:
+        resp = client.get(u)
+        resp.raise_for_status()
+        data = resp.content
+    except Exception as e:  # noqa: BLE001 - 失败原因要保留在错误信息里
+        from .browser import fetch_bytes
+
+        try:
+            data = fetch_bytes(u)
+        except Exception as e2:  # noqa: BLE001
+            raise RuntimeError(
+                f"httpx 失败（{type(e).__name__}: {e}）；"
+                f"浏览器兜底也失败（{type(e2).__name__}: {e2}）"
+            ) from e
+
     dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(resp.content)
-    return len(resp.content)
+    dest.write_bytes(data)
+    return len(data)
