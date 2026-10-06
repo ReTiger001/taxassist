@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}登录 · 税务智能知识助手{% endblock %}</title>
 <style>
+/* ── 字体自托管（与 base.html 用同一份子集文件，理由见那里的注释）── */
+@font-face{font-family:"Sarasa Mono SC";font-style:normal;font-weight:400;
+  font-display:swap;
+  src:url("/static/fonts/sarasa-mono-sc-regular.woff2") format("woff2")}
+@font-face{font-family:"Sarasa Mono SC";font-style:normal;font-weight:700;
+  font-display:swap;
+  src:url("/static/fonts/sarasa-mono-sc-bold.woff2") format("woff2")}
+
 /* 认证页独立布局：这一页的使用者还没进来，不需要导航与检索，
    注意力只该集中在一件事上。色板与主界面同源，视觉不脱节。 */
 :root{
@@ -92,9 +100,12 @@ html,body{background:#000}
      Consolas 1.82 / Cascadia 1.71（只覆盖拉丁，中文仍要回退）
      微软雅黑 1.02（比例字体，完全不是等宽）
    而且宋体在 13px 这种小字号下是**点阵渲染** —— 那个颗粒感正是
-   「远古终端」的来源，不是靠调颜色能得到的。 */
-body{font:13px/1.7 "Cascadia Mono",Consolas,"NSimSun",SimSun,
-  "Courier New",monospace}
+   「远古终端」的来源，不是靠调颜色能得到的。
+
+   宋体的硬伤是**拉丁部分为衬线体**（观感"公文"而非"代码"），故改用
+   Sarasa Mono SC：更纱黑体等宽，中英同一套设计、严格 2:1。 */
+body{font:13px/1.7 "Sarasa Mono SC","Cascadia Mono",Consolas,
+  "NSimSun",SimSun,"Courier New",monospace}
 
 /* ── CRT 质感，按 CSS-Tricks《Old Timey Terminal Styling》的做法 ──
    （完整说明见 base.html 的注释：径向渐变发光背景 / text-shadow 荧光晕 /

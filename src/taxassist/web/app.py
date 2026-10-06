@@ -25,6 +25,7 @@ from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
                                Response)
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import db as dbmod
@@ -242,6 +243,16 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     app = FastAPI(title="税务智能知识助手", docs_url=None, redoc_url=None,
                   openapi_url=None)
 
+    # 字体文件：**只挂 fonts 这一个子目录**。
+    # 认证中间件把 /static/ 整个放行（见下面 PUBLIC_PATHS 那段判断），所以
+    # 挂得比 fonts 更宽就等于开一个免认证的文件出口 —— 只暴露几个 woff2
+    # 是安全的，挂 static/ 根目录不是。目录不存在时静默跳过，字体回退到
+    # 系统字体，功能不受影响。
+    font_dir = HERE / "static" / "fonts"
+    if font_dir.is_dir():
+        app.mount("/static/fonts", StaticFiles(directory=str(font_dir)),
+                  name="fonts")
+
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         """对外暴露时的唯一门锁。
@@ -257,9 +268,14 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             return await call_next(request)
 
         path = request.url.path
-        # 精确匹配 /static 及其子路径，不用 startswith("/static/") ——
-        # 后者会把 "/static/..%2fadmin" 这类路径也放过去。当前没有 mount
-        # StaticFiles 所以不可利用，但将来一旦 mount，它就变成认证绕过入口。
+        # 精确匹配 /static 及其子路径，不用裸 startswith("/static") ——
+        # 后者会把 "/static/..%2fadmin" 这类路径也放过去。
+        #
+        # **这一段现在真的在放行静态文件**：create_app 里 mount 了
+        # /static/fonts（自托管字体）。之所以安全，是因为挂载点只到
+        # fonts、里面只有两个 woff2；哪天挂了更宽的目录，这里就变成
+        # 认证绕过入口。下面两个 ".." 检查是第二道闸，但挡不住 URL
+        # 编码的变体（如 %2e%2e%2f）—— 真正的保证是"别挂宽"。
         if path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/"):
             if ".." not in path and "\\" not in path:
                 return await call_next(request)

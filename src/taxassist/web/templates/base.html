@@ -5,6 +5,19 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}税务智能知识助手{% endblock %}</title>
 <style>
+/* ── 字体自托管 ────────────────────────────────────────────────────
+   为什么不用系统安装：浏览器进程一般在字体安装之前就启动了，看不到新装
+   的系统字体。实测把 canvas 的字体设成 "Sarasa Mono SC"，量到的宽度与
+   乱写一个不存在的字体名、以及 sans-serif 完全一致 —— 静默回退。
+   子集化后：GB2312 一级汉字 + ASCII + 全角标点，24.4MB → 781KB。
+   缺字（GB2312 二级生僻字）会自动回退到字体栈后面的系统字体，不显方块。 */
+@font-face{font-family:"Sarasa Mono SC";font-style:normal;font-weight:400;
+  font-display:swap;
+  src:url("/static/fonts/sarasa-mono-sc-regular.woff2") format("woff2")}
+@font-face{font-family:"Sarasa Mono SC";font-style:normal;font-weight:700;
+  font-display:swap;
+  src:url("/static/fonts/sarasa-mono-sc-bold.woff2") format("woff2")}
+
 /* =================================================================
    设计方向：档案工作台
    -----------------------------------------------------------------
@@ -387,9 +400,15 @@ html,body{background:#000}
      微软雅黑 1.02（比例字体，完全不是等宽）
    而且宋体在 13px 这种小字号下是**点阵渲染** —— 那个颗粒感正是
    「远古终端」的来源，不是靠调颜色能得到的。
-   顺序：现代等宽管拉丁与数字，NSimSun/SimSun 管中文。 */
-body{font:13px/1.7 "Cascadia Mono",Consolas,"NSimSun",SimSun,
-  "Courier New",monospace}
+
+   但宋体有硬伤（用户指出"中文字体肯定是不对的"）：**它的拉丁部分是
+   衬线体**。原先靠 Cascadia 排在前面管拉丁来绕开这点，可中文字符和
+   拉丁字符相邻时两套字形气质打架 —— 观感是"公文"不是"代码"。
+   正解是 Sarasa Mono SC（更纱黑体等宽）：拉丁基于 Iosevka、中文基于
+   思源黑体，**中英本来就是同一套设计**，且中文与拉丁严格 2:1 对齐。
+   已装进用户字体目录并由注册表注册（免管理员）。 */
+body{font:13px/1.7 "Sarasa Mono SC","Cascadia Mono",Consolas,
+  "NSimSun",SimSun,"Courier New",monospace}
 /* 汉字与数字对齐：等宽字体下用表格数字，扫列不跳动 */
 td,.d,.n,.cit,.docno{font-variant-numeric:tabular-nums}
 
@@ -496,12 +515,25 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
 .sub,.empty,.hint{color:#008800}
 .day{background:#0d140d;color:#00cc00;border-color:#0e3a0e}
 
-/* 快捷筛选（年份/地区的 q-chip） */
+/* 快捷筛选（顶部搜索框附近的 q-chip） */
 .q-chip{background:#0a0f0a;border-color:#0e3a0e;color:#00cc00}
 .q-chip:hover{background:#001a00;border-color:#00cc00;color:#00ff00}
 .q-chip.on{background:#00ff00;color:#000;border-color:#00ff00;
   font-weight:700}
 .f-q-label{color:#008800}
+
+/* 标签入口（总览页的地区/栏目/效力筛选）用的是 .chip，与上面的 .q-chip
+   是**两套不同的选择器**。原来只覆盖了 .q-chip，漏掉这个 —— 而 .chip 的
+   底色是硬编码的 #fff，于是整片黑里浮着几十个白块。这就是那句
+   "筛选标签是个白底，看得非常违和"。补上，风格与其余终端元素一致。
+   （.flabel/.fglabel 那些不用管：它们用的是 var(--ink-3)，已被覆盖成暗绿） */
+.chip{background:#0a0f0a;border-color:#0e3a0e;color:#00cc00}
+.chip:hover{background:#001a00;border-color:#00cc00;color:#00ff00}
+.chip i{color:#008800}
+.chip:hover i{color:#00ff00}
+.chip-empty{background:#050805;border-color:#0e3a0e;color:#005500;
+  border-style:dashed}
+.chip-empty i{color:#005500}
 
 /* 附件原文：终端里的输出区 */
 .attach-text{background:#050805;border-color:#0e3a0e;color:#00cc00}
