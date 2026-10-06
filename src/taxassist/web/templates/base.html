@@ -632,10 +632,19 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
 {% block body %}{% endblock %}
 </main>
 <footer class="wrap foot">
-  数据来源：国家税务总局政策法规库 · 全部内容与判断保存在本机，未发生外部传输 ·
-  <b>判定依据</b>：<span class="src src-official" data-zh="官方标注" data-en="Official">官方标注</span> 原文自带时效标注或官方目录点名 ·
-  <span class="src src-inferred" data-zh="据他文判定" data-en="Inferred">据他文判定</span> 依其他文件的废止声明 ·
-  <span class="src src-default" data-zh="未发现废止" data-en="No repeal found">未发现废止</span> 库内无废止证据，<b>非官方确认有效</b>
+  {# 页脚也要随语言切换 —— **复用 about 页已有的机制**：带 data-zh/data-en 的
+     元素会被那段 JS 直接替换 textContent（见 about.html 第 157 行）。
+     原来只有几个标签带这属性、句子主体是死的中文，于是切到英文后页脚变成
+     中英混杂（全量测试发现）。给主体补上属性即可，不需要新代码。 #}
+  <span data-zh="数据来源：国家税务总局政策法规库 · 全部内容与判断保存在本机，未发生外部传输 ·"
+        data-en="Data source: State Taxation Administration policy database · All content and determinations are kept on this machine; nothing is transmitted externally ·">数据来源：国家税务总局政策法规库 · 全部内容与判断保存在本机，未发生外部传输 ·</span>
+  <b data-zh="判定依据：" data-en="Basis of determination:">判定依据：</b><span
+    class="src src-official" data-zh="官方标注" data-en="Official">官方标注</span>
+  <span data-zh="原文自带时效标注或官方目录点名" data-en="the document carries its own validity marking, or an official repeal catalogue names it">原文自带时效标注或官方目录点名</span> ·
+  <span class="src src-inferred" data-zh="据他文判定" data-en="Inferred">据他文判定</span>
+  <span data-zh="依其他文件的废止声明" data-en="another document states that it is repealed">依其他文件的废止声明</span> ·
+  <span class="src src-default" data-zh="未发现废止" data-en="No repeal found">未发现废止</span>
+  <span data-zh="库内无废止证据，" data-en="no repeal evidence in this database;">库内无废止证据，</span><b data-zh="非官方确认有效" data-en="not an official confirmation of validity">非官方确认有效</b>
 </footer>
 </body>
 </html>

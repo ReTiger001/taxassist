@@ -378,7 +378,13 @@ def fetch_attachments(conn, *, limit: int = 20, only_pending: bool = True) -> di
         # **也重试 unsupported**：解析器升级后（例如接通 WPS 处理老式文档），
         # 当初"读不了"的文件应该再试一次 —— 否则修复永远不会生效，
         # 那 1380 条会一直是 unsupported，而代码明明已经能解析它们了。
-        sql += " AND (a.parse_status = 'pending' OR a.parse_status = 'unsupported')"
+        #
+        # **也重试 download_failed**：同样的道理。372 条里有 345 条是 WAF 412
+        # （hubei/liaoning/jilin 等站），而浏览器兜底（browser.fetch_bytes）
+        # 能过挑战 —— 实测同一条 URL：httpx 得到 412、兜底取回 16493 字节的
+        # 真 docx。那批失败记录都写在兜底上线之前，所以从未被重试过。
+        sql += (" AND (a.parse_status = 'pending' OR a.parse_status = 'unsupported'"
+                " OR a.parse_status = 'download_failed')")
     sql += " ORDER BY a.id LIMIT ?"
     rows = conn.execute(sql, (limit,)).fetchall()
 
