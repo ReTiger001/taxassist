@@ -38,7 +38,7 @@
 
 # 让 AI 直接查这个库（两条路，都只读、都在本机跑）
 .venv/Scripts/python.exe -m taxassist mcp    # MCP stdio 服务，挂给 Claude Desktop / Cursor 等
-.venv/Scripts/python.exe -m taxassist kb     # 本机 JSON 接口 http://127.0.0.1:8766/
+.venv/Scripts/python.exe -m taxassist kb     # 本机 JSON 接口 http://127.0.0.1:8767/
 .venv/Scripts/python.exe -m taxassist kb --selftest   # 自检：库能否读、检索能否命中、是否真的只读
 ```
 

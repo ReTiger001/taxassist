@@ -464,3 +464,28 @@ def test_api_returns_503_when_db_missing(tmp_path, monkeypatch):
         resp = client.get("/api/search", params={"q": "x"})
         assert resp.status_code == 503
         assert "initdb" in resp.json()["error"]
+
+
+def test_pick_port_skips_busy_port():
+    """默认端口被占时要自动往后找。
+
+    这条是有来历的：本机 8765 / 8766 / 8771 上跑着别的 taxassist 服务，
+    而本接口最初把默认端口定成了 8766 —— 一启动就 address already in use，
+    使用者看到的是「双击 bat 就报错」。
+    """
+    import socket
+
+    from taxassist import kb_api
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as busy:
+        busy.bind(("127.0.0.1", 0))
+        busy.listen(1)
+        taken = busy.getsockname()[1]
+
+        picked = kb_api._pick_port("127.0.0.1", taken)
+        assert picked is not None
+        assert picked != taken, "占用中的端口被返回了 —— 启动仍会撞车"
+
+        # 返回的端口必须真能绑上（可能被别的进程抢走，所以再验一次）
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+            probe.bind(("127.0.0.1", picked))

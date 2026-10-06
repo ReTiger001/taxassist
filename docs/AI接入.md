@@ -78,27 +78,31 @@ MCP（Model Context Protocol）是 Claude Desktop、Cursor、Cherry Studio 等
 给自建脚本、内部系统，以及不支持 MCP 的本地模型用。
 
 ```bash
-python -m taxassist kb                      # 默认 http://127.0.0.1:8766/
+python -m taxassist kb                      # 默认 http://127.0.0.1:8767/
 python -m taxassist kb --port 9000          # 换端口
 ```
 
 Windows 上也可以直接双击 `启动知识库接口.bat`。
 
+> **端口被占会自动往后找。** 本机 8765 / 8766 / 8771 上已经跑着别的
+> taxassist 服务，默认端口若被占，启动时会打印「端口 8767 已被占用，改用 8768」
+> 之类的提示 —— **以窗口里打印的地址为准**，别照抄文档里的端口。
+
 ```bash
 # 检索
-curl "http://127.0.0.1:8766/api/search?q=研发费用加计扣除&limit=5"
+curl "http://127.0.0.1:8767/api/search?q=研发费用加计扣除&limit=5"
 
 # 只看新疆的、现行有效的增值税政策
-curl "http://127.0.0.1:8766/api/search?tax=增值税&region=新疆&effect=现行有效"
+curl "http://127.0.0.1:8767/api/search?tax=增值税&region=新疆&effect=现行有效"
 
 # 按文号查
-curl "http://127.0.0.1:8766/api/docno/财税〔2014〕116号"
+curl "http://127.0.0.1:8767/api/docno/财税〔2014〕116号"
 
 # 取全文（正文很长时用 offset 续读）
-curl "http://127.0.0.1:8766/api/policy/<doc_uid>?content_offset=6000"
+curl "http://127.0.0.1:8767/api/policy/<doc_uid>?content_offset=6000"
 
 # 库概况
-curl "http://127.0.0.1:8766/api/overview"
+curl "http://127.0.0.1:8767/api/overview"
 ```
 
 > **Windows 上用 curl 传中文会乱码**（实测：`q=研发费用加计扣除` 到服务端成了
@@ -111,7 +115,7 @@ Python 里就是普通 HTTP：
 ```python
 import httpx
 
-r = httpx.get("http://127.0.0.1:8766/api/search",
+r = httpx.get("http://127.0.0.1:8767/api/search",
              params={"q": "小微企业 所得税", "limit": 5}, timeout=30)
 for hit in r.json()["hits"]:
     print(hit["cwrq"], hit["doc_no"], hit["effect_status"], hit["title"])

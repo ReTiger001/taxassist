@@ -31,7 +31,29 @@ from . import kb
 log = logging.getLogger(__name__)
 
 DEFAULT_HOST = "127.0.0.1"
-DEFAULT_PORT = 8766
+#: 默认端口。**不能想当然地取 8766**：本机 8765 / 8766 / 8771 已被其他
+#: taxassist 服务占着（实测 `netstat`），默认端口撞上时的表现是
+#: 「双击 bat 就报 address already in use」，使用者无从下手。
+#: 取 8767；即便它也被占，启动时会自动往后找（见 _pick_port）。
+DEFAULT_PORT = 8767
+
+
+def _pick_port(host: str, port: int, tries: int = 20) -> int | None:
+    """从 ``port`` 起往后找第一个能绑的端口，找不到返回 None。
+
+    自动避让而不是直接报错：本机上同时跑着好几个这个项目的服务是常态
+    （网页、采集、还有本接口），要求使用者自己记住哪个端口空着不现实。
+    """
+    import socket
+
+    for candidate in range(port, port + tries):
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            try:
+                sock.bind((host, candidate))
+                return candidate
+            except OSError:
+                continue
+    return None
 
 
 def create_app() -> FastAPI:
@@ -123,7 +145,26 @@ def create_app() -> FastAPI:
 
 
 def main(host: str = DEFAULT_HOST, port: int = DEFAULT_PORT) -> int:
+    import sys
+
     import uvicorn
+
+    # 行缓冲：下面这些提示（「端口被占，改用 8767」「正在把无认证接口绑到局域网」）
+    # 是使用者唯一的信息来源。通过管道或重定向启动时 Python 默认全缓冲，
+    # 会出现「窗口里什么都没有，服务其实已经起来了」（实测过一次），
+    # 也会让双击 bat 的人以为卡住了。
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError, OSError):
+        pass
+
+    actual = _pick_port(host, port)
+    if actual is None:
+        print(f"从 {port} 起试了 20 个端口都被占用，请用 --port 指定一个空闲端口。")
+        return 2
+    if actual != port:
+        print(f"端口 {port} 已被占用，改用 {actual}（下面的地址请以这里为准）。")
+    port = actual
 
     if host not in ("127.0.0.1", "localhost", "::1"):
         # 不阻止，但必须让人看见风险：这个接口没有任何认证，
