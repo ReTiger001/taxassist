@@ -63,6 +63,7 @@ def main() -> int:
 
     done = skipped = failed = 0
     t0 = time.time()
+    last_commit = time.time()   # 提交条件的时间兜底，理由见下面改动处的注释
     for i, r in enumerate(rows, 1):
         src = r["title"] if field == "title" else (r["content"] or "")
         if not (src or "").strip():
@@ -88,12 +89,20 @@ def main() -> int:
                 commit=False)
         done += 1
 
-        # 每 5 条提交，而不是 20 条。正文一条要 20 秒（逐段译），20 条就是
-        # 400 秒的持锁窗口 —— 超过其它进程的 busy_timeout（120s），
-        # worker 启动时的 init_db（DROP TRIGGER）就这么被撞死过一次。
-        # 5 条 ≈ 100 秒，留出余量；同时仍远少于"每条都提交"的争抢频率。
-        if done % 5 == 0:
+        # **提交条件：每 5 条，或距上次提交已过 20 秒。**
+        #
+        # 为什么要加时间兜底：正文一条要 20 秒（逐段译），"每 5 条"看着
+        # 不多，实际是 **100 秒的持锁窗口** —— 期间其它写任务（附件重试、
+        # judge、采集）全部干等。实测：附件重试每条要等 ~180 秒才完成一次，
+        # 而它自己下载只花 0.7 秒，纯粹是被这个窗口饿着。
+        #
+        # 按时间兜底后的效果：标题阶段（0.75 秒/条）仍是每 5 条提交
+        # （3.75 秒一次，与原先一致）；正文阶段则每条都触发时间条件，
+        # 等于每条提交，持锁从 100 秒缩到毫秒级。翻译本身不受影响 ——
+        # 推理那 20 秒根本不碰数据库。
+        if done % 5 == 0 or (time.time() - last_commit) > 20:
             conn.commit()
+            last_commit = time.time()
             el = time.time() - t0
             rate = done / el if el > 0 else 0
             left = (len(rows) - i) / rate / 60 if rate > 0 else 0

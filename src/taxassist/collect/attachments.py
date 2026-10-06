@@ -391,30 +391,57 @@ def normalise_url(url: str) -> str:
     return re.sub(r"%(?![0-9A-Fa-f]{2})", "%25", url)
 
 
+#: 已知**必须走浏览器**的域名。
+#:
+#: 这些站的附件链接在 WAF（加速乐那类）后面，httpx 只会拿到 412；而
+#: GuardedClient 对 412 会退避重试三次（5+10+15 = 30 秒）才放弃 —— 然后才
+#: 轮到浏览器兜底。也就是说**每条都要先白等 30 秒**。
+#:
+#: 实测：待重试的 400 条里有 345 条是 412，而它们只来自 3 个域名
+#: （hubei 166 + liaoning 135 + jilin 29）。按老节奏要 3.3 小时；
+#: 记住域名后同域名的后续文件直接走浏览器（1.1 秒/条），整套降到几分钟。
+_BROWSER_ONLY_HOSTS: set[str] = set()
+
+
+def _host_of(url: str) -> str:
+    from urllib.parse import urlsplit
+
+    return urlsplit(url).netloc
+
+
 def download(client: GuardedClient, url: str, dest: Path) -> int:
     """下载附件到 dest，返回字节数。
 
-    先走 httpx（快）；**失败时改走真浏览器兜底**。实测 165 份附件下载失败
-    里有 155 份是 HTTP 412 —— 它们的链接同样在加速乐那类 WAF 后面，httpx
-    过不了挑战。浏览器的 cookie 能过同一个挑战，代价是慢得多（每条要走一次
-    浏览器），所以只在前者失败时才用。
+    两条路径：httpx（快，但对 WAF 站只会得到 412）与真浏览器（慢，但能过
+    加速乐那类挑战）。**同一个域名一旦证明需要浏览器，后续就直接走浏览器**
+    —— 否则每个文件都要先浪费 30 秒在注定失败的退避重试上。
     """
     u = normalise_url(url)
-    try:
-        resp = client.get(u)
-        resp.raise_for_status()
-        data = resp.content
-    except Exception as e:  # noqa: BLE001 - 失败原因要保留在错误信息里
-        from .browser import fetch_bytes
+    host = _host_of(u)
+    first_err = "（按已知需要浏览器，跳过 httpx）"
 
+    if host not in _BROWSER_ONLY_HOSTS:
         try:
-            data = fetch_bytes(u)
-        except Exception as e2:  # noqa: BLE001
-            raise RuntimeError(
-                f"httpx 失败（{type(e).__name__}: {e}）；"
-                f"浏览器兜底也失败（{type(e2).__name__}: {e2}）"
-            ) from e
+            resp = client.get(u)
+            resp.raise_for_status()
+            data = resp.content
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(data)
+            return len(data)
+        except Exception as e:  # noqa: BLE001 - 失败原因要保留在错误信息里
+            first_err = f"{type(e).__name__}: {e}"
 
+    from .browser import fetch_bytes
+
+    try:
+        data = fetch_bytes(u)
+    except Exception as e2:  # noqa: BLE001
+        raise RuntimeError(
+            f"httpx 失败（{first_err}）；"
+            f"浏览器兜底也失败（{type(e2).__name__}: {e2}）"
+        ) from e2
+
+    _BROWSER_ONLY_HOSTS.add(host)      # 记住它，下次别再试 httpx
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
     return len(data)
