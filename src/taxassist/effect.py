@@ -172,26 +172,77 @@ def extract_title_refs(text: str | None) -> list[str]:
     return found
 
 
-def _title_gram_index(titles: list[tuple[str, str, str]]) -> dict[str, list[int]]:
-    """标题的 3-gram 倒排索引 —— **只用于筛候选，不参与打分**。
+#: 索引分两层，按**标题长度**分工。
+#:
+#: **为什么必须分层。** 3-gram 在中文政策标题上失去区分度（"国家税务"
+#: "税务总局"几乎每个标题都有），实测同一 target 的候选高达 1965 条
+#: （占全库 14.1%）；换成 5-gram 后仍有平均 459 个候选——因为少数热键
+#: 命中上万个标题，长尾很重。而每个候选都要跑一次 partial_ratio，于是
+#: 全量 judge 的曲线是 O(n^2.2)（2000 条样本 23.6 秒，外推全量 20 分钟）。
+#:
+#: **怎么保证分层仍是超集（即不改结果）**：``partial_ratio >= 88`` 意味着
+#: 存在长度 >= 0.88 * min(L, M) 的连续匹配（L = target 长度，M = 标题长度）。
+#: 这段匹配要含有一个共同的 n-gram，需要 ``0.88 * min(L, M) >= n``。
+#:
+#:   · 长标题层：M >= 20（实测占 95%，13249/13946）
+#:     → n 可为 10（0.88 * 20 = 17.6 >= 10）
+#:     → 但 target 也要够长，取 L >= 12（0.88 * 12 = 10.56 >= 10）
+#:   · 短标题层：6 <= M < 20
+#:     → n 只能取 5（0.88 * 6 = 5.28 >= 5）
+#:     → target 需 L >= 6
+#:   · target < 6 时两层都不够格，退回全量扫描（这类引用很少）
+#:
+#: 查询时两层都查（长层候选极少、短层标题极少，合起来仍然小）。
+_GRAM_SHORT = 5
+_GRAM_LONG = 10
+_LONG_TITLE_MIN = 20
+_TARGET_FOR_LONG = 12
+_TARGET_FOR_SHORT = 6
+
+
+def _title_gram_index(
+    titles: list[tuple[str, str, str]],
+) -> dict[str, dict[str, list[int]]]:
+    """标题的 n-gram 倒排索引 —— **只用于筛候选，不参与打分**。
 
     为什么这样筛不会漏：``partial_ratio`` 的分数来自两串的最长公共块；
-    若两串没有任何共同的 3-gram，最长公共块至多 2 字符，分数必然低于阈值
-    （88/90）。所以「共享至少一个 3-gram」是**超集**筛选，最终仍由
-    ``partial_ratio`` 打分、仍取最高分 —— 结果与全量扫描完全一致。
+    若两串没有任何共同的 n-gram（n 按上面的约束取），最长公共块不足以
+    达到阈值（88/90）。所以「共享至少一个 n-gram」是**超集**筛选，
+    最终仍由 ``partial_ratio`` 打分、仍取最高分 —— 结果与全量扫描一致。
 
     为什么需要它：原实现对**每个**书名号引用都全量扫一遍全库标题，而一篇
     政策正文常引用十几个文件。实测 judge 一轮要跑好几分钟，整段时间写锁
     被占着，其它写库任务全在等（这就是 fetch_log 里那些迟迟不结束的
     status='running' 的成因之一）。
+
+    返回 ``{"long": 长标题的 10-gram, "short": 短标题的 5-gram,
+    "long5": 长标题的 5-gram 兜底表}``。
+
+    ``long5`` 为什么必要：target 长度在 6..11 时（占引用的约 5%），
+    10-gram 用不了（0.88 * L < 10），而这些引用**依然可能命中长标题**。
+    只查 short 表会漏掉全部 M >= 20 的标题 —— 实测这会改变结果
+    （2000 条样本的关系数从 7519 变成 7523）。所以长标题也要有一份
+    5-gram：它在 target 够长时不用（走 10-gram 更快），只在不够长时才查。
     """
-    idx: dict[str, list[int]] = {}
+    long_idx: dict[str, list[int]] = {}
+    long5_idx: dict[str, list[int]] = {}
+    short_idx: dict[str, list[int]] = {}
+
     for i, (_uid, title, _no) in enumerate(titles):
-        if not title or len(title) < 3:
-            continue
-        for g in {title[j:j + 3] for j in range(len(title) - 2)}:
-            idx.setdefault(g, []).append(i)
-    return idx
+        n = len(title)
+        if n >= _LONG_TITLE_MIN:
+            for g in {title[j:j + _GRAM_LONG]
+                      for j in range(n - _GRAM_LONG + 1)}:
+                long_idx.setdefault(g, []).append(i)
+            for g in {title[j:j + _GRAM_SHORT]
+                      for j in range(n - _GRAM_SHORT + 1)}:
+                long5_idx.setdefault(g, []).append(i)
+        elif n >= _GRAM_SHORT:
+            for g in {title[j:j + _GRAM_SHORT]
+                      for j in range(n - _GRAM_SHORT + 1)}:
+                short_idx.setdefault(g, []).append(i)
+
+    return {"long": long_idx, "short": short_idx, "long5": long5_idx}
 
 
 def _best_title_match(
@@ -223,10 +274,28 @@ def _best_title_match(
     # 的说明 —— 它是超集筛选，不改结果）；没给就退回全量扫描（保持兼容）。
     # **候选按原顺序（索引升序）**：下面用 `score > best[2]` 严格大于，
     # 平局取先出现者 —— 顺序一致才与原实现完全等价。
-    if index and len(target) >= 3:
+    # 候选来源：**分层** n-gram 索引（超集推导见 _title_gram_index）。
+    #
+    # 分三种情况，保证任何一条可能达标的候选都不会被漏掉：
+    #   · target >= 12：长标题走 10-gram（候选从数百降到个位数），
+    #     短标题走 5-gram。
+    #   · 6 <= target < 12：10-gram 用不了（0.88 * L < 10），
+    #     长标题**必须**退回 5-gram 兜底表 —— 漏掉它会少一批关系
+    #     （实测关系数会从 7519 变成 7523）。
+    #   · target < 6：两层都保证不了超集，退回全量扫描（这类引用很少）。
+    #
+    # 无论走哪条，最终都由 partial_ratio 打分，结果与全量扫描一致。
+    if index and len(target) >= _TARGET_FOR_SHORT:
         cand: set[int] = set()
-        for g in {target[j:j + 3] for j in range(len(target) - 2)}:
-            cand.update(index.get(g, ()))
+        long5_key = "long" if len(target) >= _TARGET_FOR_LONG else "long5"
+        gram = _GRAM_LONG if len(target) >= _TARGET_FOR_LONG else _GRAM_SHORT
+        long_idx = index.get(long5_key) or {}
+        for g in {target[j:j + gram] for j in range(len(target) - gram + 1)}:
+            cand.update(long_idx.get(g, ()))
+        short_idx = index.get("short") or {}
+        for g in {target[j:j + _GRAM_SHORT]
+                  for j in range(len(target) - _GRAM_SHORT + 1)}:
+            cand.update(short_idx.get(g, ()))
         pairs = (titles[i] for i in sorted(cand))
     else:
         pairs = iter(titles)
@@ -294,6 +363,17 @@ _SELF_REPEAL_RE = re.compile(
 # 取依据文号：同一句里通常带一个《…》（χχ〔年〕号）或"国务院令第N号"
 _EVIDENCE_DOCNO_RE = re.compile(
     r"[（(]\s*([^（）()]{2,30}?(?:〔|\[)[^）)]{1,12}号|[^（）()]{2,30}?令第\d+号)\s*[）)]")
+
+#: 解读/答记者问类文件 —— 它们**转述**别人的废止，不是自己失效。
+#:
+#: 实测（2026-10-06）：3 条《…的解读》被误标成「已废止」，证据都是
+#: "《公告》共对144件税务规范性文件进行清理，其中全文废止136件" ——
+#: 那是在讲《公告》做的事，跟解读自己毫无关系。
+#:
+#: 这与 _best_title_match 里对候选的同类过滤是同一个判断的两面：
+#: 那里排的是"别把它当成被废止的**对象**"，这里排的是"别把它当成被废止的
+#: **主体**"。两处都要挡，只挡一边仍会出错。
+_INTERPRETATION_RE = re.compile(r"解读|答记者问")
 
 
 def detect_self_repealed(text: str | None) -> tuple[bool, str]:
@@ -526,7 +606,13 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
         # 此前完全不看这一类，导致大批已废止文件在库里显示"现行有效"。
         # 这不是数据没提供，是解析漏了 —— 用户问的"政策是否有效应该有公告"，
         # 公告就在这些句子里。
-        self_repealed, basis = detect_self_repealed(text)
+        # 解读/答记者问类文件跳过这一步：它们正文里的"废止"是在**转述**
+        # 别人的事，不该判成"本文被废止"（实测 3 条因此被误标成已废止，
+        # 见 _INTERPRETATION_RE 的说明）。
+        if _INTERPRETATION_RE.search(r["title"] or ""):
+            self_repealed, basis = False, ""
+        else:
+            self_repealed, basis = detect_self_repealed(text)
         if self_repealed:
             relation_rows.append(Relation(
                 src_doc_uid=doc_uid, relation="self_repealed",

@@ -85,10 +85,49 @@ def parse_xls(path: Path) -> str:
 
 @_register(["docx"])
 def parse_docx(path: Path) -> str:
-    import docx
+    """从 .docx 取文本。
 
-    d = docx.Document(str(path))
-    return "\n".join(p.text for p in d.paragraphs if p.text.strip())
+    首选 python-docx（段落结构更可靠），失败时退回直接读 ``word/document.xml``。
+
+    **为什么需要退回**：实测 6 条税务局的 .docx 让 python-docx 抛 KeyError
+    （文件里缺它期望的某个 XML 部件，但 Word/WPS 能正常打开）。这类文件不该
+    判失败 —— 我们只要文本，段落节点 ``<w:p>`` 与文本节点 ``<w:t>`` 就在
+    ``word/document.xml`` 里，用标准库 zipfile 读得到，不依赖 python-docx
+    对部件完整性的假设。
+    """
+    try:
+        import docx
+
+        d = docx.Document(str(path))
+        text = "\n".join(p.text for p in d.paragraphs if p.text.strip())
+        if text.strip():
+            return text
+    except Exception as e:  # noqa: BLE001 - 退回 XML 抽取，见 docstring
+        log.info("python-docx 解析失败，退回 XML 抽取 %s: %s", path.name, e)
+    return _docx_text_from_xml(path)
+
+
+def _docx_text_from_xml(path: Path) -> str:
+    """直接从 ``word/document.xml`` 抽文本（python-docx 失败时的兜底）。
+
+    **只吞"缺部件"这一种情况**：``KeyError`` 表示这是个合法 zip、只是没有
+    ``word/document.xml`` —— 那确实是没有文字层。文件不存在、不是 zip、
+    读不了等情况必须**继续抛出**，让 ``_run_parser`` 记成 ``failed:`` ——
+    「解析器跑不了」和「没有文字层」在本模块是两种必须区分的东西
+    （前者要改代码，后者人打开看一眼就行）。
+    """
+    import re as _re
+    import zipfile
+
+    with zipfile.ZipFile(path) as zf:
+        try:
+            xml = zf.read("word/document.xml").decode("utf-8", "replace")
+        except KeyError:
+            return ""
+    # 段落边界转成换行，再去掉所有标签 —— 表格单元格也是 <w:p> 包着 <w:t>，
+    # 所以这样处理不会丢表格里的文字。
+    xml = xml.replace("</w:p>", "\n")
+    return _re.sub(r"<[^>]+>", "", xml)
 
 
 # 老式文档（OLE2 的 .doc/.wps）没有纯 Python 解析器，但本机装有 WPS，

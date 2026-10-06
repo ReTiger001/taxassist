@@ -136,6 +136,52 @@ def test_corrupt_file_reports_failure_not_silence(tmp_path):
     assert status.startswith("failed:")
 
 
+def test_parse_docx_falls_back_to_xml(tmp_path):
+    """python-docx 打不开的 docx，也要能读出文字。
+
+    实测（2026-10-06）：6 条税务局的 .docx 让 python-docx 抛 KeyError
+    （文件里缺它期望的某个 XML 部件，但 Word/WPS 能正常打开）。我们只要
+    文本，直读 word/document.xml 就够 —— 这类文件不该判成 failed。
+
+    这里故意只写 word/document.xml、不写 python-docx 需要的那套部件，
+    模拟那条真实路径。
+    """
+    import zipfile
+
+    from taxassist.collect.attachments import parse_docx
+
+    p = tmp_path / "no_parts.docx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr(
+            "word/document.xml",
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org'
+            '/wordprocessingml/2006/main"><w:body>'
+            "<w:p><w:r><w:t>第一段文字</w:t></w:r></w:p>"
+            "<w:p><w:r><w:t>第二段文字</w:t></w:r></w:p>"
+            "</w:body></w:document>")
+
+    text = parse_docx(p)
+    assert "第一段文字" in text
+    assert "第二段文字" in text
+
+
+def test_parse_docx_missing_part_returns_empty(tmp_path):
+    """连 word/document.xml 都没有的 zip 不该抛异常，返回空串即可。
+
+    空串会让 _run_parser 记成 no_text_layer（"人打开看一眼就行"），
+    而不是 failed（"要改代码"）—— 这个区分是本模块的核心约定。
+    """
+    import zipfile
+
+    from taxassist.collect.attachments import parse_docx
+
+    p = tmp_path / "empty.docx"
+    with zipfile.ZipFile(p, "w") as zf:
+        zf.writestr("dummy.txt", "not a docx")
+    assert parse_docx(p) == ""
+
+
 def test_safe_filename_strips_dangerous_chars():
     assert safe_filename("《申报表》及其附列资料.xls") == "《申报表》及其附列资料.xls"
     assert "/" not in safe_filename("a/b\\c:d.xls")
