@@ -299,32 +299,28 @@ def cmd_status(args) -> int:
 def cmd_search(args) -> int:
     conn = dbmod.connect()
     dbmod.init_db(conn)
-    # trigram 分词器要求按短语检索，用双引号包裹
-    # 排序与 Web 保持一致：**相关度优先**（bm25 越小越相关），日期只作次级键。
-    # 原先是纯 ORDER BY p.cwrq DESC —— 全量测试时搜「研发费用加计扣除」，
-    # 前 5 条全是安徽「便民办税春风行动」之类的无关文件，真正该排第一的
-    # 《研发费用加计扣除政策执行指引（2.0版）》被埋在日期里。同一个库、
-    # 同一张 FTS 表，Web 排得对而 CLI 排不对，纯粹是当初给 Web 加相关性
-    # 排序时没同步改这里。权重与 kb.py 的 rank_expr 一致（列序为
-    # title, p_doc_no_full, pub_name, content, o_keywords）。
-    sql = (
-        "SELECT p.cwrq, p.title, p.p_doc_no_full, p.p_effect_status, p.o_column, p.url "
-        "FROM policy_fts f JOIN policy p ON p.id = f.rowid "
-        "WHERE policy_fts MATCH ? "
-        "ORDER BY bm25(policy_fts, 12.0, 8.0, 4.0, 1.0, 2.0), p.cwrq DESC LIMIT ?"
-    )
-    try:
-        rows = conn.execute(sql, (f'"{args.keyword}"', args.limit)).fetchall()
-    except Exception as e:  # noqa: BLE001
-        print(f"检索失败：{e}")
+    # **改为复用 kb.search，不再自己写一份 SQL。**
+    # 原先这里是第三份检索实现，注释自认"权重与 kb.py 的 rank_expr 一致"，
+    # 但实际只有 FTS、没有 LIKE 回退：trigram 分词器对 2 字词无能为力，
+    # 于是「关税」这类两字关键词在 CLI 上会报"没有命中"，而同一台机器上
+    # Web 却能搜到 —— 同一个库、同一张 FTS 表，结果不同。
+    # 复用之后一并得到：与 Web/kb 完全相同的排序口径（不再靠注释声称一致）、
+    # 以及只读连接（原先用可写连接做纯读操作）。
+    # （函数内 import 是本项目既有模式，见下面的 cmd_attach。）
+    from . import kb
+
+    res = kb.search(query=args.keyword, limit=args.limit)
+    if res.get("error"):
+        print(f"检索失败：{res['error']}")
         return 2
-    if not rows:
+    hits = res["hits"]
+    if not hits:
         print("没有命中。")
         return 0
-    for r in rows:
-        print(f"{(r['cwrq'] or '????-??-??')}  [{(r['p_effect_status'] or '?')}] "
-              f"{r['p_doc_no_full'] or ''} {r['title'][:70]}")
-        print(f"            {r['url'] or ''}")
+    for h in hits:
+        print(f"{(h['cwrq'] or '????-??-??')}  [{h['effect_status'] or '?'}] "
+              f"{h['doc_no'] or ''} {h['title'][:70]}")
+        print(f"            {h['url'] or ''}")
     return 0
 
 

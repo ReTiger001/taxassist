@@ -27,14 +27,18 @@ from __future__ import annotations
 import logging
 import re
 
+from .collect.detail import _EFFECTIVE_RE   # 施行日期正则的唯一定义，见模块头「一致性要求」
 from .collect.normalize import extract_full_doc_no, norm_text
 
 log = logging.getLogger(__name__)
 
-# 与 collect/detail.py 的 _EFFECTIVE_RE 同构（见模块头部的"一致性要求"）
-_EFFECTIVE_RE = re.compile(
-    r"自\s*(20\d{2})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日起(?:施行|执行|实施)"
-)
+# 施行日期正则**不再本地定义**，改为从 collect/detail.py 导入（见上方 import）。
+# 原先这里抄了一份、注释写着"同构"，实际早已分叉：这一份只认 20xx、必须
+# "自…日起"、后缀只认施行/执行/实施；而 detail.py 那份认 19xx、前缀可选、
+# 后缀含生效/适用 —— 且 detail.py 的注释记着"旧写法漏掉两成以上"。
+# 于是模块头明明写着"两条路径的结果应当相同"，实际却长期用着更弱的版本，
+# 同一字段两个来源两个值 —— 正是这段文档要防的情况。
+# 抄一份再各自演进，是这类分叉的典型成因：注释说的是一致，代码不是。
 
 
 def extract_effective_date(text: str | None) -> str | None:
