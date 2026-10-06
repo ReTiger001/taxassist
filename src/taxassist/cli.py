@@ -344,9 +344,22 @@ def cmd_enrich(args) -> int:
 
 
 def cmd_attach(args) -> int:
-    conn = dbmod.connect()
-    dbmod.init_db(conn)
-    stats = pipeline.fetch_attachments(conn, limit=args.limit, only_pending=not args.all)
+    # **写库前先排队** —— 与 worker 同样的模式（拿不到就让路，不硬碰）。
+    # 上次附件重试崩于 database is locked，根因就是它压根没排队，直接在
+    # SQLite 引擎层跟翻译抢。翻译现在每批提交后会释放锁 0.2 秒，所以这里
+    # 等一会儿就能进；等不到就干净退出，把失败原因说清楚。
+    from . import writelock
+
+    if not writelock.acquire("attach", timeout=120):
+        print(f"写库锁被 {writelock.holder()} 占用，稍后再试"
+              "（翻译每批之间会让锁，通常几秒内可进）。")
+        return 1
+    try:
+        conn = dbmod.connect()
+        dbmod.init_db(conn)
+        stats = pipeline.fetch_attachments(conn, limit=args.limit, only_pending=not args.all)
+    finally:
+        writelock.release()
     print(
         f"附件：尝试 {stats['requested']}，解析成功 {stats['ok']}，"
         f"无文本层(扫描件) {stats['no_text_layer']}，格式不支持 {stats['unsupported']}，"
