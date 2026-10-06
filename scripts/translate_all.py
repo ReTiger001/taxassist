@@ -103,16 +103,20 @@ def main() -> int:
     # worker 在跑采集/publish，两边会互相撞锁（实测撞过 init_db 的
     # DROP TRIGGER 与 record_snapshot）。取不到就等 —— 翻译是长任务，
     # 等几分钟远好过撞死重跑。（见 taxassist.writelock）
+    # **写库锁交给 translate_batch 按批管理**（见那里的注释）。
+    # 原先这里是整场持有（acquire 到结束才 release）—— 那正是撞锁的根因：
+    # 其它写任务（附件重试、judge、采集）永远等不到锁，只能去撞 SQLite
+    # 引擎锁，busy_timeout 用尽就失败。实测附件重试正是这么崩的。
+    # 现在只探一次能否开工（拿不到就早退，免得白起一轮进程），随即还回去；
+    # 真正的持有发生在 batch 的每一批里。
     from taxassist import writelock
 
-    if not writelock.acquire("translate_all", timeout=1800):
+    if not writelock.acquire("translate", timeout=300):
         print(f"写库锁被 {writelock.holder()} 占用，等待超时，未启动翻译。")
         return 1
-    try:
-        for what, model, label in stages:
-            run(what, model, label)
-    finally:
-        writelock.release()
+    writelock.release()          # 立刻还回去，不当长跑任务的长锁持有者
+    for what, model, label in stages:
+        run(what, model, label)
     print("\n全部阶段完成。")
     return 0
 

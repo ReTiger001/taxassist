@@ -64,7 +64,21 @@ def main() -> int:
     done = skipped = failed = 0
     t0 = time.time()
     last_commit = time.time()   # 提交条件的时间兜底，理由见下面改动处的注释
+    # **写库锁改为「每批拿一次」** —— 这是撞锁的根因所在。
+    # 原来由 translate_all 整场持有（开工锁到结束），其它写任务
+    # （附件重试、judge、采集）永远等不到锁，只能去撞 SQLite 引擎锁，
+    # busy_timeout 用尽就失败 —— 实测附件重试正是这么崩于
+    # database is locked 的。
+    # 现在：每批开始前拿锁，提交后立刻让出，让别的任务能插进来。
+    from taxassist import writelock
+
+    locked = False
     for i, r in enumerate(rows, 1):
+        if not locked:
+            if not writelock.acquire("translate", timeout=600):
+                print(f"  写库锁被 {writelock.holder()} 占用，本轮退出")
+                break
+            locked = True
         src = r["title"] if field == "title" else (r["content"] or "")
         if not (src or "").strip():
             skipped += 1
@@ -103,6 +117,13 @@ def main() -> int:
         if done % 5 == 0 or (time.time() - last_commit) > 20:
             conn.commit()
             last_commit = time.time()
+            # **提交后让出写库锁**：给等待中的其它写任务一个窗口。
+            # 让出 0.2 秒对翻译几乎无感（每批一次），但对附件重试那种
+            # 几百条的小任务来说，就是能不能插进来的区别。
+            if locked:
+                writelock.release()
+                locked = False
+                time.sleep(0.2)
             el = time.time() - t0
             rate = done / el if el > 0 else 0
             left = (len(rows) - i) / rate / 60 if rate > 0 else 0
