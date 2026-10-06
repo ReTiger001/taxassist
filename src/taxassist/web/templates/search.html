@@ -83,47 +83,47 @@
     <button type="submit" data-zh="检索" data-en="Search">检索</button>
   </div>
   <div class="f-row">
-    <label>栏目
+    <label><span data-zh="栏目" data-en="Column">栏目</span>
       <select name="column">
-        <option value="">全部</option>
+        <option value="" data-zh="全部" data-en="All">全部</option>
         {% for c in columns %}
           <option value="{{ c }}" {% if c == column %}selected{% endif %}>{{ c }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>税种
+    <label><span data-zh="税种" data-en="Tax type">税种</span>
       <select name="tax">
-        <option value="">全部</option>
+        <option value="" data-zh="全部" data-en="All">全部</option>
         {% for t, n in tax_counts.items() | sort %}
           <option value="{{ t }}" {% if t == tax %}selected{% endif %}>{{ t }}（{{ n }}）</option>
         {% endfor %}
       </select>
     </label>
-    <label>地区
+    <label><span data-zh="地区" data-en="Region">地区</span>
       <select name="region">
-        <option value="">全部</option>
+        <option value="" data-zh="全部" data-en="All">全部</option>
         {% for name, n in regions %}
           <option value="{{ name }}" {% if name == region %}selected{% endif %}>{{ name }}（{{ n }}）</option>
         {% endfor %}
       </select>
     </label>
-    <label>效力
+    <label><span data-zh="效力" data-en="Validity">效力</span>
       <select name="effect">
-        <option value="">全部</option>
+        <option value="" data-zh="全部" data-en="All">全部</option>
         {% for name, n in effect_counts %}
           <option value="{{ name }}" {% if name == effect %}selected{% endif %}>{{ name }}（{{ n }}）</option>
         {% endfor %}
       </select>
     </label>
-    <label>年份
+    <label><span data-zh="年份" data-en="Year">年份</span>
       <select name="year">
-        <option value="">全部</option>
+        <option value="" data-zh="全部" data-en="All">全部</option>
         {% for y in years %}
           <option value="{{ y }}" {% if y == year %}selected{% endif %}>{{ y }}</option>
         {% endfor %}
       </select>
     </label>
-    <label>排序
+    <label><span data-zh="排序" data-en="Sort">排序</span>
       <select name="sort">
         <option value="relevance" {% if sort == 'relevance' %}selected{% endif %} data-zh="相关度优先" data-en="Relevance">相关度优先</option>
         <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %} data-zh="日期 新→旧" data-en="Newest first">日期 新→旧</option>
