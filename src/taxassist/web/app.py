@@ -778,10 +778,16 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         script），切换不刷新页面、不丢滚动位置。
         """
         me = getattr(request.state, "user", None)
+        # is_owner 必须从 request.state 取 —— 中间件解析会话时已经写好了
+        # （见 auth_middleware）。原来这里是
+        #     bool(me and getattr(me, "role", "") == "owner")
+        # 把 me 当成对象了，而 request.state.user 是**用户名字符串**，
+        # 对字符串取 role 永远得到空串 → is_owner 恒为 False → 关于页连
+        # 超级管理员都不显示「后台」按钮（用户实测踩到）。
         return templates.TemplateResponse(
             request=request, name="about.html",
             context={"request": request, "user": me,
-                     "is_owner": bool(me and getattr(me, "role", "") == "owner"),
+                     "is_owner": getattr(request.state, "is_owner", False),
                      "exposed": require_auth, "lang": "zh"})
 
     # ------------------------------------------------------------ 后台（账号管理）

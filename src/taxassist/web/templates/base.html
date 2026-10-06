@@ -46,7 +46,7 @@ a:hover{text-decoration:underline}
 .wrap{max-width:1200px;margin:0 auto;padding:0 20px}
 /* ---------------- 顶栏 ---------------- */
 .top{background:var(--brand);color:#fff;border-bottom:1px solid rgba(0,0,0,.22)}
-.top .wrap{display:flex;align-items:center;gap:24px;height:52px}
+.top .wrap{display:flex;align-items:center;gap:12px;height:52px}
 .brand{color:#fff;font-size:14.5px;font-weight:600;letter-spacing:.3px;
   white-space:nowrap;flex:none}
 .brand:hover{text-decoration:none;color:#fff}
@@ -57,12 +57,20 @@ a:hover{text-decoration:underline}
 /* 对外暴露时徽章必须变样：这个站一旦在公网上，还标着"本地"就是在骗使用者 */
 .mode-out{background:rgba(255,214,145,.16);border-color:rgba(255,210,130,.42);
   color:#ffd89a}
-.top nav{display:flex;gap:20px;font-size:13.5px;flex:none;white-space:nowrap}
-.top nav a{color:rgba(255,255,255,.72);white-space:nowrap;padding:2px 0;
-  border-bottom:1.5px solid transparent}
-.top nav a:hover{color:#fff;text-decoration:none;border-bottom-color:rgba(255,255,255,.45)}
-.quick{margin-left:auto;display:flex;gap:0;flex:1;min-width:0;justify-content:flex-end}
-.quick input{width:100%;max-width:280px;min-width:120px;padding:5px 10px;
+/* 导航：做成按钮组。按钮宽度只由自己的 padding 与文字决定，不随页面变
+   —— 这是"不晃动"的一半 */
+.top nav{display:flex;gap:6px;font-size:13px;flex:none;white-space:nowrap}
+.top nav a{color:rgba(255,255,255,.72);white-space:nowrap;padding:4px 10px;
+  border:1px solid rgba(255,255,255,.18);text-decoration:none}
+.top nav a:hover{color:#fff;text-decoration:none;background:rgba(255,255,255,.12);
+  border-color:rgba(255,255,255,.4)}
+/* 搜索框**固定宽度** —— 这是"不晃动"的另一半，也是关键的一半。
+   原来 .quick 是 flex:1、input 是 width:100%+max-width:280px，宽度取决于
+   左侧导航与右侧账号区各自的实宽；而账号区随页面变（有/无「后台」、用户名
+   长短），于是每切一次页面搜索框就左右挪一次。改成固定 210px 之后，它与
+   别的元素互不影响。 */
+.quick{margin-left:auto;display:flex;flex:none}
+.quick input{width:210px;padding:5px 10px;
   border:1px solid rgba(255,255,255,.18);border-right:0;border-radius:2px 0 0 2px;
   font-size:13px;font-family:inherit;background:rgba(255,255,255,.1);color:#fff}
 .quick input::placeholder{color:rgba(255,255,255,.5)}
@@ -73,20 +81,24 @@ a:hover{text-decoration:underline}
   cursor:pointer;flex:none;border:1px solid rgba(255,255,255,.18)}
 .quick button:hover{background:rgba(255,255,255,.26)}
 /* 当前账号：对外暴露的站点必须让人随时看见"我是谁"，否则共用一台电脑时
-   会以为还在别人的会话里 */
-.who,.who-login{flex:none;white-space:nowrap;margin-left:auto;font-size:12.5px}
-.who{display:flex;align-items:center;gap:10px;color:rgba(255,255,255,.72)}
-.who-name{font-weight:600;color:#fff}
-.who a,.who-login{color:rgba(255,255,255,.6);text-decoration:none}
-.who a:hover,.who-login:hover{color:#fff;text-decoration:underline}
-.quick+.who,.quick+.who-login{margin-left:16px}
+   会以为还在别人的会话里。后台/退出/登录都做成按钮，与导航按钮同一种形状。
+   **不再给 .who 加 margin-left:auto** —— 它和 .quick 的 auto margin 会互相
+   抢剩余空间、位置随内容浮动；改由 .quick 独占那块空白，账号区在最右，
+   内容变长只会向左占掉空白，推不动搜索框。 */
+.who,.who-login{flex:none;white-space:nowrap;font-size:12.5px}
+.who{display:flex;align-items:center;gap:6px;color:rgba(255,255,255,.72)}
+.who-name{font-weight:600;color:#fff;padding:0 2px}
+.who a,.who-login{padding:3px 9px;border:1px solid rgba(255,255,255,.18);
+  color:rgba(255,255,255,.72);text-decoration:none}
+.who a:hover,.who-login:hover{color:#fff;border-color:rgba(255,255,255,.4);
+  background:rgba(255,255,255,.12);text-decoration:none}
 /* 窄屏不再把导航整块藏掉：藏掉之后手机用户**没有任何入口**去别的页面
    （实测 390px 宽下「总览/每日简报/检索」全部消失，只剩品牌和后台）。
    改为让顶栏换行，导航保留并跟随换行到第二行。 */
 @media (max-width:900px){
-  .top .wrap{gap:14px;flex-wrap:wrap;height:auto;
+  .top .wrap{gap:10px;flex-wrap:wrap;height:auto;
     padding-top:9px;padding-bottom:9px;row-gap:9px}
-  .top nav{order:3;flex:1 0 100%;gap:18px}
+  .top nav{order:3;flex:1 0 100%;gap:6px;flex-wrap:wrap}
 }
 /* 窄屏顶栏改为两行：品牌与账号一行、检索框独占一行。
    挤在一行的后果实测过：490px 宽下"对外"徽章直接压在品牌文字上，
@@ -418,6 +430,10 @@ td,.d,.n,.cit,.docno{font-variant-numeric:tabular-nums}
 /* ① 背景：**不是纯黑，是"阴极射线管通电发光"**。
    纯黑只是关机状态；径向渐变才有屏幕中心发亮、四周暗下去的感觉。 */
 html,body{background:#000}
+/* 滚动条位置预留：有滚动条的页面视口窄一截，右对齐的顶栏元素（搜索框、
+   账号区）就会随之左右挪 —— 这是"切页面时搜索框晃动"的一个来源。stable
+   让所有页面始终预留同宽空间，布局不再随滚动条出现与否变化。 */
+html{scrollbar-gutter:stable}
 body{position:relative;min-height:100vh;
   background-image:radial-gradient(rgba(0,150,0,.16),transparent 85%)}
 
@@ -459,12 +475,13 @@ a:hover{background:#00ff00;color:#000;border-bottom-color:#00ff00}
    高于内容。 */
 .top{background:#000;border-bottom-color:#0e3a0e;
   position:sticky;top:0;z-index:50}
-.top nav a{color:#008800}
-/* 当前所在栏目：亮绿 + 下划线。用户诉求是「点进去以后这个标签不能消失」
-   —— 指的是导航还在（靠上面的 sticky），而且要能看出自己在哪一项。 */
-.top nav a.on{color:#00ff00;border-bottom-color:#00ff00}
-.top nav a:hover{background:none;color:#00ff00;
-  border-bottom-color:#00ff00}
+.top nav a{color:#00cc00;background:#001a00;border-color:#0e3a0e}
+/* 当前所在栏目：反色高亮（绿底黑字）—— 比只变颜色更一眼可辨，且**不改宽度**
+   （反色不改变文字宽度，不会推动邻居）。用户诉求是「点进去以后这个标签不能
+   消失」：导航还在（靠 sticky），且能看出自己在哪一项。 */
+.top nav a.on{background:#00ff00;color:#000;border-color:#00ff00;
+  font-weight:700}
+.top nav a:hover{background:#002a00;color:#00ff00;border-color:#00cc00}
 .brand{color:#00ff00;font-weight:700;letter-spacing:.5px}
 .brand:hover{background:none;color:#00ff00}
 /* 品牌名后面跟一个闪烁光标 —— 纯 CSS，是"运行框"最省的一个信号 */
@@ -477,8 +494,13 @@ a:hover{background:#00ff00;color:#000;border-bottom-color:#00ff00}
 .quick input:focus{background:#001a00;border-color:#00cc00}
 .quick button{background:#001a00;border-color:#0e3a0e;color:#00cc00}
 .quick button:hover{background:#002a00;color:#00ff00}
-.who,.who-login{color:#008800}
+.who,.who-login{color:#00cc00}
 .who-name{color:#00ff00}
+/* 后台 / 退出 / 登录同样是按钮 —— 与导航按钮同一种形状与配色，
+   用户要求「这些按钮都要固定」，形状统一是固定观感的一部分 */
+.who a,.who-login{background:#001a00;border-color:#0e3a0e;color:#00cc00}
+.who a:hover,.who-login:hover{background:#002a00;border-color:#00cc00;
+  color:#00ff00}
 
 /* 标题：终端里用提示符前缀，比加粗更贴 */
 h1{color:#00ff00}
