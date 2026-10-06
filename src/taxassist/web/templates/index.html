@@ -13,13 +13,13 @@
   <div class="cell"><div class="n">{{ stats.valid }}</div><div class="k"
     data-zh="现行有效" data-en="In force">现行有效</div></div>
   <div class="cell{% if stats.repealed %} flag-alert{% endif %}">
-    <div class="n">{{ stats.repealed }}</div><div class="k">已废止</div></div>
+    <div class="n">{{ stats.repealed }}</div><div class="k" data-zh="已废止" data-en="Repealed">已废止</div></div>
   <div class="cell{% if stats.pending %} flag{% endif %}">
-    <div class="n">{{ stats.pending }}</div><div class="k">尚未生效</div></div>
+    <div class="n">{{ stats.pending }}</div><div class="k" data-zh="尚未生效" data-en="Not yet effective">尚未生效</div></div>
   <div class="cell{% if stats.review %} flag-alert{% endif %}">
-    <div class="n">{{ stats.review }}</div><div class="k">待人工确认</div></div>
-  <div class="cell"><div class="n">{{ stats.relations }}</div><div class="k">引用/废止关系</div></div>
-  <div class="cell"><div class="n">{{ stats.attachments }}</div><div class="k">已解析附件</div></div>
+    <div class="n">{{ stats.review }}</div><div class="k" data-zh="待人工确认" data-en="Needs review">待人工确认</div></div>
+  <div class="cell"><div class="n">{{ stats.relations }}</div><div class="k" data-zh="引用/废止关系" data-en="Relations">引用/废止关系</div></div>
+  <div class="cell"><div class="n">{{ stats.attachments }}</div><div class="k" data-zh="已解析附件" data-en="Attachments">已解析附件</div></div>
 </div>
 
 {# 效力标记说明：客户问过"推定是什么意思"，说明只靠 tooltip 不够 —— 把依据
@@ -41,7 +41,7 @@
 
 {% if stats.last_fetch %}
 <p class="sub" style="margin-top:12px">
-  数据更新至 {{ stats.last_fetch.started_at[:10] }}
+  <span data-zh="数据更新至 " data-en="Data updated ">数据更新至 </span>{{ stats.last_fetch.started_at[:10] }}
 </p>
 {% endif %}
 
