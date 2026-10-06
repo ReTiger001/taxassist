@@ -423,6 +423,9 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
                effect: str = "", year: str = "", sort: str = "relevance",
                limit: int = Query(50, ge=1, le=200)):
         rows, error = [], None
+        # 命中总数：模板要显示「共 N 条」，N 必须是**命中总数**而非返回条数。
+        # 无条件浏览时保持 None，模板据此不显示这一行。
+        matched_total = None
         # 英文查询先过术语反向映射：搜 "value-added tax" 等同于搜 "增值税"。
         # 这样不必先把 5090 条标题全译一遍，英文词也能命中中文政策。
         q_cn, term_hits = to_chinese_query(q)
@@ -484,14 +487,40 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             if year.isdigit():
                 sql += " AND p.cwrq LIKE ?"
                 params.append(f"{year}-%")
-            # 排序：默认"实质政策优先 + 日期倒序"（这是筛掉新闻/科普的核心），
-            # 但明确要看日期时必须能覆盖它 —— 否则"最早发布的"永远查不出来。
+            # 相关性排序：必须与 kb.py 的 _build_search 用同一套口径。
+            # 那边给 AI/MCP 用、这里给网页用，两处一旦分叉，同一个查询在
+            # 网页和 API 里会给出不同顺序，使用者无从判断哪个可信。
+            rank_expr = ""
+            rank_params: list = []
+            if terms and all(len(t) >= 3 for t in terms):
+                # FTS5 的 bm25() 越小越相关；权重按 FTS 表列序
+                # （title, p_doc_no_full, pub_name, content, o_keywords）。
+                rank_expr = "bm25(policy_fts, 12.0, 8.0, 4.0, 1.0, 2.0), "
+            elif terms:
+                # LIKE 没有打分函数：退一步让**标题命中排在正文命中之前**。
+                rank_expr = "(CASE WHEN p.title LIKE ? THEN 0 ELSE 1 END), "
+                rank_params.append(f"%{terms[0]}%")
+
+            # 命中总数：在追加 LIMIT 之前先算。
+            # 原来模板用的是 results|length，于是搜「关税」页面写「共 50 条」，
+            # 而实际命中 2348 —— 措辞把人误导成"库里就这么多"。
+            # 注意 count 不带 ORDER BY，所以不能把 rank_params 算进去。
+            try:
+                count_sql = "SELECT COUNT(*) c FROM " + sql.split(" FROM ", 1)[1]
+                matched_total = _one(count_sql, tuple(params))["c"]
+            except Exception as e:  # noqa: BLE001 - 计数失败不该让整页挂掉
+                log.warning("命中计数失败 q=%r: %s", q, e)
+                matched_total = None
+
             if sort == "date_asc":
                 sql += " ORDER BY p.cwrq ASC, p.id ASC LIMIT ?"
             elif sort == "date_desc":
                 sql += " ORDER BY p.cwrq DESC, p.id DESC LIMIT ?"
             else:
-                sql += f" ORDER BY {_SUBSTANTIVE_FIRST}, p.cwrq DESC LIMIT ?"
+                sql += (f" ORDER BY {rank_expr}{_SUBSTANTIVE_FIRST},"
+                        " p.cwrq DESC LIMIT ?")
+            # 参数按 ? 在 SQL 里的顺序：WHERE 的 → ORDER BY 的 → LIMIT。
+            params += rank_params
             params.append(limit)
             try:
                 rows = _rows(sql, tuple(params))
@@ -528,6 +557,7 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
                         region=region, regions=regions,
                         effect=effect, effect_counts=effect_counts,
                         year=year, years=years, sort=sort,
+                        matched_total=matched_total,
                         hl_terms=terms, term_hits=term_hits, q_original=q))
 
     # ------------------------------------------------------------ 详情

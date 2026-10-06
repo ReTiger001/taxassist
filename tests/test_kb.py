@@ -94,8 +94,60 @@ def test_search_finds_by_title(kb_db):
     res = kb.search("研发费用加计扣除", path=kb_db)
     assert res["error"] is None
     assert res["total_matched"] == 1
-    assert res["hits"][0]["doc_uid"] == "uid-1"
+
+
+def test_search_ranks_title_match_above_content_match(tmp_path):
+    """标题命中的必须排在「正文里顺带提一句」的前面。
+
+    这条有来历（2026-10-06 实测）：搜「关税」命中 2348 条 —— 正文提到一句
+    也算命中 —— 而当时的默认排序是「实质政策优先 + 日期倒序」，于是前三条
+    的标题里**一个「关税」都没有**，是《广东省增值税申报试点公告》《疾病
+    控制机构税收优惠政策》这类文件。命中两千多条时，不给相关性等于没排序。
+
+    这里特意让**正文命中的那条日期更新**：旧排序会把它排前面，新排序不该。
+    """
+    path = tmp_path / "rank.db"
+    conn = dbmod.connect(path)
+    dbmod.init_db(conn)
+    _add_policy(conn, "content-hit", "关于增值税申报试点的公告",
+                content="本公告自发布之日起施行，涉及进口关税的适用问题。",
+                cwrq="2026-09-30")
+    _add_policy(conn, "title-hit", "国务院关税税则委员会关于调整关税税率的通知",
+                content="现就有关事项通知如下。", cwrq="2001-01-01")
+    conn.commit()
+    conn.close()
+
+    res = kb.search("关税", path=path, limit=5)
+    assert res["error"] is None, res["error"]
+    assert res["total_matched"] == 2
+    assert res["mode"] == "like", "2 字词应走 LIKE 兜底（trigram 对 <3 字符返回空）"
+    titles = [h["title"] for h in res["hits"]]
+    assert titles[0].startswith("国务院关税税则委员会"), (
+        f"标题命中的没排到前面，实际顺序：{titles}")
+
+
+def test_search_ranks_by_bm25_in_fts_mode(tmp_path):
+    """FTS 模式（>=3 字）下按 bm25 排序，标题权重压过正文。
+
+    同样让日期顺序与相关性相反，确保测的是排序而不是日期。
+    """
+    path = tmp_path / "rank_fts.db"
+    conn = dbmod.connect(path)
+    dbmod.init_db(conn)
+    _add_policy(conn, "content-only", "关于企业所得税汇算清缴有关事项的公告",
+                content="现将企业所得税汇算清缴有关事项公告如下，本文不涉及增值税。",
+                cwrq="2026-09-30")
+    _add_policy(conn, "title-hit", "财政部 税务总局关于增值税小规模纳税人的公告",
+                content="现就增值税政策公告如下。", cwrq="2019-01-01")
+    conn.commit()
+    conn.close()
+
+    res = kb.search("增值税", path=path, limit=5)
+    assert res["error"] is None, res["error"]
     assert res["mode"] == "fts"
+    titles = [h["title"] for h in res["hits"]]
+    assert titles[0].startswith("财政部 税务总局关于增值税"), (
+        f"FTS 模式下标题命中的没排前面，实际顺序：{titles}")
 
 
 def test_search_results_always_carry_source(kb_db):

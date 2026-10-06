@@ -616,15 +616,29 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
     for r in rows:
         doc_uid = r["doc_uid"]
         aging = norm_text(r["o_aging"])
-        if aging in _OFFICIAL_STATES:
-            judgements.append(EffectJudgement(
-                doc_uid, aging, "official", f"官方时效标注：{aging}", "high",
-            ))
-        elif doc_uid in officially_repealed:
+        # **检查顺序即优先级：《失效废止目录》必须先于 o_aging。**
+        #
+        # 文件头把目录列为最权威（优先级 4），但代码原先把 aging 判断放在
+        # 前面 —— 于是当官方详情页标着「现行有效」、而官方目录明确点名废止时，
+        # 代码选了标注。实测：19 条被目录点名废止的文件因此显示「现行有效」。
+        #
+        # 取舍理由：o_aging 是笼统时效标注（填充率极低），而失效目录是**逐条
+        # 点名**的行政决定，具体性远高于笼统标注；两者冲突时以更具体的为准。
+        if doc_uid in officially_repealed:
             judgements.append(EffectJudgement(
                 doc_uid, EFFECT_REPEALED, "official",
                 "被官方《失效废止目录》点名废止", "high",
                 evidence="来源：国家税务总局公布的失效废止文件目录（附件）",
+            ))
+        elif aging in _OFFICIAL_STATES:
+            # **必须带 evidence。** 这条路径原先只把时效标注写进 reason，
+            # 于是 817 条「已废止」结论在详情页上**看不到依据** ——
+            # 直接违反 README 第一条边界「每条结论可溯源」。
+            # o_aging 是官方详情页的结构化字段，它本身就是原始凭据；
+            # 把字段名一起写进去，核对的人才知道去哪找。
+            judgements.append(EffectJudgement(
+                doc_uid, aging, "official", f"官方时效标注：{aging}", "high",
+                evidence=f"官方详情页时效字段 xxgk_aging = {aging}",
             ))
         elif doc_uid in self_repealed_uids:
             # 正文自述被废止，且通常带官方依据文号（如"国务院令第319号"）。
@@ -655,6 +669,7 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
             judgements.append(EffectJudgement(
                 doc_uid, EFFECT_PENDING, "inferred",
                 f"施行日期 {r['p_effective_date']} 尚未到达，现在还不生效", "high",
+                evidence=f"施行日期 {r['p_effective_date']}（取自正文）晚于今天 {today}",
             ))
         else:
             judgements.append(EffectJudgement(

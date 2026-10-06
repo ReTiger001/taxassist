@@ -169,18 +169,46 @@ def _build_search(query: str, tax: str, region: str, effect: str, year: str,
     if where:
         from_where += " WHERE " + " AND ".join(where)
 
+    # 相关性表达式与**它自己的参数**。
+    #
+    # 必须与 WHERE 的 params 分开：计数查询不带 ORDER BY，混在一起会导致
+    # 参数个数不匹配（COUNT 会多收一个参数而报错）。
+    #
+    # 为什么需要它：实测过缺它的后果。搜「关税」命中 2348 条（正文里顺带
+    # 提一句也算命中），而当时的默认排序是「实质政策优先 + 日期倒序」——
+    # 于是前三条是《广东省增值税申报试点公告》《疾病控制机构税收优惠》
+    # 《12366 热点问题解答》，**标题里一个"关税"都没有**。
+    # 命中两千多条时，不给相关性等于没排序。
+    rank_expr = ""
+    order_params: list = []
+    if mode == "fts":
+        # FTS5 的 bm25() 越小越相关。权重按 FTS 表的列序给
+        # （title, p_doc_no_full, pub_name, content, o_keywords）：
+        # 标题命中远比正文里顺带一句重要；文号是精确标识，给次高；
+        # 正文权重压到 1.0，避免长文靠体量压过标题。
+        rank_expr = "bm25(policy_fts, 12.0, 8.0, 4.0, 1.0, 2.0), "
+    elif mode == "like":
+        # LIKE 没有打分函数，退而求其次：**标题命中排在正文命中之前**。
+        # 取首个词作判据即可 —— 多词时标题全中的概率低，首要词足够区分。
+        if terms:
+            rank_expr = "(CASE WHEN p.title LIKE ? THEN 0 ELSE 1 END), "
+            order_params.append(f"%{terms[0]}%")
+
     if sort == "date_asc":
         order = " ORDER BY p.cwrq ASC, p.id ASC"
     elif sort == "date_desc":
         order = " ORDER BY p.cwrq DESC, p.id DESC"
     else:
-        # 默认「实质政策优先 + 日期倒序」：不这样排，首页会被解读、答记者问、
-        # 新闻占满（filters.classify 的三档优先级就是为此存在的）。
-        order = f" ORDER BY {filters.substantive_first_sql('p')}, p.cwrq DESC, p.id DESC"
+        # 默认档：相关性 → 实质政策 → 日期。
+        # 保留实质性作为次级键是刻意的：不这样排，解读、答记者问、新闻会
+        # 挤进来（filters.classify 的三档优先级就是为此存在的）。叠加后的
+        # 效果是「在相关的前提下，实质文件在前」。
+        order = (f" ORDER BY {rank_expr}"
+                 f"{filters.substantive_first_sql('p')}, p.cwrq DESC, p.id DESC")
 
     # FROM/WHERE 单独返回：计数查询与取数查询必须共用同一段条件，
     # 否则「说命中 12 条、只给 3 条」这种不一致会直接误导 AI。
-    return from_where, order, params, terms, term_hits, mode
+    return from_where, order, params, order_params, terms, term_hits, mode
 
 
 def _clip(text: str, start: int, end: int) -> str:
@@ -263,8 +291,9 @@ def search(query: str = "", *, tax: str = "", region: str = "", effect: str = ""
         _require_tables(conn)
         has_fts = _check_fts(conn)
         try:
-            from_where, order, params, terms, term_hits, mode = _build_search(
-                query, tax, region, effect, year, column, sort, has_fts)
+            (from_where, order, params, order_params, terms, term_hits,
+             mode) = _build_search(query, tax, region, effect, year, column,
+                                   sort, has_fts)
         except Exception as e:  # noqa: BLE001
             log.warning("检索参数组装失败 q=%r: %s", query, e)
             result["error"] = "检索失败，请调整关键词后重试。"
@@ -280,9 +309,12 @@ def search(query: str = "", *, tax: str = "", region: str = "", effect: str = ""
         try:
             result["total_matched"] = conn.execute(
                 f"SELECT COUNT(*) c {from_where}", tuple(params)).fetchone()["c"]
+            # 参数按 SQL 里 ? 的出现顺序绑定：WHERE 的 → ORDER BY 的 → LIMIT/OFFSET。
+            # 相关性表达式可能要一个参数（LIKE 模式用来判断标题是否命中），
+            # 所以不能只用 params。计数查询不带 ORDER BY，故那边仍旧只用 params。
             rows = conn.execute(
                 f"SELECT {_HIT_COLUMNS} {from_where}{order} LIMIT ? OFFSET ?",
-                tuple(params + [limit, offset])).fetchall()
+                tuple(params + order_params + [limit, offset])).fetchall()
         except sqlite3.OperationalError as e:
             # FTS5 的语法错误消息会把表名、列名等实现细节带出来，细节写日志即可
             log.warning("检索失败 q=%r: %s", query, e)

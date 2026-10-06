@@ -123,7 +123,7 @@
     </label>
     <label>排序
       <select name="sort">
-        <option value="relevance" {% if sort == 'relevance' %}selected{% endif %}>政策优先</option>
+        <option value="relevance" {% if sort == 'relevance' %}selected{% endif %}>相关度优先</option>
         <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %}>日期 新→旧</option>
         <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %}>日期 旧→新</option>
       </select>
@@ -137,7 +137,14 @@
 
 {% if q or column or tax or region or effect or year %}
   <p class="sub" style="margin:16px 0 8px">
-    共 <b>{{ results|length }}</b> 条{% if results|length >= limit %}（已截断 —— 可加关键词或调小范围）{% endif %}
+    {# 这里必须显示**命中总数**而不是返回条数。原来写的是 results|length，
+       于是搜「关税」页面显示「共 50 条」，而实际命中 2348 —— 措辞把人
+       误导成"库里就这么多"，而他真正该做的（加词收窄）反而没被提示。 #}
+    {% if matched_total is not none %}
+      共 <b>{{ matched_total }}</b> 条{% if results|length < matched_total %}，本页显示 {{ results|length }} 条{% endif %}
+    {% else %}
+      显示 <b>{{ results|length }}</b> 条
+    {% endif %}
   </p>
   {% if results %}
   <ul class="hits">
