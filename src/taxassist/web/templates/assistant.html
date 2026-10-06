@@ -199,7 +199,7 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
 </style>
 
 <div class="hd">
-  <h1>税务助手</h1>
+  <h1 data-zh="税务助手" data-en="Tax Assistant">税务助手</h1>
   <p class="sub">
     丢一份合同、方案或一个想法进来 —— 对照本机政策库给出
     <b>合规判断</b>、<b>适用政策</b>、<b>优化空间</b>、<b>风险与待确认</b>。
@@ -219,10 +219,10 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
 <div class="chat">
   <div class="log" id="log">
     <div class="msg bot">
-      <div class="who-line">税务助手</div>
+      <div class="who-line" data-zh="税务助手" data-en="Tax Assistant">税务助手</div>
       <div class="body">
         <div class="ans">
-          <p class="tiny">说一件事就开始分析。也可以直接点下面的例子：</p>
+          <p class="tiny" data-zh="说一件事就开始分析。也可以直接点下面的例子：" data-en="Describe a situation and I will start. Or click an example below:">说一件事就开始分析。也可以直接点下面的例子：</p>
           <div class="examples">
             <button class="ex" type="button" data-q="我们是一家做软件的公司，年收入 5000 万，有 80 名研发人员，老板想用期权激励核心团队，同时打算把闲置厂房租给关联公司 —— 税务上怎么处理？">软件公司：期权激励 + 厂房出租，税务怎么处理？</button>
             <button class="ex" type="button" data-q="请分析这份合同的税务风险，并指出有没有更省税的做法。">分析这份合同的税务风险（先点「＋ 文件」上传）</button>
@@ -237,7 +237,7 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
     <div class="row">
       <button class="ibtn" id="pick" type="button" title="上传文件（PDF / Word / Excel / 文本）">＋ 文件</button>
       <textarea id="q" placeholder="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"></textarea>
-      <button class="ibtn go" id="send" type="button" {% if not model_ok %}disabled{% endif %}>发送</button>
+      <button class="ibtn go" id="send" type="button" {% if not model_ok %}disabled{% endif %} data-zh="发送" data-en="Send">发送</button>
     </div>
     <div class="hint">
       数据全程在本机（推理用 {{ model }}，不联网、不外传） · 支持 PDF/Word/Excel/CSV/TXT · 单次约 1–2 分钟
