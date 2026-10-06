@@ -89,7 +89,18 @@ a:hover{text-decoration:underline}
    **不再给 .who 加 margin-left:auto** —— 它和 .quick 的 auto margin 会互相
    抢剩余空间、位置随内容浮动；改由 .quick 独占那块空白，账号区在最右，
    内容变长只会向左占掉空白，推不动搜索框。 */
+/* 顶部账号区：`.who` 整体不收缩（保持与语言按钮同排的对齐），
+   但**用户名本身要有硬上限**。
+   为什么：实测 32 位用户名（恰好是 validate_username 允许的上限）就把 1280px
+   页面顶出横向滚动条 —— .who 上只有 flex:none + nowrap，名字多长就占多宽。
+   **刻意不用 min-width:0 那种"允许收缩"的写法**：在 .brand 上踩过，flex 会把
+   元素一路压到 0 宽，顶栏只剩一个按钮。这里给的是绝对上限 max-width，
+   短名字照原样显示，只有超长才截断。
+   完整名字挂在 title 上（见模板里 <span class="who-name" title="{{ user }}">），
+   截断的是显示，不是信息 —— 鼠标悬停仍能看到全名。 */
 .who,.who-login{flex:none;white-space:nowrap;font-size:12.5px}
+.who-name{display:inline-block;max-width:16ch;overflow:hidden;
+  text-overflow:ellipsis;vertical-align:bottom}
 .who{display:flex;align-items:center;gap:6px;color:rgba(255,255,255,.72)}
 .who-name{font-weight:600;color:#fff;padding:0 2px}
 .who a,.who-login{padding:3px 9px;border:1px solid rgba(255,255,255,.18);
@@ -647,7 +658,7 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
     {% if user %}
     <div class="who">
       {% if is_owner %}<a href="/admin" data-zh="后台" data-en="Admin">后台</a>{% endif %}
-      <span class="who-name">{{ user }}</span>
+      <span class="who-name" data-title-zh="{{ user }}" data-title-en="{{ user }}">{{ user }}</span>
       <a href="/logout" data-zh="退出" data-en="Sign out">退出</a>
     </div>
     {% elif exposed %}

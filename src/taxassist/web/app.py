@@ -18,6 +18,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sqlite3
 import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
@@ -644,12 +645,22 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             " WHERE doc_uid=? ORDER BY id DESC LIMIT 5", (doc_uid,))
         # 英文译文（机器翻译）。模板里必须标注来源 —— 法律文本的译文被当成
         # 官方英文版本引用，是会出事的。
-        tr_title = _one(
-            "SELECT text, model, created_at FROM translation"
-            " WHERE doc_uid=? AND field='title' AND lang='en'", (doc_uid,))
-        tr_content = _one(
-            "SELECT text, model, created_at FROM translation"
-            " WHERE doc_uid=? AND field='content' AND lang='en'", (doc_uid,))
+        #
+        # **表可能不存在**：translation 由翻译脚本自己 ensure，不在 init_db 的
+        # 建表清单里。所以没跑过翻译的库（含全新初始化的库、没升级的老库）
+        # 查它会抛 "no such table: translation"。
+        # 缺译文只是少一行标注，**不该让整个详情页 500** —— 这里降级为"没有译文"。
+        # 只捕获 OperationalError：别的 SQL 问题（写错列名之类）仍要暴露出来。
+        try:
+            tr_title = _one(
+                "SELECT text, model, created_at FROM translation"
+                " WHERE doc_uid=? AND field='title' AND lang='en'", (doc_uid,))
+            tr_content = _one(
+                "SELECT text, model, created_at FROM translation"
+                " WHERE doc_uid=? AND field='content' AND lang='en'", (doc_uid,))
+        except sqlite3.OperationalError:
+            log.warning("translation 表不可用，详情页按“无译文”渲染：%s", doc_uid)
+            tr_title = tr_content = None
         return templates.TemplateResponse(
             request=request, name="detail.html",
             context=ctx(request, p=policy, citations=citations, repealed=repealed,
@@ -878,10 +889,16 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             days = 30
         conn = dbmod.connect()
         try:
-            inv = auth.create_invite(
-                conn, note=(form.get("note") or "").strip(), ttl_days=days or None,
-                grants_role=(auth.ROLE_OWNER if form.get("role") == auth.ROLE_OWNER
-                             else auth.ROLE_MEMBER))
+            try:
+                inv = auth.create_invite(
+                    conn,
+                    note=(form.get("note") or "").strip(), ttl_days=days or None,
+                    grants_role=(auth.ROLE_OWNER if form.get("role") == auth.ROLE_OWNER
+                                 else auth.ROLE_MEMBER))
+            except ValueError as exc:
+                # 备注过长等输入问题：**把消息原样显示给使用者**，而不是
+                # 500 —— 这类消息本来就是写给使用者看的（与账号名校验一致）。
+                return _admin_back(err=str(exc))
         finally:
             conn.close()
         log.info("后台生成邀请码：%s", inv["note"] or "(无备注)")

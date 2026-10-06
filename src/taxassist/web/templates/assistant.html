@@ -55,15 +55,22 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
    ① 页脚：合规声明保留，但压成一行小字（它不该占四分之一屏）
    ② 空文件区不占位
    ③ 窄屏进一步收紧：隐藏顶栏搜索框（导航里有"检索"）、提示压成单行 */
-.foot{padding:6px 20px;font-size:10.5px;line-height:1.4;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 页脚：合规声明必须能读全。
+   原设计是 nowrap + overflow:hidden + text-overflow:ellipsis（"压成一行小字，
+   它不该占四分之一屏"）。中文下能放下，所以一直看不出问题；**英文文案长约
+   一倍**，实测内容宽 2313px 挤进 1200px 的可见区，近一半声明被省略号吃掉。
+   合规声明的价值就在于"看得见"，看不全等于没写 —— 所以改成允许换行：
+   英文下约 2–3 行、多占 ~25px，换回每一句都能读到。
+   "一屏放下"的目标由对话区与输入区的弹性吸收，不再靠裁掉页脚文字实现。 */
+.foot{padding:6px 20px;font-size:10.5px;line-height:1.4}
 .files:empty{display:none}
 @media (max-width:760px){
   .top .quick{display:none}
   .composer .row{padding:7px 9px}
   .composer textarea{min-height:42px}
-  .hint{font-size:10.5px;padding:0 10px 7px;white-space:nowrap;
-    overflow:hidden;text-overflow:ellipsis}
+  /* 窄屏同样的道理：提示语允许换行，不截断（原来这里是 nowrap+ellipsis，
+     "数据全程在本机…"这类说明在英文下会被吃掉大半）。 */
+  .hint{font-size:10.5px;padding:0 10px 7px}
 }
 .hd{width:100%;max-width:940px;margin:0 auto 8px}
 .hd h1{font-size:16px;margin:0 0 2px}

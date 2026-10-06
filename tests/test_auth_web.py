@@ -607,3 +607,113 @@ def test_pages_render_and_carry_bilingual_attributes(db_path):
         assert r.status_code == 200, path
         assert 'data-zh="' in r.text and 'data-en="' in r.text, f"{path} 没有双语属性"
         assert "/static/lang.js" in r.text, f"{path} 没有引入语言脚本"
+
+
+# ---------------------------------------------------------------- 极端输入
+# 起因：客户问"如果有人设了一个超长的账号名，页面会不会出问题"。实测 32 位
+# 用户名（恰好是 validate_username 允许的上限）就能把 1280px 页面顶出横向
+# 滚动条；同时发现邀请码备注**完全没有长度校验**。这组测试钉住这几条边界。
+
+def test_invite_note_has_a_length_limit(db_path):
+    """邀请码备注要强制上限，且**报可读错误**而不是静默截断。
+
+    备注此前没有任何长度校验 —— CLI 与直接 POST 都能塞进任意长度，后台列表里
+    那一条会被撑成一大段。这里钉住边界两侧：上限内通过、超一个字符就拒绝。
+    """
+    conn = dbmod.connect()
+    try:
+        ok = auth.create_invite(conn, note="x" * auth.MAX_INVITE_NOTE_LEN)
+        assert ok["code"]
+        with pytest.raises(ValueError) as ei:
+            auth.create_invite(conn, note="x" * (auth.MAX_INVITE_NOTE_LEN + 1))
+        msg = str(ei.value)
+        # 消息要带上限与实际长度：使用者得知道"能写多少、自己写了多少"
+        assert str(auth.MAX_INVITE_NOTE_LEN) in msg
+        assert str(auth.MAX_INVITE_NOTE_LEN + 1) in msg
+    finally:
+        conn.close()
+
+
+def test_admin_invite_overlong_note_redirects_with_error(db_path):
+    """后台提交超长备注：走 PRG 把错误带回去，**不能 500**。
+
+    防的是"服务端加了校验、路由没接住异常" —— 那种情况使用者看到的是 500 页，
+    而不是"备注太长了"。
+    """
+    c = _owner_client(db_path)
+    r = c.post("/admin/invite",
+               data={"note": "x" * 500, "days": "30", "role": "member"},
+               follow_redirects=False)
+    assert r.status_code == 303, f"应重定向回后台，实际 {r.status_code}"
+    loc = r.headers.get("location", "")
+    assert "err=" in loc, "错误没有随重定向带回"
+    assert str(auth.MAX_INVITE_NOTE_LEN) in loc
+
+
+def test_pages_survive_extreme_values(db_path):
+    """超长与空值不得把页面搞崩。
+
+    用"最坏情况"渲染：300 字符无空格标题（含英文时没有可断行处，最考验换行）、
+    189 字符文号、246 字符附件文件名、空标题。这些都是会真实入库的值（抓来的
+    标题长短不一），页面必须照样出得来，且内容不能被静默丢掉。
+    """
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
+    conn = dbmod.connect()
+    try:
+        conn.execute(
+            "INSERT INTO policy(doc_uid,title,p_doc_no_full,p_doc_no_confidence,"
+            "pub_name,o_column,p_effect_status,p_effect_source,p_region,cwrq,url,"
+            "first_seen_at,last_seen_at,fetch_count,content)"
+            " VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            ("ext_long", "W" * 300, "国家税务总局公告" + "9" * 180 + "号",
+             "official", "国家税务总局" + "某" * 200 + "税务局", "地方政策",
+             "现行有效", "official", "某地" * 40, "2026-09-30",
+             "https://example.invalid/" + "u" * 200, now, now, 1, "正文" * 200))
+        conn.execute(
+            "INSERT INTO policy(doc_uid,title,first_seen_at,last_seen_at,fetch_count)"
+            " VALUES(?,?,?,?,?)", ("ext_empty", "", now, now, 1))
+        conn.execute(
+            "INSERT INTO attachment(doc_uid,url,filename,ext,parsed_text,"
+            "parse_status,created_at) VALUES(?,?,?,?,?,?,?)",
+            ("ext_long", "https://example.invalid/a.pdf",
+             "附件" + "很长" * 80 + ".pdf", "pdf", "内容" * 50, "ok", now))
+        conn.commit()
+    finally:
+        conn.close()
+
+    c = _owner_client(db_path)
+    for path in ("/library", "/search", "/daily",
+                 "/policy/ext_long", "/policy/ext_empty"):
+        r = c.get(path)
+        assert r.status_code == 200, f"{path} 在超长/空值下返回 {r.status_code}"
+    assert "W" * 300 in c.get("/policy/ext_long").text, "超长标题被静默丢掉了"
+
+
+def test_long_username_keeps_full_name_in_title():
+    """顶栏用户名会被 CSS 截断，但**完整名字必须仍能取到**。
+
+    32 位用户名（validate_username 允许的上限）实测能把顶栏顶出横向滚动条，
+    所以显示层给 max-width 截断。截断的只能是"显示"，不能是"信息" —— 这条防
+    的是以后有人顺手把 title 删掉、或把上限去掉。
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "src" / "taxassist"
+           / "web" / "templates" / "base.html").read_text(encoding="utf-8")
+    assert 'class="who-name" data-title-zh=' in src, "用户名丢了 title，长名字将无从查看"
+    assert "max-width:16ch" in src, "用户名上限没了，长名字会再次撑破顶栏"
+
+
+def test_assistant_footer_allows_wrapping():
+    """助手页页脚必须允许换行。
+
+    回归：英文文案长约中文一倍，`.foot` 的 nowrap+hidden+ellipsis 把 2313px
+    内容挤进 1200px，近一半合规声明被省略号吃掉 —— 而声明的价值就在于
+    "看得见"，看不全等于没写。
+    """
+    from pathlib import Path
+    src = (Path(__file__).resolve().parent.parent / "src" / "taxassist"
+           / "web" / "templates" / "assistant.html").read_text(encoding="utf-8")
+    foot = src.split(".foot{", 1)[1].split("}", 1)[0]
+    assert "nowrap" not in foot, ".foot 又变成不换行了"
+    assert "ellipsis" not in foot, ".foot 又变成截断了，英文合规声明会被吃掉一半"

@@ -92,7 +92,7 @@
 <h2 data-zh="发出邀请码" data-en="Issue an invite code">发出邀请码</h2>
 <div class="card pad">
   <form method="post" action="/admin/invite" class="filters" style="margin:0">
-    <input name="note" style="max-width:260px"
+    <input name="note" style="max-width:260px" maxlength="200"
            data-ph-zh="发给谁，如：客户张三" data-ph-en="For whom, e.g. Client Zhang"
            placeholder="发给谁，如：客户张三">
     {#- <option> 里没有子元素，可以直接挂属性；但 select 本身不能挂，

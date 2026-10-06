@@ -327,6 +327,14 @@ def format_invite(code: str) -> str:
     return "-".join(code[i:i + 4] for i in range(0, len(code), 4))
 
 
+#: 邀请码备注的长度上限。备注是给人看的一句话（"发给客户张三"），不是资料栏。
+#: 排查极端输入时发现它**此前没有任何长度校验**：OpenAPI 之外的入口（CLI、
+#: 直接 POST）可以塞进任意长度，后台列表里那一条会被撑成一大段。
+#: 200 字符足够写清"发给谁、为什么"。
+#: 超长一律**拒绝而不是静默截断** —— 静默截断会让使用者以为自己写全了。
+MAX_INVITE_NOTE_LEN = 200
+
+
 def create_invite(conn, note: str = "", ttl_days: int | None = 30,
                   grants_role: str = ROLE_MEMBER) -> dict:
     """生成一个一次性邀请码。``ttl_days=None`` 表示不过期。
@@ -336,6 +344,10 @@ def create_invite(conn, note: str = "", ttl_days: int | None = 30,
     """
     from .db import now_iso
 
+    note = (note or "").strip()
+    if len(note) > MAX_INVITE_NOTE_LEN:
+        raise ValueError(f"备注最多 {MAX_INVITE_NOTE_LEN} 个字符，"
+                         f"当前 {len(note)} 个。请精简后再生成。")
     if grants_role not in (ROLE_OWNER, ROLE_MEMBER):
         grants_role = ROLE_MEMBER
     ensure_invite_table(conn)
@@ -349,7 +361,7 @@ def create_invite(conn, note: str = "", ttl_days: int | None = 30,
             conn.execute(
                 "INSERT INTO invite_code(code, created_at, expires_at, note, grants_role)"
                 " VALUES(?,?,?,?,?)",
-                (code, now_iso(), expiry, (note or "").strip() or None, grants_role),
+                (code, now_iso(), expiry, note or None, grants_role),
             )
             conn.commit()
         except sqlite3.IntegrityError:      # 撞码（27^12 分之一），重摇
