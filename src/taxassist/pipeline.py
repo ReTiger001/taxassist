@@ -559,6 +559,11 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
                     "status": status, "fetched": len(items),
                     "new": new, "updated": updated,
                     "skipped_duplicates": skipped, "truncated": truncated})
+        # 把三个计数一起打出来。**`skipped` 此前只进了 out、没进日志也没进
+        # fetch_log**，于是"抓 4932 条、新增 0"这种情形看不出是被判重挡下的
+        # 还是入库失败 —— 实测排查贵州的抓取/入库差异时，为此绕了很久。
+        log.info("[%s] 抓取 %d 条：新增 %d、更新 %d、跨源判重跳过 %d",
+                 adapter.source_id, len(items), new, updated, skipped)
 
     # 抓完立即判定：否则新入库条目的效力状态会一直停在 'unknown'，
     # 界面上显示"未判定"，看起来像系统坏了（实测发生过）。
