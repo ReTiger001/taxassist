@@ -622,7 +622,9 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
     </nav>
     {% if user or not exposed %}
     <form class="quick" action="/search" method="get">
-      <input type="search" name="q" value="{{ q or '' }}" placeholder="文号 / 标题 / 正文关键词"
+      <input type="search" name="q" value="{{ q or '' }}"
+             data-ph-zh="文号 / 标题 / 正文关键词" data-ph-en="Doc. no. / title / keywords"
+             placeholder="文号 / 标题 / 正文关键词"
              aria-label="检索政策">
       <button type="submit">搜索</button>
     </form>
@@ -695,6 +697,14 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
     });
     document.querySelectorAll('.lang-btn').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.getAttribute('data-lang') === lang));
+    });
+    // **placeholder 要单独处理**：它不是文本子节点，textContent 改不动，
+    // 只能用 setAttribute。所以给它一套并行属性（data-ph-zh / data-ph-en）——
+    // 输入框的提示语是核心交互的一部分（助手页怎么问、检索页搜什么），
+    // 漏掉它们会让英文界面像"半成品"。
+    document.querySelectorAll('[data-ph-zh][data-ph-en]').forEach(function (el) {
+      var v = el.getAttribute(lang === 'en' ? 'data-ph-en' : 'data-ph-zh');
+      if (v !== null) el.setAttribute('placeholder', v);
     });
     var btn = document.getElementById('lang-toggle');
     if (btn) btn.textContent = (lang === 'en') ? '中文' : 'EN';

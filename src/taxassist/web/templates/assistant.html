@@ -236,7 +236,10 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
     <div class="files" id="files"></div>
     <div class="row">
       <button class="ibtn" id="pick" type="button" title="上传文件（PDF / Word / Excel / 文本）">＋ 文件</button>
-      <textarea id="q" placeholder="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"></textarea>
+      <textarea id="q"
+        data-ph-zh="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"
+        data-ph-en="Describe the situation, or upload a file first… (Ctrl+Enter to send)"
+        placeholder="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"></textarea>
       <button class="ibtn go" id="send" type="button" {% if not model_ok %}disabled{% endif %} data-zh="发送" data-en="Send">发送</button>
     </div>
     <div class="hint">
