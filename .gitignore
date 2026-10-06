@@ -47,3 +47,10 @@ tools/*.msi
 docs/交接状态.md
 docs/重启后恢复.md
 docs/对外部署.md
+
+# 对外暴露的脚本：里面写着本机的代理端口、隧道用法与外网地址。
+# ⚠ tools/start_public.py 当初**漏了这条规则**，于是被跟踪进 2 个提交，
+# 最后只能用 git filter-repo 从历史里抹掉。加规则时要把"同类的下一个脚本"
+# 一起想到，别只加当前这一个文件名。
+tools/start_public.py
+tools/start_funnel.py
