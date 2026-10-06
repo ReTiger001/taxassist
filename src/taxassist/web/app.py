@@ -278,6 +278,23 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         # 编码的变体（如 %2e%2e%2f）—— 真正的保证是"别挂宽"。
         if path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/"):
             if ".." not in path and "\\" not in path:
+                # **白名单页也要尽力解析登录态，只是不拦截。**
+                # 原来这里直接 call_next，request.state.user 从未被设置，
+                # 于是已登录的人在 /about 被当成未登录：顶栏显示"登录"按钮、
+                # 搜索框消失（用户实测踩到 —— 其它标签都正常，唯独关于页
+                # "掉登录"）。公开页对未登录访客开放，不代表它该对已登录的
+                # 人装不认识。
+                # 静态资源不解析：每个字体请求都连一次库纯属浪费。
+                if path in PUBLIC_PATHS and auth_mode != "basic":
+                    conn = dbmod.connect()
+                    try:
+                        user = auth.read_token(
+                            conn, request.cookies.get(auth.SESSION_COOKIE, ""))
+                        if user:
+                            request.state.user = user
+                            request.state.is_owner = auth.is_owner(conn, user)
+                    finally:
+                        conn.close()
                 return await call_next(request)
 
         if auth_mode == "basic":

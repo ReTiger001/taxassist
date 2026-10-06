@@ -75,6 +75,37 @@ def _register(client, code, username, password=GOOD_PWD):
                                           "password": password, "password2": password})
 
 
+# --------------------------------------------- 白名单页的登录态（曾踩坑）
+
+def test_about_page_shows_login_state_for_signed_in_user(client):
+    """关于页在白名单里，但它必须认出已登录的人。
+
+    用户实测踩到：点「关于」后顶栏变成「登录」按钮、搜索框也消失，
+    而其它标签都正常。根因是认证中间件对白名单路径直接 call_next、
+    从不解析 session，request.state.user 恒为 None —— 公开页对未登录
+    访客开放，不代表它该对已登录的人装不认识。
+    """
+    _seed_user("owner")
+    _login(client)
+    r = client.get("/about")
+    assert r.status_code == 200
+    assert "退出" in r.text             # 已登录 → 显示"退出"
+    assert ">登录</a>" not in r.text    # 而不是"登录"按钮
+    assert 'class="quick"' in r.text    # 搜索框也应在
+
+
+def test_about_page_stays_open_to_anonymous_with_nav(client):
+    """同时不能把未登录访客挡出去，且导航必须在。
+
+    导航若随登录状态消失，未登录访客点进关于页就没有任何返回入口
+    —— 这正是先前"点关于就回不去"的原因。
+    """
+    r = client.get("/about")
+    assert r.status_code == 200
+    assert "税务智能知识助手" in r.text
+    assert "<nav>" in r.text
+
+
 # ---------------------------------------------------------------- 闸门
 
 def test_anonymous_is_redirected_to_login(client):
