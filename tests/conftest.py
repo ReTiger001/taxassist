@@ -55,6 +55,24 @@ def temp_db():
             conn.close()
 
 
+@pytest.fixture(autouse=True)
+def _isolate_writelock(tmp_path, monkeypatch):
+    """把写锁文件隔离到临时目录。
+
+    结论与上面那段"不做全局强制重定向"相反，理由也相反：锁文件**没有**任何
+    "必须跑真实路径"的测试需求（不像 CLI 冒烟需要真库），而它的默认位置
+    ``data/write.lock`` 属于运行现场。
+
+    不隔离的后果是实测到的：``run_daily`` 现在会先抢锁，若真实环境里 worker
+    正在写库，``acquire`` 返回 False、日更直接跳过 —— 于是
+    ``test_run_daily_marks_incomplete_when_collect_partial`` 会平白失败，
+    而失败原因与被测逻辑毫无关系。
+    """
+    from taxassist import writelock
+
+    monkeypatch.setattr(writelock, "LOCK_FILE", tmp_path / "write.lock")
+
+
 @pytest.fixture
 def real_db_guard():
     """断言当前进程指向的不是项目里的真实库。

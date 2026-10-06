@@ -23,7 +23,7 @@ import logging
 from datetime import date, datetime, timedelta
 
 from . import db as dbmod
-from . import effect, pipeline, store
+from . import effect, pipeline, store, writelock
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +78,20 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
 
     任一步失败都不吞掉异常，最终状态写入 meta，供界面与 CLI 查询。
     """
+    # **日更也是一条写库路径，必须和 worker / provincial 子命令抢同一把锁。**
+    # 不拿的后果实测过（2026-10-06 07:30）：8765 与 8772 各自带一个 scheduler，
+    # 同一时刻触发两个日更，加上正在跑的 worker —— 三方并发写库，
+    # ``sqlite3.OperationalError: database is locked`` 必然出现。更糟的是它发生在
+    # publish 阶段：同一次日更前面 fetch 抓的 150 个源全白跑。
+    #
+    # timeout 取 0（拿不到就跳过本轮、不排队）：日更天天有，今天被 worker 占着
+    # 就等明天，没必要让两个长任务串成一条链互相等。
+    if not writelock.acquire("scheduler:daily"):
+        busy = writelock.holder() or "未知任务"
+        log.info("写库锁被 %s 占用，跳过本次日更（明天照常）", busy)
+        return {"started_at": dbmod.now_iso(), "steps": {}, "ok": False,
+                "skipped_by": busy}
+
     own = conn is None
     conn = conn or dbmod.connect()
     dbmod.init_db(conn)
@@ -128,11 +142,13 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
         _record(conn, started, status, result)
         if own:
             conn.close()
+        writelock.release()
         raise
 
     _record(conn, started, status, result)
     if own:
         conn.close()
+    writelock.release()
     log.info("日更完成 status=%s %s", status, result["steps"])
     return result
 

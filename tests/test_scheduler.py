@@ -10,7 +10,7 @@ from datetime import date, timedelta
 import pytest
 
 from taxassist import db as dbmod
-from taxassist import scheduler, store
+from taxassist import scheduler, store, writelock
 
 
 @pytest.fixture()
@@ -131,3 +131,50 @@ def test_run_daily_marks_incomplete_when_collect_partial(conn, monkeypatch):
     result = scheduler.run_daily(conn, include_provincial=False)
     assert result["ok"] is False
     assert dbmod.get_meta(conn, scheduler.META_LAST_STATUS) == "incomplete"
+
+
+def test_daily_skips_when_write_lock_held(conn, monkeypatch):
+    """写库锁被别的任务持有时，日更必须**跳过**，而不是硬跑成 database is locked。
+
+    这条有来历（2026-10-06 07:30 实测）：8765 与 8772 各自带一个 scheduler，
+    同一时刻触发两个日更，加上正在跑的 worker —— 三方并发写库，
+    ``sqlite3.OperationalError: database is locked`` 必然出现。更糟的是失败
+    发生在 publish 阶段：同一次日更前面 fetch 抓的 150 个源全白跑。
+
+    修法是让日更也走 writelock（worker 与 provincial 子命令早就走了，
+    只有 scheduler 漏了）。
+    """
+    entered = []
+    monkeypatch.setattr(scheduler.pipeline, "collect_incremental",
+                        lambda *a, **k: entered.append(1))
+    monkeypatch.setattr(writelock, "acquire", lambda who, **k: False)
+    monkeypatch.setattr(writelock, "holder",
+                        lambda: "1234:worker:fetch,publish")
+
+    result = scheduler.run_daily(conn, include_provincial=False)
+
+    assert result["ok"] is False
+    assert "worker:fetch" in result["skipped_by"]
+    assert not entered, "锁被占时仍进入了采集流程"
+
+
+def test_daily_releases_lock_even_when_it_fails(conn, monkeypatch):
+    """日更中途失败也必须把锁放开。
+
+    不释放的后果：接下来 300 秒（租约时长）里，worker 与 provincial 子命令
+    都会被判为"锁被占用"而跳过 —— 一次失败被放大成五分钟的全线停摆。
+    """
+    released = []
+    monkeypatch.setattr(writelock, "acquire", lambda who, **k: True)
+    monkeypatch.setattr(writelock, "release",
+                        lambda *a, **k: released.append(1))
+
+    def boom(*a, **k):
+        raise RuntimeError("模拟网络故障")
+
+    monkeypatch.setattr(scheduler.pipeline, "collect_incremental", boom)
+
+    with pytest.raises(RuntimeError):
+        scheduler.run_daily(conn, include_provincial=False)
+
+    assert released, "失败路径没有释放写库锁"
