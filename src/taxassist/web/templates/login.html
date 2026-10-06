@@ -1,27 +1,29 @@
 {% extends "auth_base.html" %}
 {% block title %}登录 · 税务智能知识助手{% endblock %}
 {% block body %}
-<h1>登录</h1>
-<p class="lede">本站仅向已开通账号的使用者开放。账号需用邀请码自行注册，
+<h1 data-zh="登录" data-en="Sign in">登录</h1>
+<p class="lede" data-zh="本站仅向已开通账号的使用者开放。账号需用邀请码自行注册，口令由本人设定，本站不保存口令原文。"
+   data-en="This site is open only to users who already have an account. Accounts are created with an invite code, and you set your own password — the original is never stored here.">本站仅向已开通账号的使用者开放。账号需用邀请码自行注册，
 口令由本人设定，本站不保存口令原文。</p>
 
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
 
 <form method="post" action="/login">
   <input type="hidden" name="next" value="{{ next or '/' }}">
-  <label for="username">账号</label>
+  <label for="username" data-zh="账号" data-en="Username">账号</label>
   <input id="username" name="username" value="{{ username or '' }}" required autofocus
          autocomplete="username" autocapitalize="none" spellcheck="false">
-  <label for="password">口令</label>
+  <label for="password" data-zh="口令" data-en="Password">口令</label>
   <input id="password" name="password" type="password" required
          autocomplete="current-password">
-  <button type="submit">登录</button>
+  <button type="submit" data-zh="登录" data-en="Sign in">登录</button>
 </form>
 
 <div class="alt">
-  还没有账号？<a href="/register">用邀请码注册</a>。
-  {% if not n_users %}{% if local %}<br><b>本站尚无账号</b>：请先在本机执行
-  <code>python -m taxassist invite</code> 生成邀请码。{% else %}<br>
-  <b>本站尚未开通</b>，请联系管理员。{% endif %}{% endif %}
+  <span data-zh="还没有账号？" data-en="No account yet? "></span><a href="/register"
+     data-zh="用邀请码注册" data-en="Register with an invite code">用邀请码注册</a><span data-zh="。" data-en="."></span>
+  {% if not n_users %}{% if local %}<br><b data-zh="本站尚无账号" data-en="No account exists yet">本站尚无账号</b><span data-zh="：请先在本机执行 " data-en=" — run "></span>
+  <code>python -m taxassist invite</code><span data-zh=" 生成邀请码。" data-en=" on this machine first to create an invite code."></span>{% else %}<br>
+  <b data-zh="本站尚未开通" data-en="This site is not open yet">本站尚未开通</b><span data-zh="，请联系管理员。" data-en=" — please contact the administrator."></span>{% endif %}{% endif %}
 </div>
 {% endblock %}

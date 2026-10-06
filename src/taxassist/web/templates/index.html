@@ -25,18 +25,17 @@
 {# 效力标记说明：客户问过"推定是什么意思"，说明只靠 tooltip 不够 —— 把依据
    摊开讲，让人一眼看懂每个标记在说什么。 #}
 <details class="legend">
-  <summary>效力标记怎么看</summary>
+  <summary data-zh="效力标记怎么看" data-en="How to read the validity marks">效力标记怎么看</summary>
   <ul class="plain">
-    <li><b>官方标注</b> —— 政策原文自带时效标注，或官方废止目录点了名。最硬的一档。</li>
-    <li><b>据他文判定</b> —— 另一份文件里写明废止了它；依据原文可在详情页看到。</li>
-    <li><b>未发现废止</b> —— 库里没有任何文件说它废止。<b>这不等于官方确认有效</b>，
-        重要事项请核对原文。
-        <span class="sub">（现行有效共 {{ stats.valid }} 条：官方标注
-        {{ stats.valid_official }} 条、未发现废止 {{ stats.valid_default }} 条）</span></li>
+    <li><b data-zh="官方标注" data-en="Official">官方标注</b><span data-zh=" —— 政策原文自带时效标注，或官方废止目录点了名。最硬的一档。" data-en=" — the policy text itself carries a validity note, or an official repeal list names it. The strongest tier."></span></li>
+    <li><b data-zh="据他文判定" data-en="Other docs">据他文判定</b><span data-zh=" —— 另一份文件里写明废止了它；依据原文可在详情页看到。" data-en=" — another document states that it is repealed; the source text is on the detail page."></span></li>
+    <li><b data-zh="未发现废止" data-en="No repeal">未发现废止</b><span data-zh=" —— 库里没有任何文件说它废止。" data-en=" — no document in this database says it is repealed. "></span><b data-zh="这不等于官方确认有效" data-en="This is not an official confirmation of validity">这不等于官方确认有效</b><span data-zh="，重要事项请核对原文。" data-en=" — verify the original text for anything important."></span>
+        {#- 含三个 {{ stats.* }} 变量，静态部分拆 span -#}
+        <span class="sub"><span data-zh="（现行有效共 " data-en="(of the "></span>{{ stats.valid }}<span data-zh=" 条：官方标注 " data-en=" currently in force: "></span>{{ stats.valid_official }}<span data-zh=" 条、未发现废止 " data-en=" official, "></span>{{ stats.valid_default }}<span data-zh=" 条）" data-en=" no repeal found)"></span></span></li>
   </ul>
-  <p class="sub" style="margin:8px 0 0">
-    库内不猜测政策有效性：没有证据就不写"已废止"，没有官方确认也不冒充"已确认"。
-  </p>
+  <p class="sub" style="margin:8px 0 0"
+     data-zh="库内不猜测政策有效性：没有证据就不写“已废止”，没有官方确认也不冒充“已确认”。"
+     data-en="This database does not guess at validity: without evidence it will not write &quot;repealed&quot;, and without official confirmation it will not claim &quot;confirmed&quot;.">库内不猜测政策有效性：没有证据就不写“已废止”，没有官方确认也不冒充“已确认”。</p>
 </details>
 
 {% if stats.last_fetch %}
@@ -103,7 +102,7 @@
         <td class="d">{{ r.cwrq or '—' }}</td>
         <td><a class="tt" href="/policy/{{ r.doc_uid }}">{{ r.title }}</a></td>
         <td>{{ docno_cell(r.p_doc_no_full, r.p_doc_no_confidence) }}</td>
-        <td class="d">{{ r.p_region or '全国' }}</td>
+        <td class="d">{{ r.p_region or '' }}<span data-zh="{{ '' if r.p_region else '全国' }}" data-en="{{ '' if r.p_region else 'National' }}"></span></td>
         <td class="d">{{ r.o_column or '—' }}</td>
         <td>{{ effect_bar(r.p_effect_status) }}{{ effect_badge(r.p_effect_status) }}{{ source_mark(r.p_effect_source) }}</td>
       </tr>

@@ -1,35 +1,40 @@
 {% extends "auth_base.html" %}
 {% block title %}注册 · 税务智能知识助手{% endblock %}
 {% block body %}
-<h1>用邀请码注册</h1>
-<p class="lede">一个邀请码只能注册一个账号。口令由你自己设定，本站保存的只是它的
+<h1 data-zh="用邀请码注册" data-en="Register with an invite code">用邀请码注册</h1>
+<p class="lede" data-zh="一个邀请码只能注册一个账号。口令由你自己设定，本站保存的只是它的不可逆哈希值。"
+   data-en="Each invite code creates one account. You choose your own password; only its irreversible hash is kept here.">一个邀请码只能注册一个账号。口令由你自己设定，本站保存的只是它的
 不可逆哈希值。</p>
 
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
 
 <form method="post" action="/register">
-  <label for="code">邀请码</label>
+  <label for="code" data-zh="邀请码" data-en="Invite code">邀请码</label>
   <input id="code" name="code" value="{{ code or '' }}" placeholder="XXXX-XXXX-XXXX"
          required autofocus autocapitalize="characters" spellcheck="false">
-  <div class="hint">大小写、连字符都可以不管，照抄即可。</div>
+  <div class="hint" data-zh="大小写、连字符都可以不管，照抄即可。"
+       data-en="Case and hyphens don't matter — just copy it as you received it.">大小写、连字符都可以不管，照抄即可。</div>
 
-  <label for="username">账号</label>
+  <label for="username" data-zh="账号" data-en="Username">账号</label>
   <input id="username" name="username" value="{{ username or '' }}" required
          autocapitalize="none" spellcheck="false" autocomplete="username">
-  <div class="hint">3-32 位字母、数字、点、下划线或连字符，需以字母或数字开头。</div>
+  <div class="hint" data-zh="3-32 位字母、数字、点、下划线或连字符，需以字母或数字开头。"
+       data-en="3–32 characters: letters, digits, dots, underscores or hyphens; must start with a letter or digit.">3-32 位字母、数字、点、下划线或连字符，需以字母或数字开头。</div>
 
-  <label for="password">口令</label>
+  <label for="password" data-zh="口令" data-en="Password">口令</label>
   <input id="password" name="password" type="password" required
          autocomplete="new-password">
-  <div class="hint">至少 {{ min_password }} 位。一句只有你记得的话，比
-    <code>Abc123!</code> 这类短口令更难猜。</div>
+  {#- 含 {{ min_password }} 变量，所以静态部分用 span 包住，不能给整个 div 挂属性 ——
+      否则 JS 替换 textContent 会把变量渲染出的数字一起抹掉。 -#}
+  <div class="hint"><span data-zh="至少 " data-en="At least "></span>{{ min_password }}<span data-zh=" 位。一句只有你记得的话，比 " data-en=" characters. A phrase only you remember beats something like "></span><code>Abc123!</code><span data-zh=" 这类短口令更难猜。" data-en="."></span></div>
 
-  <label for="password2">再输一次口令</label>
+  <label for="password2" data-zh="再输一次口令" data-en="Repeat password">再输一次口令</label>
   <input id="password2" name="password2" type="password" required
          autocomplete="new-password">
 
-  <button type="submit">注册并进入</button>
+  <button type="submit" data-zh="注册并进入" data-en="Register and sign in">注册并进入</button>
 </form>
 
-<div class="alt">已有账号？<a href="/login">直接登录</a>。</div>
+<div class="alt"><span data-zh="已有账号？" data-en="Already have an account? "></span><a href="/login"
+   data-zh="直接登录" data-en="Sign in">直接登录</a><span data-zh="。" data-en="."></span></div>
 {% endblock %}

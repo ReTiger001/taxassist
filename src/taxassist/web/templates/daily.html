@@ -3,22 +3,19 @@
 {% block title %}每日简报 · 税务智能知识助手{% endblock %}
 {% block body %}
 
-<h1>政策简报</h1>
+<h1><span data-zh="政策简报" data-en="Daily Brief"></span></h1>
 <p class="sub">
-  按成文日期倒序，含最近 {{ days }} 天共 {{ total }} 条。默认把<span class="badge b-mut">政策法规</span>
-  等实质文件排在<span class="badge b-mut">政策解读</span>之前——
-  解读与科普类内容对做判断帮助有限，不值得占用你第一眼的注意力。
+  <span data-zh="按成文日期倒序，含最近 " data-en="Newest first by date of issue — last "></span>{{ days }}<span data-zh=" 天共 " data-en=" days, "></span>{{ total }}<span data-zh=" 条。默认把" data-en=" in total. Substantive documents such as "></span><span class="badge b-mut" data-zh="政策法规" data-en="Policy"></span><span data-zh="等实质文件排在" data-en=" are listed above "></span><span class="badge b-mut" data-zh="政策解读" data-en="Explainer"></span><span data-zh="之前——解读与科普类内容对做判断帮助有限，不值得占用你第一眼的注意力。" data-en=" — commentary and explainers help less with judgement, so they don't take your first glance."></span>
 </p>
 
 {% if not grouped %}
   <div class="card"><div class="empty">
-    该区间没有政策。若确信应有内容，请执行 <code>python -m taxassist status</code>
-    检查抓取是否完整（漏抓会显式标注为 incomplete，不会静默变空）。
+    <span data-zh="该区间没有政策。若确信应有内容，请执行 " data-en="No policies in this window. If you expected some, run "></span><code>python -m taxassist status</code><span data-zh=" 检查抓取是否完整（漏抓会显式标注为 incomplete，不会静默变空）。" data-en=" to check whether collection was complete — a gap is reported as incomplete, never silently empty."></span>
   </div></div>
 {% endif %}
 
 {% for day, items in grouped %}
-  <div class="day">{{ day }} · {{ items|length }} 条</div>
+  <div class="day">{{ day }} · {{ items|length }}<span data-zh=" 条" data-en=" items"></span></div>
   <div class="card" style="border-radius:0 0 5px 5px;border-top:0">
     <table>
       <tbody>
@@ -26,7 +23,7 @@
         <tr>
           <td style="width:20%">
             <span class="badge b-mut">{{ r.o_column or '—' }}</span>
-            {% if r.n_attach %}<span class="badge b-warn">附件 {{ r.n_attach }}</span>{% endif %}
+            {% if r.n_attach %}<span class="badge b-warn"><span data-zh="附件 " data-en=""></span>{{ r.n_attach }}<span data-zh="" data-en=" files"></span></span>{% endif %}
           </td>
           <td>
             <a class="tt" href="/policy/{{ r.doc_uid }}">{{ r.title }}</a>

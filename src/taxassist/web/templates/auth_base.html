@@ -35,6 +35,17 @@ header.top .mode{font-size:10.5px;font-weight:400;letter-spacing:0;
   color:rgba(255,255,255,.8)}
 header.top .mode-out{background:rgba(255,214,145,.16);
   border-color:rgba(255,210,130,.42);color:#ffd89a}
+/* 语言切换按钮：登录/注册页也要有 —— 未登录访客第一眼看到的就是这一页。
+   排版与 base.html 同规矩：**宽度自适应 + 不换行**，不给固定宽度。
+   "中文" 是 2 个 CJK 字（约 26px），"EN" 只有 2 个拉丁字母（约 17px），
+   给固定宽度就会有一边明显空着或挤着。margin-left:auto 把它推到最右，
+   与主站顶栏的位置感一致。 */
+header.top .lang-toggle{margin-left:auto;flex:none;white-space:nowrap;
+  font:inherit;font-size:12.5px;padding:3px 9px;cursor:pointer;
+  border:1px solid #0e3a0e;background:#001a00;color:#00cc00;
+  border-radius:0;line-height:1.5}
+header.top .lang-toggle:hover{background:#002a00;border-color:#00cc00;
+  color:#00ff00}
 main{flex:1;display:flex;align-items:flex-start;justify-content:center;padding:56px 20px}
 .box{width:100%;max-width:390px;background:var(--card);border:1px solid var(--line);
   border-radius:3px;padding:26px 28px 24px}
@@ -226,13 +237,22 @@ button:hover,.ibtn:hover{background:#002a00;border-color:#00cc00;
 </head>
 <body>
 <header class="top">
-  <a class="brand" href="/">税务智能知识助手<span
-     class="mode {{ 'mode-out' if exposed else '' }}">{{ '对外' if exposed else '本地' }}</span></a>
+  <a class="brand" href="/"><span data-zh="税务智能知识助手" data-en="Tax Policy Knowledge Assistant">税务智能知识助手</span><span
+     class="mode {{ 'mode-out' if exposed else '' }}"
+     data-zh="{{ '对外' if exposed else '本地' }}"
+     data-en="{{ 'Public' if exposed else 'Local' }}">{{ '对外' if exposed else '本地' }}</span></a>
+  {# 语言切换：登录/注册页也要有 —— 未登录访客第一眼看到的就是这一页，
+     没有它就只能看中文。#}
+  <button type="button" class="lang-toggle" id="lang-toggle"
+          data-title-zh="切换界面语言" data-title-en="Switch interface language">EN</button>
 </header>
 <main>
   <div class="box">
 {% block body %}{% endblock %}
   </div>
 </main>
+{# 与主站共用一份语言脚本：这一页不继承 base.html，所以必须显式引入，
+   否则登录/注册页永远只有中文（未登录访客第一眼看的就是这里）。 #}
+<script src="/static/lang.js"></script>
 </body>
 </html>

@@ -5,7 +5,16 @@
 
    用词注意：刻意不用"推定"。客户问过"你在推断什么"—— 系统从不猜测政策是否
    有效，它只陈述依据的有无。视觉上：官方标注 = 实心深色块；据他文判定 =
-   浅色；未发现废止 = 虚线描边，三者不能混同。 #}
+   浅色；未发现废止 = 虚线描边，三者不能混同。
+
+   ── 双语（data-zh/data-en）─────────────────────────────────────
+   这些宏全站都在用（资料库、检索、详情、简报），所以它们的中文一旦没盖到，
+   英文界面里就是一片中文徽章。宏生成的 <span> 里**没有子元素**，正好适合
+   直接挂 data 属性 —— 由 /static/lang.js 统一替换 textContent。
+
+   排版：这些徽章宽度都是自适应的，英文（"Not yet in force"）比中文
+   （"尚未生效"）长，但那一列本来就按内容撑开，不设固定宽度就不会挤。
+   特意选短的英文词，表头那一列才不至于把标题挤窄。 #}
 
 {% macro effect_bar(status) -%}
   {#- 行首色条：列表里扫一眼就知道哪条需要留意 -#}
@@ -16,14 +25,17 @@
   {%- endif -%}
 {%- endmacro %}
 
+{#- 效力状态的英文用词：**不用 "valid/invalid"**。
+    "valid" 在法律语境里不等于"现行有效"，而 "invalid" 会被读成"这条政策作废了"
+    —— 其实只是系统没找到依据。宁可直白：in force / not yet in force / repealed。 -#}
 {% macro effect_badge(status) -%}
   {#- 未知状态一律显示中文「未判定」：库里可能是 'unknown'，
       直接显示英文既像没做完，也容易被误读成某种专业状态 -#}
-  {%- if status == '现行有效' -%}<span class="badge b-ok">现行有效</span>
-  {%- elif status == '尚未生效' -%}<span class="badge b-warn">尚未生效</span>
-  {%- elif status == '已废止' -%}<span class="badge b-bad">已废止</span>
-  {%- elif status == '部分失效' -%}<span class="badge b-warn">部分失效</span>
-  {%- else -%}<span class="badge b-mut">未判定</span>
+  {%- if status == '现行有效' -%}<span class="badge b-ok" data-zh="现行有效" data-en="In force">现行有效</span>
+  {%- elif status == '尚未生效' -%}<span class="badge b-warn" data-zh="尚未生效" data-en="Not yet in force">尚未生效</span>
+  {%- elif status == '已废止' -%}<span class="badge b-bad" data-zh="已废止" data-en="Repealed">已废止</span>
+  {%- elif status == '部分失效' -%}<span class="badge b-warn" data-zh="部分失效" data-en="Partly repealed">部分失效</span>
+  {%- else -%}<span class="badge b-mut" data-zh="未判定" data-en="Undetermined">未判定</span>
   {%- endif -%}
 {%- endmacro %}
 
@@ -31,15 +43,28 @@
   {#- 这四个标记回答的是「这条效力判断有多硬」，不是「政策有没有效」。
       原先写「推定」「官方」，客户看不懂在推什么 —— 我们从不猜测政策有效性，
       default 的准确含义是「库里没有任何文件说它废止」，不等于"我们猜它有效"。
-      所以文案改成直说依据：官方标注 / 据他文判定 / 未发现废止。 -#}
+      所以文案改成直说依据：官方标注 / 据他文判定 / 未发现废止。
+
+      英文同理：不能写成 "presumed" / "assumed"，那正是中文里要避开的意思。
+      Official = 原文自带；Other docs = 别的文件说了；No repeal = 库里没证据。
+      title（悬停提示）也一并双语 —— 它解释的是"这条判断有多硬"，是全站
+      最容易产生误解的地方，只留中文等于把免责说明留在了中文里。 -#}
   {%- if source == 'official' -%}
-    <span class="src src-official" title="政策原文自带时效标注，或官方废止目录点名">官方标注</span>
+    <span class="src src-official" data-zh="官方标注" data-en="Official"
+          data-title-zh="政策原文自带时效标注，或官方废止目录点名"
+          data-title-en="the policy text itself carries a validity note, or an official repeal list names it">官方标注</span>
   {%- elif source == 'inferred' -%}
-    <span class="src src-inferred" title="据其他文件的废止声明判定；依据原文见详情页">据他文判定</span>
+    <span class="src src-inferred" data-zh="据他文判定" data-en="Other docs"
+          data-title-zh="据其他文件的废止声明判定；依据原文见详情页"
+          data-title-en="decided from another document's repeal statement; the source text is on the detail page">据他文判定</span>
   {%- elif source == 'default' -%}
-    <span class="src src-default" title="库内未发现任何废止证据。这不等于官方确认有效，重要事项请核对原文">未发现废止</span>
+    <span class="src src-default" data-zh="未发现废止" data-en="No repeal"
+          data-title-zh="库内未发现任何废止证据。这不等于官方确认有效，重要事项请核对原文"
+          data-title-en="no repeal evidence found in this database — this is not an official confirmation of validity; verify the original text for anything important">未发现废止</span>
   {%- elif source == 'manual' -%}
-    <span class="src src-official" title="人工核对后确认">人工确认</span>
+    <span class="src src-official" data-zh="人工确认" data-en="Verified"
+          data-title-zh="人工核对后确认"
+          data-title-en="confirmed by manual review">人工确认</span>
   {%- endif -%}
 {%- endmacro %}
 
@@ -51,10 +76,11 @@
   {%- if not no -%}<span class="d">—</span>
   {%- elif confidence == 'official' -%}<span class="docno">{{ no }}</span>
   {%- else -%}<span class="docno docno-recon"
-      title="文号来源非官方字段，正式引用前请核对原文">{{ no }}<sup>*</sup></span>
+      data-title-zh="文号来源非官方字段，正式引用前请核对原文"
+      data-title-en="this document number came from a non-official field; check the original text before citing it">{{ no }}<sup>*</sup></span>
   {%- endif -%}
 {%- endmacro %}
 
 {% macro docno(no) -%}
-  {%- if no -%}<span class="docno">{{ no }}</span>{%- else -%}<span class="d">文号待补</span>{%- endif -%}
+  {%- if no -%}<span class="docno">{{ no }}</span>{%- else -%}<span class="d" data-zh="文号待补" data-en="No doc. no.">文号待补</span>{%- endif -%}
 {%- endmacro %}

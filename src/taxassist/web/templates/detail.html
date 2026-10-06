@@ -10,21 +10,19 @@
     {# 英文标题是机器翻译，必须就地标注 —— 不让它看起来像官方英文文本 #}
     <p class="en" style="margin:3px 0 0">{{ tr_title.text }}
       <span class="mt-note" style="display:inline;margin-left:10px;padding-left:9px;border-left:2px solid var(--line)">
-        机器翻译（{{ tr_title.model }}），以中文原文为准</span></p>
+        <span data-zh="机器翻译（" data-en="Machine translation ("></span>{{ tr_title.model }}<span data-zh="），以中文原文为准" data-en=") — the Chinese original governs"></span></span></p>
     {% endif %}
     <div class="meta">
       <span><b data-zh="文号" data-en="Doc. no.">文号</b>
         {% if p.p_doc_no_full %}<span class="docno">{{ p.p_doc_no_full }}</span>
-          {% if p.p_doc_no_confidence == 'none' %}<span class="badge b-mut">官方未提供文号</span>{% endif %}
-        {% else %}<span class="d">未识别到完整文号 ——
-          {{ '未抓取到正文，无法识别' if not p.content
-             else '正文中未出现文号' }}</span>{% endif %}
+          {% if p.p_doc_no_confidence == 'none' %}<span class="badge b-mut" data-zh="官方未提供文号" data-en="No doc. no. from source">官方未提供文号</span>{% endif %}
+        {% else %}<span class="d"><span data-zh="未识别到完整文号 —— " data-en="Full document number not identified — "></span><span data-zh="{{ '未抓取到正文，无法识别' if not p.content else '正文中未出现文号' }}" data-en="{{ 'full text not collected, cannot identify' if not p.content else 'no document number appears in the full text' }}"></span></span>{% endif %}
       </span>
       <span><b data-zh="成文日期" data-en="Date">成文日期</b>{{ p.cwrq or '—' }}</span>
-      {% if p.p_effective_date %}<span><b>施行日期</b>{{ p.p_effective_date }}</span>
-      {%- else %}<span><b>施行日期</b><span class="d">未标注 ——
-        {{ '未抓取到正文，无法抽取' if not p.content
-           else '正文中没有「自…年…月…日起施行」这类表述' }}</span></span>{% endif %}
+      {#- 施行日期有两个分支，两个分支里都含静态文案 —— 各自拆 span，
+          不能给外层 <span> 挂属性，那会把 {{ p.p_effective_date }} 一起抹掉。 -#}
+      {% if p.p_effective_date %}<span><b data-zh="施行日期" data-en="In force from">施行日期</b>{{ p.p_effective_date }}</span>
+      {%- else %}<span><b data-zh="施行日期" data-en="In force from">施行日期</b><span class="d"><span data-zh="未标注 —— " data-en="Not stated — "></span><span data-zh="{{ '未抓取到正文，无法抽取' if not p.content else '正文中没有「自…年…月…日起施行」这类表述' }}" data-en="{{ 'full text not collected, cannot extract' if not p.content else 'the full text has no wording like \u201ceffective from \u2026\u201d' }}"></span></span></span>{% endif %}
       {% if p.pub_date %}<span><b data-zh="发布日期" data-en="Published">发布日期</b>{{ p.pub_date }}</span>{% endif %}
       <span><b data-zh="发文机关" data-en="Issued by">发文机关</b>{{ p.pub_name or '—' }}</span>
       <span><b data-zh="栏目" data-en="Column">栏目</b>{{ p.o_column or '—' }}</span>
@@ -33,15 +31,17 @@
   </div>
 
   <div class="note">
-    <b data-zh="效力判定依据：" data-en="Basis of determination:">效力判定依据：</b>{{ p.p_effect_reason or '未记录' }}
-    {% if p.p_effect_evidence %}<div style="margin-top:4px">证据：{{ p.p_effect_evidence }}</div>{% endif %}
+    <b data-zh="效力判定依据：" data-en="Basis of determination: ">效力判定依据：</b>{#- 依据原文存的是中文，不翻译：它是溯源的一部分，中英两版都该看到同一段原文 -#}<span data-zh="{{ p.p_effect_reason or '未记录' }}" data-en="{{ p.p_effect_reason or 'not recorded' }}">{{ p.p_effect_reason or '未记录' }}</span>
+    {% if p.p_effect_evidence %}<div style="margin-top:4px"><b data-zh="证据：" data-en="Evidence: ">证据：</b>{{ p.p_effect_evidence }}</div>{% endif %}
     {% if p.p_effect_source == 'default' %}
-      <div style="margin-top:6px;color:var(--accent)">
-        ⚠ 这是系统推定，不是官方确认。用于申报或对外出具意见前，请自行核实现行有效性。
-      </div>
+      <div style="margin-top:6px;color:var(--accent)"
+           data-zh="⚠ 这是系统推定，不是官方确认。用于申报或对外出具意见前，请自行核实现行有效性。"
+           data-en="⚠ This is a system inference, not an official confirmation. Verify the current validity yourself before filing or issuing an opinion.">⚠ 这是系统推定，不是官方确认。用于申报或对外出具意见前，请自行核实现行有效性。</div>
     {% endif %}
     {% if p.p_review_state == 'needs_review' %}
-      <div style="margin-top:6px;color:var(--warn-fg)">此条已进入待人工确认队列。</div>
+      <div style="margin-top:6px;color:var(--warn-fg)"
+           data-zh="此条已进入待人工确认队列。"
+           data-en="This record is queued for manual confirmation.">此条已进入待人工确认队列。</div>
     {% endif %}
   </div>
 
@@ -49,29 +49,29 @@
     <div class="body">{{ p.content }}</div>
   {% else %}
     <div class="empty">
-      该条暂无正文。可能原因：源站该页无正文（如视频/图解类），或详情页尚未抓取。<br>
-      可执行 <code>python -m taxassist enrich --limit 50</code> 补抓。
+      <span data-zh="该条暂无正文。可能原因：源站该页无正文（如视频/图解类），或详情页尚未抓取。" data-en="No full text for this record yet. Possible reasons: the source page has none (video or infographic pages), or its detail page has not been collected.">该条暂无正文。可能原因：源站该页无正文（如视频/图解类），或详情页尚未抓取。</span><br>
+      <span data-zh="可执行 " data-en="Run "></span><code>python -m taxassist enrich --limit 50</code><span data-zh=" 补抓。" data-en=" to collect it."></span>
     </div>
   {% endif %}
 </div>
 
-<h2>附件（{{ attachments|length }}）</h2>
+<h2><span data-zh="附件（" data-en="Attachments ("></span>{{ attachments|length }}<span data-zh="）" data-en=")"></span></h2>
 <div class="card">
   {% if attachments %}
   <table>
-    <thead><tr><th>文件名</th><th style="width:60px">格式</th><th style="width:130px">解析状态</th><th style="width:90px">文本量</th></tr></thead>
+    <thead><tr><th data-zh="文件名" data-en="File">文件名</th><th style="width:60px" data-zh="格式" data-en="Type">格式</th><th style="width:130px" data-zh="解析状态" data-en="Parsing">解析状态</th><th style="width:90px" data-zh="文本量" data-en="Text">文本量</th></tr></thead>
     <tbody>
     {% for a in attachments %}
       <tr>
         <td><a href="{{ a.url }}" target="_blank" rel="noopener">{{ a.filename }}</a></td>
         <td class="d">.{{ a.ext }}</td>
         <td>
-          {% if a.parse_status == 'ok' %}<span class="badge b-ok">已解析</span>
-          {% elif a.parse_status == 'no_text_layer' %}<span class="badge b-warn">扫描件·需OCR</span>
-          {% elif a.parse_status == 'unsupported' %}<span class="badge b-mut">格式不支持</span>
+          {% if a.parse_status == 'ok' %}<span class="badge b-ok" data-zh="已解析" data-en="Parsed">已解析</span>
+          {% elif a.parse_status == 'no_text_layer' %}<span class="badge b-warn" data-zh="扫描件·需OCR" data-en="Scan, needs OCR">扫描件·需OCR</span>
+          {% elif a.parse_status == 'unsupported' %}<span class="badge b-mut" data-zh="格式不支持" data-en="Unsupported">格式不支持</span>
           {% else %}<span class="badge b-bad">{{ a.parse_status }}</span>{% endif %}
         </td>
-        <td class="d">{{ a.text_len }} 字</td>
+        <td class="d">{{ a.text_len }}<span data-zh=" 字" data-en=" chars"></span></td>
       </tr>
       {% if a.text_excerpt %}
       {# 附件原文直接摊在页面上，不用点外链去下载 —— 这是"文件写在页面里"的本意。
@@ -79,7 +79,7 @@
       <tr>
         <td colspan="4">
           <details>
-            <summary>展开附件原文（共 {{ a.text_len }} 字{% if a.text_len > 20000 %}，此处显示前 20000 字{% endif %}）</summary>
+            <summary><span data-zh="展开附件原文（共 " data-en="Show attachment text ("></span>{{ a.text_len }}<span data-zh=" 字" data-en=" chars"></span>{% if a.text_len > 20000 %}<span data-zh="，此处显示前 20000 字" data-en="; first 20,000 shown here"></span>{% endif %}<span data-zh="）" data-en=")"></span></summary>
             <pre class="attach-text">{{ a.text_excerpt }}</pre>
           </details>
         </td>
@@ -89,7 +89,7 @@
     </tbody>
   </table>
   {% else %}
-    <div class="empty">无附件记录。若源站确实带附件，请执行 <code>python -m taxassist enrich</code> 后重试。</div>
+    <div class="empty"><span data-zh="无附件记录。若源站确实带附件，请执行 " data-en="No attachment records. If the source page really does carry attachments, run "></span><code>python -m taxassist enrich</code><span data-zh=" 后重试。" data-en=" and try again."></span></div>
   {% endif %}
 </div>
 
@@ -97,7 +97,7 @@
 <h2 data-zh="引用与废止关系" data-en="Citations and repeals">引用与废止关系</h2>
 <div class="card pad">
   {% if citations %}
-    <div style="font-weight:600;margin-bottom:6px">本文引用（{{ citations|length }}）</div>
+    <div style="font-weight:600;margin-bottom:6px"><span data-zh="本文引用（" data-en="Cites ("></span>{{ citations|length }}<span data-zh="）" data-en=")"></span></div>
     <ul class="plain">
     {% for c in citations %}
       <li>
@@ -105,8 +105,8 @@
           <a href="/policy/{{ c.dst_doc_uid }}">{{ c.target_title[:70] }}</a>
           {{ effect_badge(c.target_effect) }}
         {% else %}
-          {{ c.dst_doc_no or '（未能识别）' }}
-          <span class="badge b-mut">未匹配到库内文件</span>
+          {{ c.dst_doc_no or '' }}<span data-zh="{{ '' if c.dst_doc_no else '（未能识别）' }}" data-en="{{ '' if c.dst_doc_no else '(not identified)' }}"></span>
+          <span class="badge b-mut" data-zh="未匹配到库内文件" data-en="No match in library">未匹配到库内文件</span>
         {% endif %}
         <span class="sub">— {{ c.evidence }}</span>
       </li>
@@ -114,13 +114,14 @@
     </ul>
   {% endif %}
   {% if repealed %}
-    <div style="font-weight:600;margin:14px 0 6px;color:var(--accent)">本文被以下文件废止</div>
+    <div style="font-weight:600;margin:14px 0 6px;color:var(--accent)"
+         data-zh="本文被以下文件废止" data-en="Repealed by the following">本文被以下文件废止</div>
     <ul class="plain">
     {% for r in repealed %}
       <li>
         <a href="/policy/{{ r.src_doc_uid }}">{{ r.src_title[:70] }}</a>
         <span class="docno">{{ r.src_doc_no_full or '' }}</span>
-        <span class="badge b-mut">相似度依据：{{ r.confidence }}</span>
+        <span class="badge b-mut"><span data-zh="相似度依据：" data-en="Similarity: "></span>{{ r.confidence }}</span>
         <div class="sub">{{ r.evidence }}</div>
       </li>
     {% endfor %}
@@ -131,20 +132,20 @@
 
 <h2 data-zh="溯源" data-en="Provenance">溯源</h2>
 <div class="card pad">
-  <div><b>官方原文：</b>
+  <div><b data-zh="官方原文：" data-en="Official page: ">官方原文：</b>
     {% if p.url %}<a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
     {% else %}—{% endif %}</div>
   {% if p.snapshot_url %}
-    <div style="margin-top:6px"><b>官方快照：</b>
+    <div style="margin-top:6px"><b data-zh="官方快照：" data-en="Official snapshot: ">官方快照：</b>
       <a href="{{ p.snapshot_url }}" target="_blank" rel="noopener">{{ p.snapshot_url }}</a></div>
   {% endif %}
-  <div style="margin-top:6px"><b>首次抓取：</b>{{ p.first_seen_at[:19].replace('T',' ') }}
-    ｜ <b>最近抓取：</b>{{ p.last_seen_at[:19].replace('T',' ') }}
-    ｜ <b>累计抓取：</b>{{ p.fetch_count }} 次
-    {% if p.last_changed_at %}｜ <b>内容变更于：</b>{{ p.last_changed_at[:19].replace('T',' ') }}{% endif %}
+  <div style="margin-top:6px"><b data-zh="首次抓取：" data-en="First collected: ">首次抓取：</b>{{ p.first_seen_at[:19].replace('T',' ') }}
+    ｜ <b data-zh="最近抓取：" data-en="Last collected: ">最近抓取：</b>{{ p.last_seen_at[:19].replace('T',' ') }}
+    ｜ <b data-zh="累计抓取：" data-en="Times collected: ">累计抓取：</b>{{ p.fetch_count }}<span data-zh=" 次" data-en=""></span>
+    {% if p.last_changed_at %}｜ <b data-zh="内容变更于：" data-en="Last changed: ">内容变更于：</b>{{ p.last_changed_at[:19].replace('T',' ') }}{% endif %}
   </div>
   {% if snapshots %}
-    <div style="margin-top:10px"><b>本机归档快照（{{ snapshots|length }}）：</b>
+    <div style="margin-top:10px"><b><span data-zh="本机归档快照（" data-en="Local archived snapshots ("></span>{{ snapshots|length }}<span data-zh="）：" data-en="): "></span></b>
       <ul class="plain" style="margin-top:4px">
       {% for s in snapshots %}
         <li><span class="d">{{ s.fetched_at[:19].replace('T',' ') }}</span>
@@ -153,7 +154,7 @@
       </ul>
     </div>
   {% endif %}
-  {% if p.o_keywords %}<div style="margin-top:6px"><b>关键词：</b>{{ p.o_keywords }}</div>{% endif %}
+  {% if p.o_keywords %}<div style="margin-top:6px"><b data-zh="关键词：" data-en="Keywords: ">关键词：</b>{{ p.o_keywords }}</div>{% endif %}
 </div>
 
 {% endblock %}

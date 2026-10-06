@@ -598,8 +598,11 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
 <body>
 <header class="top">
   <div class="wrap">
-    <a class="brand" href="/">税务智能知识助手<span
-       class="local {{ 'mode-out' if exposed else '' }}">{{ '对外' if exposed else '本地' }}</span></a>
+    <a class="brand" href="/"><span data-zh="税务智能知识助手"
+       data-en="Tax Policy Knowledge Assistant">税务智能知识助手</span><span
+       class="local {{ 'mode-out' if exposed else '' }}"
+       data-zh="{{ '对外' if exposed else '本地' }}"
+       data-en="{{ 'Public' if exposed else 'Local' }}">{{ '对外' if exposed else '本地' }}</span></a>
     {# 导航**始终渲染** —— 它是一份站点结构，不该随登录状态消失。
        原来的 {% if user or not exposed %} 在对外模式（exposed）下把未登录
        访客的导航整个藏了起来：而 /about 恰好允许未登录访问，于是"点关于
@@ -625,8 +628,10 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
       <input type="search" name="q" value="{{ q or '' }}"
              data-ph-zh="文号 / 标题 / 正文关键词" data-ph-en="Doc. no. / title / keywords"
              placeholder="文号 / 标题 / 正文关键词"
-             aria-label="检索政策">
-      <button type="submit">搜索</button>
+             aria-label="检索政策"
+             data-aria-zh="检索政策" data-aria-en="Search policies"
+             data-title-zh="检索政策" data-title-en="Search policies">
+      <button type="submit" data-zh="搜索" data-en="Search">搜索</button>
     </form>
     {% endif %}
     {# 语言切换：**始终显示**（未登录也要能切）。放在账号区之前，
@@ -661,80 +666,11 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
   <b data-zh="判定依据：" data-en="Basis of determination:">判定依据：</b><span
     class="src src-official" data-zh="官方标注" data-en="Official">官方标注</span>
   <span data-zh="原文自带时效标注或官方目录点名" data-en="the document carries its own validity marking, or an official repeal catalogue names it">原文自带时效标注或官方目录点名</span> ·
-  <span class="src src-inferred" data-zh="据他文判定" data-en="Inferred">据他文判定</span>
+  <span class="src src-inferred" data-zh="据他文判定" data-en="Other docs">据他文判定</span>
   <span data-zh="依其他文件的废止声明" data-en="another document states that it is repealed">依其他文件的废止声明</span> ·
   <span class="src src-default" data-zh="未发现废止" data-en="No repeal found">未发现废止</span>
   <span data-zh="库内无废止证据，" data-en="no repeal evidence in this database;">库内无废止证据，</span><b data-zh="非官方确认有效" data-en="not an official confirmation of validity">非官方确认有效</b>
 </footer>
-<script>
-/* ── 全站语言切换 ────────────────────────────────────────────────
-   关于页原先只有一套**页内**切换（切完就丢、出了那一页就回到中文）。
-   这里做成全站的，三个要点：
-
-     ① 语言存 localStorage —— 跳页与刷新都不丢，这是"全站"的前提；
-     ② 每个页面加载时对所有 [data-zh][data-en] 元素应用一次；
-     ③ 顶栏的切换按钮始终可见（未登录也能切）。
-
-   排版上的考虑：英文普遍比中文长（"Tax Assistant" vs "税务助手"、
-   "Daily Brief" vs "每日简报"），所以相关元素一律**自适应宽度 + 不换行**，
-   而不是给固定宽度 —— 固定宽度会在中文下显得空、英文下挤成一团。
-   见 CSS 里 .top nav a 与 .lang-toggle 的注释。
-
-   没写进模板的文案（如 JS 动态生成的）不参与切换 —— 那是后续的事，
-   当前先把静态界面文案覆盖全。 */
-(function () {
-  var KEY = 'taxassist_lang';
-  function apply(lang) {
-    document.documentElement.lang = (lang === 'en') ? 'en' : 'zh-CN';
-    document.querySelectorAll('[data-zh][data-en]').forEach(function (el) {
-      var v = el.getAttribute(lang === 'en' ? 'data-en' : 'data-zh');
-      if (v !== null) el.textContent = v;
-    });
-    // 关于页用的是**整块切换**（.lang-block，两段完整内容切显示），
-    // 与上面的元素级替换是两套机制 —— 这里一并接管，免得两种状态打架。
-    document.querySelectorAll('.lang-block[data-lang]').forEach(function (blk) {
-      blk.hidden = (blk.getAttribute('data-lang') !== lang);
-    });
-    document.querySelectorAll('.lang-btn').forEach(function (b) {
-      b.setAttribute('aria-pressed', String(b.getAttribute('data-lang') === lang));
-    });
-    // **placeholder 要单独处理**：它不是文本子节点，textContent 改不动，
-    // 只能用 setAttribute。所以给它一套并行属性（data-ph-zh / data-ph-en）——
-    // 输入框的提示语是核心交互的一部分（助手页怎么问、检索页搜什么），
-    // 漏掉它们会让英文界面像"半成品"。
-    document.querySelectorAll('[data-ph-zh][data-ph-en]').forEach(function (el) {
-      var v = el.getAttribute(lang === 'en' ? 'data-ph-en' : 'data-ph-zh');
-      if (v !== null) el.setAttribute('placeholder', v);
-    });
-    var btn = document.getElementById('lang-toggle');
-    if (btn) btn.textContent = (lang === 'en') ? '中文' : 'EN';
-  }
-  var lang = 'zh';
-  try {
-    // 已有选择 → 用它；**首次访问 → 跟随浏览器语言**
-    // （中文环境给中文，其余给英文）。这个判断原本只写在关于页的
-    // 页内脚本里，全站化之后必须收上来，否则别的页面会把它盖掉。
-    var saved = localStorage.getItem(KEY);
-    if (saved === 'zh' || saved === 'en') {
-      lang = saved;
-    } else {
-      lang = (navigator.language || '').toLowerCase().indexOf('zh') === 0
-        ? 'zh' : 'en';
-    }
-  } catch (e) { /* 无痕模式：退回中文 */ }
-  apply(lang);
-  // 顶栏按钮与关于页的「中文/English」都走同一套状态
-  document.addEventListener('click', function (ev) {
-    var t = ev.target && ev.target.closest
-      ? ev.target.closest('#lang-toggle, .lang-btn') : null;
-    if (!t) return;
-    lang = t.classList.contains('lang-btn')
-      ? (t.getAttribute('data-lang') || 'zh')
-      : ((lang === 'en') ? 'zh' : 'en');
-    try { localStorage.setItem(KEY, lang); } catch (e) {}
-    apply(lang);
-  });
-})();
-</script>
+<script src="/static/lang.js"></script>
 </body>
 </html>

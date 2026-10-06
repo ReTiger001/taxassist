@@ -1,52 +1,53 @@
 {% extends "base.html" %}
 {% block title %}后台 · 税务智能知识助手{% endblock %}
 {% block body %}
-<h1>后台</h1>
-<p class="lede" style="color:var(--ink-3);font-size:12.5px;margin:0 0 18px">
-  管理谁能访问本站。这里是唯一能改动数据的地方。</p>
+<h1 data-zh="后台" data-en="Admin">后台</h1>
+<p class="lede" style="color:var(--ink-3);font-size:12.5px;margin:0 0 18px"
+   data-zh="管理谁能访问本站。这里是唯一能改动数据的地方。"
+   data-en="Manage who can access this site. This is the only page that changes data.">管理谁能访问本站。这里是唯一能改动数据的地方。</p>
 
 {% if msg %}<div class="ok">{{ msg }}</div>{% endif %}
 {% if err %}<div class="err">{{ err }}</div>{% endif %}
 
-<h2>数据健康</h2>
+<h2 data-zh="数据健康" data-en="Data health">数据健康</h2>
 <div class="card pad">
 {% if health and health.bad_last_7d %}
+  {#- 含 {{ health.bad_last_7d }} 变量与 <code>，静态部分拆 span -#}
   <div class="err" style="margin:0 0 12px">
-    <b>⚠ 近 7 天有 {{ health.bad_last_7d }} 次抓取未完整完成</b>
-    —— 这不等于"没有新政策"，可能只是抓取漏了。漏掉的政策不会自己出现，
-    请用命令行 <code>python -m taxassist status</code> 查看并重跑。
+    <b><span data-zh="⚠ 近 7 天有 " data-en="⚠ "></span>{{ health.bad_last_7d }}<span data-zh=" 次抓取未完整完成" data-en=" collection run(s) finished incomplete in the last 7 days"></span></b>
+    <span data-zh=" —— 这不等于“没有新政策”，可能只是抓取漏了。漏掉的政策不会自己出现，请用命令行 " data-en=" — this does not mean there were no new policies; collection may simply have missed some. Missed policies never appear on their own — run "></span><code>python -m taxassist status</code><span data-zh=" 查看并重跑。" data-en=" to inspect and re-run."></span>
     <ul class="plain" style="margin:8px 0 0">
     {% for b in health.recent_bad %}
       <li>{{ b.started_at[:19].replace('T', ' ') }} · {{ b.source_id }} ·
-          {{ b.status }}（抓 {{ b.fetched_count }}/{{ b.reported_total }}）
+          {{ b.status }}<span data-zh="（抓 " data-en=" (fetched "></span>{{ b.fetched_count }}/{{ b.reported_total }}<span data-zh="）" data-en=")"></span>
           {% if b.error %}· {{ b.error[:110] }}{% endif %}</li>
     {% endfor %}
     </ul>
   </div>
 {% else %}
-  <p style="margin:0 0 10px">近 7 天没有失败的抓取。</p>
+  <p style="margin:0 0 10px" data-zh="近 7 天没有失败的抓取。" data-en="No failed collection runs in the last 7 days.">近 7 天没有失败的抓取。</p>
 {% endif %}
 
 {% if gap is not none and gap > 2 %}
   <div class="err" style="margin:0">
-    <b>数据已落后 {{ gap }} 天</b>（最后完整抓取覆盖到
-    {{ health.last_window_end[:10] }}）。若后台调度未运行，请手动执行
-    <code>python -m taxassist collect --days {{ gap + 7 }}</code>。
+    <b><span data-zh="数据已落后 " data-en="Data is "></span>{{ gap }}<span data-zh=" 天" data-en=" day(s) behind"></span></b><span data-zh="（最后完整抓取覆盖到 " data-en=" (the last complete run covered up to "></span>
+    {{ health.last_window_end[:10] }}<span data-zh="）。若后台调度未运行，请手动执行 " data-en="). If the scheduled job is not running, run "></span>
+    <code>python -m taxassist collect --days {{ gap + 7 }}</code><span data-zh="。" data-en=" manually."></span>
   </div>
 {% elif health and health.last_window_end %}
-  <p class="sub" style="margin:0">数据覆盖到 {{ health.last_window_end[:10] }}
-    （落后 {{ gap }} 天）。</p>
+  <p class="sub" style="margin:0"><span data-zh="数据覆盖到 " data-en="Data covers up to "></span>{{ health.last_window_end[:10] }}
+    <span data-zh="（落后 " data-en=" ("</span>{{ gap }}<span data-zh=" 天）。" data-en=" day(s) behind)."></span></p>
 {% endif %}
 </div>
 
-<h2>账号 · {{ users|length }}</h2>
+<h2><span data-zh="账号 · " data-en="Accounts · "></span>{{ users|length }}</h2>
 <div class="card">
   <table>
     <thead>
       <tr>
-        <th style="width:20%">账号</th><th style="width:13%">角色</th>
-        <th style="width:18%">创建</th><th style="width:20%">最后登录</th>
-        <th style="width:8%">次数</th><th>操作</th>
+        <th style="width:20%" data-zh="账号" data-en="User">账号</th><th style="width:13%" data-zh="角色" data-en="Role">角色</th>
+        <th style="width:18%" data-zh="创建" data-en="Created">创建</th><th style="width:20%" data-zh="最后登录" data-en="Last login">最后登录</th>
+        <th style="width:8%" data-zh="次数" data-en="Count">次数</th><th data-zh="操作" data-en="Actions">操作</th>
       </tr>
     </thead>
     <tbody>
@@ -54,88 +55,104 @@
       <tr>
         <td><b>{{ u.username }}</b></td>
         <td>
-          {% if u.role == 'owner' %}<span class="badge b-warn">超级管理员</span>
-          {% else %}<span class="badge b-mut">普通</span>{% endif %}
+          {% if u.role == 'owner' %}<span class="badge b-warn" data-zh="超级管理员" data-en="Owner">超级管理员</span>
+          {% else %}<span class="badge b-mut" data-zh="普通" data-en="Member">普通</span>{% endif %}
         </td>
         <td class="d">{{ u.created_at[:10] }}</td>
-        <td class="d">{{ u.last_login_at[:16].replace('T', ' ') if u.last_login_at else '从未登录' }}</td>
+        <td class="d">{{ u.last_login_at[:16].replace('T', ' ') if u.last_login_at else '' }}<span data-zh="{{ '' if u.last_login_at else '从未登录' }}" data-en="{{ '' if u.last_login_at else 'never signed in' }}"></span></td>
         <td class="d">{{ u.login_count }}</td>
         <td>
           <form method="post" action="/admin/user/role" class="inline">
             <input type="hidden" name="username" value="{{ u.username }}">
             <input type="hidden" name="role"
                    value="{{ 'member' if u.role == 'owner' else 'owner' }}">
-            <button class="mini">{{ '取消管理员' if u.role == 'owner' else '设为管理员' }}</button>
+            <button class="mini" data-zh="{{ '取消管理员' if u.role == 'owner' else '设为管理员' }}"
+                    data-en="{{ 'Demote to member' if u.role == 'owner' else 'Make owner' }}">{{ '取消管理员' if u.role == 'owner' else '设为管理员' }}</button>
           </form>
+          {#- 确认框文案走 data-confirm-*，由 /static/lang.js 在 submit 时按语言取。
+              onsubmit 里写死中文是翻不到的（那是 JS 字符串，不是文本节点）。 -#}
           <form method="post" action="/admin/user/delete" class="inline"
-                onsubmit="return confirm('删除账号 {{ u.username }}？对方会立刻掉线。')">
+                data-confirm-zh="删除账号 {{ u.username }}？对方会立刻掉线。"
+                data-confirm-en="Delete account {{ u.username }}? They will be signed out immediately.">
             <input type="hidden" name="username" value="{{ u.username }}">
-            <button class="mini danger">删除</button>
+            <button class="mini danger" data-zh="删除" data-en="Delete">删除</button>
           </form>
         </td>
       </tr>
     {% endfor %}
     {% if not users %}
-      <tr><td colspan="6" class="empty" style="padding:14px 12px">
-        还没有任何账号。生成一个邀请码，用它在本站注册第一个账号。</td></tr>
+      <tr><td colspan="6" class="empty" style="padding:14px 12px"
+              data-zh="还没有任何账号。生成一个邀请码，用它在本站注册第一个账号。"
+              data-en="No accounts yet. Create an invite code and use it to register the first account here.">还没有任何账号。生成一个邀请码，用它在本站注册第一个账号。</td></tr>
     {% endif %}
     </tbody>
   </table>
 </div>
 
-<h2>发出邀请码</h2>
+<h2 data-zh="发出邀请码" data-en="Issue an invite code">发出邀请码</h2>
 <div class="card pad">
   <form method="post" action="/admin/invite" class="filters" style="margin:0">
-    <input name="note" placeholder="发给谁，如：客户张三" style="max-width:260px">
+    <input name="note" style="max-width:260px"
+           data-ph-zh="发给谁，如：客户张三" data-ph-en="For whom, e.g. Client Zhang"
+           placeholder="发给谁，如：客户张三">
+    {#- <option> 里没有子元素，可以直接挂属性；但 select 本身不能挂，
+        否则会把整组选项的 textContent 一起清掉。 -#}
     <select name="days">
-      <option value="7">7 天有效</option>
-      <option value="30" selected>30 天有效</option>
-      <option value="90">90 天有效</option>
-      <option value="0">不过期</option>
+      <option value="7" data-zh="7 天有效" data-en="Valid 7 days">7 天有效</option>
+      <option value="30" selected data-zh="30 天有效" data-en="Valid 30 days">30 天有效</option>
+      <option value="90" data-zh="90 天有效" data-en="Valid 90 days">90 天有效</option>
+      <option value="0" data-zh="不过期" data-en="No expiry">不过期</option>
     </select>
     <select name="role">
-      <option value="member" selected>普通成员</option>
-      <option value="owner">超级管理员</option>
+      <option value="member" selected data-zh="普通成员" data-en="Member">普通成员</option>
+      <option value="owner" data-zh="超级管理员" data-en="Owner">超级管理员</option>
     </select>
-    <button type="submit">生成邀请码</button>
+    <button type="submit" data-zh="生成邀请码" data-en="Create invite code">生成邀请码</button>
   </form>
   <p class="hint" style="color:var(--ink-3);font-size:12px;margin:10px 0 0;line-height:1.7">
-    一个邀请码只能注册一个账号。生成后把「网址 + 邀请码」发给对方，
-    让他在 <code>/register</code> 页面自己设账号与口令 —— 口令由对方设定，你不必也不该替他设。
+    <span data-zh="一个邀请码只能注册一个账号。生成后把「网址 + 邀请码」发给对方，让他在 " data-en="Each invite code creates one account. Send the recipient the site URL plus the code and have them set up their own username and password on the "></span><code>/register</code><span data-zh=" 页面自己设账号与口令 —— 口令由对方设定，你不必也不该替他设。" data-en=" page — they set their own password; you neither need to nor should set it for them."></span>
   </p>
 </div>
 
-<h2>邀请码记录 · {{ invites|length }}</h2>
+<h2><span data-zh="邀请码记录 · " data-en="Invite codes · "></span>{{ invites|length }}</h2>
 {% if invites %}
 <div class="card">
   <table>
     <thead>
       <tr>
-        <th style="width:22%">邀请码</th><th style="width:11%">状态</th>
-        <th style="width:22%">备注</th><th style="width:22%">有效期</th><th>操作</th>
+        <th style="width:22%" data-zh="邀请码" data-en="Code">邀请码</th><th style="width:11%" data-zh="状态" data-en="State">状态</th>
+        <th style="width:22%" data-zh="备注" data-en="Note">备注</th><th style="width:22%" data-zh="有效期" data-en="Expires">有效期</th><th data-zh="操作" data-en="Actions">操作</th>
       </tr>
     </thead>
     <tbody>
     {% for i in invites %}
       <tr>
         <td><span class="docno">{{ i.display }}</span></td>
-        <td><span class="badge {{ 'b-ok' if i.state == '可用' else 'b-mut' }}">{{ i.state }}</span></td>
+        {#- 状态是库里的值（可用/已用/已吊销…）：双语映射写在模板里，
+             遇到没列出的值原样显示，而不是显示成空白。 -#}
+        <td><span class="badge {{ 'b-ok' if i.state == '可用' else 'b-mut' }}"
+                  data-zh="{{ i.state }}"
+                  data-en="{{ {'可用': 'Usable', '已用': 'Used', '已吊销': 'Revoked', '已过期': 'Expired', '过期': 'Expired'}.get(i.state, i.state) }}">{{ i.state }}</span></td>
         <td class="sub" style="margin:0">
-          {% if i.grants_role == 'owner' %}<span class="badge b-warn">管理员码</span>
-          {% else %}普通{% endif %}
+          {% if i.grants_role == 'owner' %}<span class="badge b-warn" data-zh="管理员码" data-en="Owner code">管理员码</span>
+          {% else %}<span data-zh="普通" data-en="Member">普通</span>{% endif %}
           {{ ('· ' + i.note) if i.note else '' }}</td>
         <td class="d">
-          {{ i.expires_at[:10] if i.expires_at else '不过期' }}
+          {#- 注意：`[:10]` 必须留在条件表达式里面 —— 写成 {{ i.expires_at[:10] }} 再
+              用 span 补「不过期」会在 expires_at 为 None 时报
+              TypeError: 'NoneType' object is not subscriptable（实测 500）。 -#}
+          {{ i.expires_at[:10] if i.expires_at else '' }}<span data-zh="{{ '' if i.expires_at else '不过期' }}" data-en="{{ '' if i.expires_at else 'no expiry' }}"></span>
           {% if i.used_by %}
-            <div class="sub" style="margin:0">已由 {{ i.used_by }} 注册</div>
+            <div class="sub" style="margin:0"><span data-zh="已由 " data-en="used by "></span>{{ i.used_by }}<span data-zh=" 注册" data-en=""></span></div>
           {% endif %}
         </td>
         <td>
           {% if i.state == '可用' %}
           <form method="post" action="/admin/invite/revoke" class="inline"
-                onsubmit="return confirm('吊销 {{ i.display }}？')">
+                data-confirm-zh="吊销 {{ i.display }}？"
+                data-confirm-en="Revoke {{ i.display }}?">
             <input type="hidden" name="code" value="{{ i.code }}">
-            <button class="mini danger">吊销</button>
+            <button class="mini danger" data-zh="吊销" data-en="Revoke">吊销</button>
           </form>
           {% else %}<span class="sub" style="margin:0">—</span>{% endif %}
         </td>
@@ -145,11 +162,11 @@
   </table>
 </div>
 {% else %}
-<div class="card"><div class="empty">还没有发出过邀请码。</div></div>
+<div class="card"><div class="empty" data-zh="还没有发出过邀请码。" data-en="No invite codes issued yet.">还没有发出过邀请码。</div></div>
 {% endif %}
 
 <div class="note" style="margin-top:26px">
-  <b>要收回某人的访问权，删账号</b> —— 对方浏览器里的登录状态会立刻失效。<br>
-  <b>吊销邀请码只能挡住还没用过的码</b>；已经被拿去注册过的码，吊销它不会影响到那个账号。
+  <b data-zh="要收回某人的访问权，删账号" data-en="To take away someone's access, delete the account"></b><span data-zh=" —— 对方浏览器里的登录状态会立刻失效。" data-en=" — their session in the browser stops working immediately."></span><br>
+  <b data-zh="吊销邀请码只能挡住还没用过的码" data-en="Revoking a code only blocks codes that were never used"></b><span data-zh="；已经被拿去注册过的码，吊销它不会影响到那个账号。" data-en="; revoking a code that already registered an account has no effect on that account."></span>
 </div>
 {% endblock %}

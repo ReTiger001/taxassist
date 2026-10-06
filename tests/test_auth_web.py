@@ -542,3 +542,68 @@ def test_admin_page_can_issue_owner_invites(db_path):
     rows = _invite_rows()
     assert rows[0]["grants_role"] == "owner"
     assert rows[0]["state"] == "可用"
+
+
+def test_admin_page_renders_invite_without_expiry(db_path):
+    """不过期的邀请码（days=0）在后台列表里必须能渲染。
+
+    回归：双语改造时把 ``{{ i.expires_at[:10] if i.expires_at else '不过期' }}``
+    拆成了 ``{{ i.expires_at[:10] }}`` + 一个补文案的 span，于是 expires_at 为
+    None（不过期的码）时抛 TypeError: 'NoneType' object is not subscriptable，
+    整个 /admin 500。只有真建过「不过期」的码才会走到这个分支，所以单独测。
+    """
+    c = _owner_client(db_path)
+    r = c.post("/admin/invite",
+               data={"note": "长期有效", "days": "0", "role": "member"})
+    assert r.status_code == 303
+    rows = _invite_rows()
+    assert rows[0]["expires_at"] is None        # 前提：确实没有失效时间
+    assert c.get("/admin").status_code == 200
+
+
+# ---------------------------------------------------------------- 全站双语
+
+def test_templates_carry_bilingual_attributes():
+    """所有模板都要接双语 —— 直接查模板源文件。
+
+    这条防的是"新写/改了一个模板，忘了接双语"。查源文件而不是查渲染结果，
+    是因为渲染结果依赖库里有没有数据：夹具库是空的，详情页一取就 404，
+    这样测出来的是"库是空的"，不是"模板没接双语"。
+
+    登录/注册页用 auth_base.html（不继承 base.html），曾经最容易漏 ——
+    它连语言脚本都要单独引入。
+    """
+    from pathlib import Path
+    tdir = (Path(__file__).resolve().parent.parent
+            / "src" / "taxassist" / "web" / "templates")
+    names = ("base.html", "auth_base.html", "index.html", "search.html",
+             "daily.html", "detail.html", "assistant.html", "about.html",
+             "admin.html", "login.html", "register.html", "_macros.html")
+    for name in names:
+        src = (tdir / name).read_text(encoding="utf-8")
+        if name == "about.html":
+            # 关于页是**整块切换**（.lang-block[data-lang]：中英两段完整内容
+            # 切显示），不是元素级替换，所以它的标记本来就不是 data-zh/data-en。
+            # 这里按它自己的机制检查，免得为了过测试去改一个没问题的页面。
+            assert "lang-block" in src and "data-lang" in src, "about.html 缺少整块切换标记"
+            continue
+        assert "data-zh=" in src, f"{name} 没有 data-zh"
+        assert "data-en=" in src, f"{name} 没有 data-en"
+
+
+def test_pages_render_and_carry_bilingual_attributes(db_path):
+    """页面能渲染，并且带上双语属性。"""
+    c = _owner_client(db_path)
+    for path in ("/", "/library", "/search", "/daily", "/about"):
+        r = c.get(path)
+        assert r.status_code == 200, path
+        assert 'data-zh="' in r.text and 'data-en="' in r.text, f"{path} 没有双语属性"
+    # 登录/注册页：用**未登录**的 client（已登录访问会被 302 掉，拿不到正文），
+    # 且必须引入共享语言脚本 —— 否则未登录访客第一眼看到的页面没有语言切换。
+    anon = TestClient(create_app(require_auth=True, auth_mode="page"),
+                      follow_redirects=False)
+    for path in ("/login", "/register"):
+        r = anon.get(path)
+        assert r.status_code == 200, path
+        assert 'data-zh="' in r.text and 'data-en="' in r.text, f"{path} 没有双语属性"
+        assert "/static/lang.js" in r.text, f"{path} 没有引入语言脚本"

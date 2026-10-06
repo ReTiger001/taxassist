@@ -4,15 +4,17 @@
 {% block body %}
 
 <h1 data-zh="政策检索" data-en="Policy Search">政策检索</h1>
-<p class="sub">检索范围：标题 / 文号 / 发文机关 / 正文 / 关键词 —— 命中处会高亮。
+<p class="sub" data-zh="检索范围：标题 / 文号 / 发文机关 / 正文 / 关键词 —— 命中处会高亮。可只按条件浏览，不输关键词。"
+   data-en="Searches title / document number / issuing agency / full text / keywords — matches are highlighted. You can also browse by filters alone, without a keyword.">检索范围：标题 / 文号 / 发文机关 / 正文 / 关键词 —— 命中处会高亮。
   可只按条件浏览，不输关键词。</p>
 
 {% if term_hits %}
 {# 用户搜英文却出中文结果，必须说明原因 —— 否则他会以为搜错了，或者以为库里有英文原文 #}
+{#- 句子里嵌了 {% for %} 循环，所以整段不能挂属性：拆成前后两段静态 span -#}
 <p class="sub term-mapped">
-  已按术语对照把你的英文说法理解为：
+  <span data-zh="已按术语对照把你的英文说法理解为：" data-en="Your English wording was mapped to these terms: "></span>
   {% for t in term_hits %}<strong>{{ t }}</strong>{% if not loop.last %}、{% endif %}{% endfor %}
-  —— 库内政策为中文原文，故按对应中文词检索。
+  <span data-zh=" —— 库内政策为中文原文，故按对应中文词检索。" data-en=" — policies here are Chinese originals, so the search used the matching Chinese terms."></span>
 </p>
 {% endif %}
 
@@ -30,7 +32,7 @@
     <div class="f-q-row">
       <span class="f-q-label" data-zh="年份" data-en="Year">年份</span>
       <a class="q-chip{% if not year %} on{% endif %}"
-         href="{{ url_with(year='') }}">全部</a>
+         href="{{ url_with(year='') }}" data-zh="全部" data-en="All">全部</a>
       {# 默认只放最近 12 年。库里的年份跨了 40 多年（1984 起），
          全铺出来是 44 个 chip、第一屏就被占满 —— 与"精简筛选"相反。
          更早的收进 <details>，要找的时候点开。 #}
@@ -40,7 +42,8 @@
       {% endfor %}
       {% if years|length > 12 %}
       <details class="q-more">
-        <summary>更早（{{ years|length - 12 }}）</summary>
+        {#- summary 里含 {{ years|length - 12 }} 变量，静态部分拆 span -#}
+        <summary><span data-zh="更早（" data-en="Earlier ("></span>{{ years|length - 12 }}<span data-zh="）" data-en=")"></span></summary>
         <div class="q-more-body">
           {% for y in years[12:] %}
             <a class="q-chip{% if y|string == year %} on{% endif %}"
@@ -55,14 +58,14 @@
     <div class="f-q-row">
       <span class="f-q-label" data-zh="地区" data-en="Region">地区</span>
       <a class="q-chip{% if not region %} on{% endif %}"
-         href="{{ url_with(region='') }}">全部</a>
+         href="{{ url_with(region='') }}" data-zh="全部" data-en="All">全部</a>
       {% for name, n in regions[:14] %}
         <a class="q-chip{% if name == region %} on{% endif %}"
            href="{{ url_with(region=name) }}">{{ name }}<i>{{ n }}</i></a>
       {% endfor %}
       {% if regions|length > 14 %}
       <details class="q-more">
-        <summary>更多地区（{{ regions|length - 14 }}）</summary>
+        <summary><span data-zh="更多地区（" data-en="More regions ("></span>{{ regions|length - 14 }}<span data-zh="）" data-en=")"></span></summary>
         <div class="q-more-body">
           {% for name, n in regions[14:] %}
             <a class="q-chip{% if name == region %} on{% endif %}"
@@ -83,6 +86,8 @@
     <button type="submit" data-zh="检索" data-en="Search">检索</button>
   </div>
   <div class="f-row">
+    {#- 注意：label 里包着 select，**不能给 label 挂 data-zh/data-en** ——
+        textContent 替换会把整个下拉框抹掉。所以标签文字单独用 span 包住。 -#}
     <label><span data-zh="栏目" data-en="Column">栏目</span>
       <select name="column">
         <option value="" data-zh="全部" data-en="All">全部</option>
@@ -143,9 +148,9 @@
        于是搜「关税」页面显示「共 50 条」，而实际命中 2348 —— 措辞把人
        误导成"库里就这么多"，而他真正该做的（加词收窄）反而没被提示。 #}
     {% if matched_total is not none %}
-      共 <b>{{ matched_total }}</b> 条{% if results|length < matched_total %}，本页显示 {{ results|length }} 条{% endif %}
+      <span data-zh="共 " data-en=""></span><b>{{ matched_total }}</b><span data-zh=" 条" data-en=" match(es)"></span>{% if results|length < matched_total %}<span data-zh="，本页显示 " data-en=", showing "></span>{{ results|length }}<span data-zh=" 条" data-en=" on this page"></span>{% endif %}
     {% else %}
-      显示 <b>{{ results|length }}</b> 条
+      <span data-zh="显示 " data-en="Showing "></span><b>{{ results|length }}</b><span data-zh=" 条" data-en=""></span>
     {% endif %}
   </p>
   {% if results %}
@@ -158,7 +163,7 @@
         {{ effect_badge(r.p_effect_status) }}{{ source_mark(r.p_effect_source) }}
         {{ docno_cell(r.p_doc_no_full, r.p_doc_no_confidence) }}
         <span class="d">{{ r.cwrq or '—' }}</span>
-        <span class="d">{{ r.p_region or '全国' }}</span>
+        <span class="d">{{ r.p_region or '' }}<span data-zh="{{ '' if r.p_region else '全国' }}" data-en="{{ '' if r.p_region else 'National' }}"></span></span>
         <span class="d">{{ r.o_column or '—' }}</span>
         {% if r.pub_name %}<span class="d">{{ r.pub_name }}</span>{% endif %}
       </div>
@@ -166,8 +171,7 @@
     {% endfor %}
   </ul>
   {% else %}
-  <div class="card"><div class="empty">没有命中。若确信应有结果，请在命令行执行
-    <code>python -m taxassist status</code> 检查是否漏抓（抓取不完整会显式标注）。</div></div>
+  <div class="card"><div class="empty"><span data-zh="没有命中。若确信应有结果，请在命令行执行 " data-en="No matches. If you are sure there should be some, run "></span><code>python -m taxassist status</code><span data-zh=" 检查是否漏抓（抓取不完整会显式标注）。" data-en=" on the command line to check whether collection missed anything — an incomplete run is stated explicitly."></span></div></div>
   {% endif %}
 {% endif %}
 

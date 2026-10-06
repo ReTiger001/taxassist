@@ -200,18 +200,18 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
 
 <div class="hd">
   <h1 data-zh="税务助手" data-en="Tax Assistant">税务助手</h1>
+  {#- 句子里夹着四个 <b>，所以纯文本部分必须各自用 span 包住 ——
+      给 .sub 整个挂 data-zh/data-en 会把四个词组一起抹掉。 -#}
   <p class="sub">
-    丢一份合同、方案或一个想法进来 —— 对照本机政策库给出
-    <b>合规判断</b>、<b>适用政策</b>、<b>优化空间</b>、<b>风险与待确认</b>。
+    <span data-zh="丢一份合同、方案或一个想法进来 —— 对照本机政策库给出 " data-en="Drop in a contract, a plan, or just an idea — and get a "></span><b data-zh="合规判断" data-en="compliance read">合规判断</b><span data-zh="、" data-en=", "></span><b data-zh="适用政策" data-en="applicable policies">适用政策</b><span data-zh="、" data-en=", "></span><b data-zh="优化空间" data-en="optimisation room">优化空间</b><span data-zh="、" data-en=", "></span><b data-zh="风险与待确认" data-en="risks to confirm">风险与待确认</b><span data-zh="。" data-en=" — from the local policy database."></span>
   </p>
 </div>
 
 {% if not model_ok %}
 <div class="warn-bar">
-  <b>模型当前不可用，无法分析。</b>{{ model_msg }}
+  <b data-zh="模型当前不可用，无法分析。" data-en="The model is unavailable right now, so analysis is disabled.">模型当前不可用，无法分析。</b>{{ model_msg }}
   <div style="margin-top:5px">
-    先启动 ollama（<code>D:\longvideocrater\Ollama\ollama.exe</code>），
-    确认已有 <code>{{ model }}</code> 模型，再刷新本页。
+    <span data-zh="先启动 ollama（" data-en="Start ollama ("></span><code>D:\longvideocrater\Ollama\ollama.exe</code><span data-zh="），确认已有 " data-en=") first, make sure the model "></span><code>{{ model }}</code><span data-zh=" 模型，再刷新本页。" data-en=" is available, then refresh this page."></span>
   </div>
 </div>
 {% endif %}
@@ -224,8 +224,15 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
         <div class="ans">
           <p class="tiny" data-zh="说一件事就开始分析。也可以直接点下面的例子：" data-en="Describe a situation and I will start. Or click an example below:">说一件事就开始分析。也可以直接点下面的例子：</p>
           <div class="examples">
-            <button class="ex" type="button" data-q="我们是一家做软件的公司，年收入 5000 万，有 80 名研发人员，老板想用期权激励核心团队，同时打算把闲置厂房租给关联公司 —— 税务上怎么处理？">软件公司：期权激励 + 厂房出租，税务怎么处理？</button>
-            <button class="ex" type="button" data-q="请分析这份合同的税务风险，并指出有没有更省税的做法。">分析这份合同的税务风险（先点「＋ 文件」上传）</button>
+            {#- 按钮文案双语，但 **data-q 保持中文**：它是要送进检索与模型的
+                提问正文，而库内政策是中文原文，用中文提问命中率最高。
+                把英文界面下的示例也保持中文，是"问到东西"优先于"看着统一"。 -#}
+            <button class="ex" type="button" data-q="我们是一家做软件的公司，年收入 5000 万，有 80 名研发人员，老板想用期权激励核心团队，同时打算把闲置厂房租给关联公司 —— 税务上怎么处理？"
+                    data-zh="软件公司：期权激励 + 厂房出租，税务怎么处理？"
+                    data-en="Software firm: option incentives + renting out a plant — how is it taxed?">软件公司：期权激励 + 厂房出租，税务怎么处理？</button>
+            <button class="ex" type="button" data-q="请分析这份合同的税务风险，并指出有没有更省税的做法。"
+                    data-zh="分析这份合同的税务风险（先点「＋ 文件」上传）"
+                    data-en="Analyse the tax risk in this contract (upload it with &quot;+ File&quot; first)">分析这份合同的税务风险（先点「＋ 文件」上传）</button>
           </div>
         </div>
       </div>
@@ -235,15 +242,20 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
   <div class="composer">
     <div class="files" id="files"></div>
     <div class="row">
-      <button class="ibtn" id="pick" type="button" title="上传文件（PDF / Word / Excel / 文本）">＋ 文件</button>
+      <button class="ibtn" id="pick" type="button"
+              data-title-zh="上传文件（PDF / Word / Excel / 文本）"
+              data-title-en="Upload a file (PDF / Word / Excel / text)"
+              title="上传文件（PDF / Word / Excel / 文本）"
+              data-zh="＋ 文件" data-en="+ File">＋ 文件</button>
       <textarea id="q"
         data-ph-zh="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"
         data-ph-en="Describe the situation, or upload a file first… (Ctrl+Enter to send)"
         placeholder="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"></textarea>
       <button class="ibtn go" id="send" type="button" {% if not model_ok %}disabled{% endif %} data-zh="发送" data-en="Send">发送</button>
     </div>
+    {#- 含 {{ model }} 变量，静态部分拆 span -#}
     <div class="hint">
-      数据全程在本机（推理用 {{ model }}，不联网、不外传） · 支持 PDF/Word/Excel/CSV/TXT · 单次约 1–2 分钟
+      <span data-zh="数据全程在本机（推理用 " data-en="All data stays on this machine (inference with "></span>{{ model }}<span data-zh="，不联网、不外传） · 支持 PDF/Word/Excel/CSV/TXT · 单次约 1–2 分钟" data-en="; no network, nothing sent out) · PDF/Word/Excel/CSV/TXT · about 1–2 minutes per run"></span>
     </div>
   </div>
 </div>
@@ -278,6 +290,62 @@ document.querySelectorAll('.ex').forEach(function (b) {
      这样追问"那如果改成…呢"时，检索也是按新问题重做的。 */
   var chatHistory = [];
 
+  /* ── 动态文案表 ────────────────────────────────────────────────
+     这一页的文字有相当一部分是 **JS 现场拼出来的**（说话人、"正在准备…"、
+     依据卡片里的标记、进度提示、各种报错），data-zh/data-en 那套替换够不着
+     它们。所以这里单独抽一张表。
+
+     当前语言不去读 lang.js 的闭包，而是读 document.documentElement.lang ——
+     lang.js 每次 apply() 都同步这个属性，等于一个跨脚本可用的语言信号。
+     切换语言不会重写已经渲染出来的消息（那是历史记录，情理上也不该变），
+     但之后的每一条都会用新语言。 */
+  function T() {
+    if (document.documentElement.lang === 'en') {
+      return {
+        me: 'Me', bot: 'Tax Assistant', preparing: 'Preparing…',
+        unknown: 'Undetermined', noTitle: '(untitled)',
+        noDocNo: 'No doc. no.', national: 'National',
+        srcOfficial: 'Official', srcInferred: 'Other docs',
+        srcDefault: 'No repeal', srcManual: 'Verified',
+        fact: 'Fact ', factColon: ': ', keywords: 'Keywords: ',
+        evidenceHead: function (n) {
+          return n + ' source(s) — validity labels and document numbers come '
+            + 'from the policy database, not from the model';
+        },
+        chars: ' chars', remove: 'Remove',
+        fileTooBig: 'The file is over 40MB — split it and upload again.',
+        reading: 'Reading ', parsing: 'Parsed ', ready: ' — you can ask now',
+        parseFailed: 'Parsing failed: ', uploadFailed: 'Upload failed: ',
+        unknownReason: 'unknown reason',
+        onlyFiles: '(analysing the uploaded file only)',
+        attachments: 'Attachments: ', listSep: ', ',
+        askDefault: 'Please analyse the file I uploaded, focusing on tax '
+          + 'compliance and where it could be optimised.',
+        askFailed: 'Analysis failed: '
+      };
+    }
+    return {
+      me: '我', bot: '税务助手', preparing: '正在准备…',
+      unknown: '未判定', noTitle: '（无标题）',
+      noDocNo: '文号待补', national: '全国',
+      srcOfficial: '官方标注', srcInferred: '据他文判定',
+      srcDefault: '未发现废止', srcManual: '人工确认',
+      fact: '事实 ', factColon: '：', keywords: '检索词：',
+      evidenceHead: function (n) {
+        return '依据 ' + n + ' 条（效力标签与文号取自政策库，非模型生成）';
+      },
+      chars: ' 字', remove: '移除',
+      fileTooBig: '文件超过 40MB，请拆分后再传',
+      reading: '正在读取 ', parsing: '已解析 ', ready: '，可以提问了',
+      parseFailed: '解析失败：', uploadFailed: '上传失败：',
+      unknownReason: '未知原因',
+      onlyFiles: '（仅分析上传的文件）',
+      attachments: '附件：', listSep: '、',
+      askDefault: '请分析我上传的文件，重点看税务合规与优化空间。',
+      askFailed: '分析失败：'
+    };
+  }
+
   function esc(s) {
     return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
       return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
@@ -307,26 +375,30 @@ document.querySelectorAll('.ex').forEach(function (b) {
   function badge(st) {
     var map = {'现行有效': 'b-ok', '已废止': 'b-bad', '尚未生效': 'b-warn',
                '部分失效': 'b-warn'};
+    /* 效力状态本身是库里的中文值，不翻译（要与详情页、检索页对得上）；
+       只有"未判定"这个兜底词是界面文案，跟着语言走。 */
     return '<span class="badge ' + (map[st] || 'b-mut') + '">' +
-           esc(st || '未判定') + '</span>';
+           esc(st || T().unknown) + '</span>';
   }
   function srcMark(s) {
-    var map = {official: '官方标注', inferred: '据他文判定',
-               default: '未发现废止', manual: '人工确认'};
-    return map[s] ? '<span class="src src-' + esc(s) + '">' + map[s] + '</span>' : '';
+    var t = T();
+    var map = {official: t.srcOfficial, inferred: t.srcInferred,
+               default: t.srcDefault, manual: t.srcManual};
+    return map[s] ? '<span class="src src-' + esc(s) + '">' + esc(map[s]) + '</span>' : '';
   }
   function renderEvidence(policies, groups, facts) {
     if (!policies || !policies.length) return '';
     var rows = '';
     var n = 0;
     function row(p, num) {
+      var t = T();
       var link = p.doc_uid ? '/policy/' + encodeURIComponent(p.doc_uid) : (p.url || '#');
       return '<div class="row">' +
         '<div class="n">' + num + '</div>' +
         '<div class="t"><a href="' + esc(link) + '" target="_blank">' +
-          esc(p.title || '（无标题）') + '</a>' +
-        '<div class="meta">' + esc(p.doc_no || '文号待补') +
-          '　' + esc(p.region || '全国') +
+          esc(p.title || t.noTitle) + '</a>' +
+        '<div class="meta">' + esc(p.doc_no || t.noDocNo) +
+          '　' + esc(p.region || t.national) +
           (p.cwrq ? '　' + esc(p.cwrq) : '') + '</div></div>' +
         '<div class="st">' + badge(p.effect_status) + srcMark(p.effect_source) + '</div>' +
         '</div>';
@@ -338,7 +410,8 @@ document.querySelectorAll('.ex').forEach(function (b) {
       (facts || []).forEach(function (f, i) {
         var idxs = groups[String(i)] || groups[i] || [];
         if (!idxs.length) return;
-        rows += '<div class="group-hd">事实 ' + (i + 1) + '：' + esc(f.fact) + '</div>';
+        rows += '<div class="group-hd">' + esc(T().fact) + (i + 1) +
+                esc(T().factColon) + esc(f.fact) + '</div>';
         idxs.forEach(function (k) {
           var p = policies[k - 1];      // groups 里存的是 1-based 编号
           if (p) { n++; rows += row(p, k); }
@@ -351,15 +424,15 @@ document.querySelectorAll('.ex').forEach(function (b) {
       policies.forEach(function (p, k) { n++; rows += row(p, k + 1); });
     }
     if (!n) return '';
-    return '<details class="evi" open><summary>依据 ' + n +
-           ' 条（效力标签与文号取自政策库，非模型生成）</summary>' +
+    return '<details class="evi" open><summary>' + esc(T().evidenceHead(n)) +
+           '</summary>' +
            '<div class="rows">' + rows + '</div></details>';
   }
 
   function addUser(text) {
     var d = document.createElement('div');
     d.className = 'msg user';
-    d.innerHTML = '<div class="who-line">我</div><div class="body">' + esc(text) + '</div>';
+    d.innerHTML = '<div class="who-line">' + esc(T().me) + '</div><div class="body">' + esc(text) + '</div>';
     log.appendChild(d);
     window.scrollTo(0, document.body.scrollHeight);
   }
@@ -367,9 +440,9 @@ document.querySelectorAll('.ex').forEach(function (b) {
   function addBot() {
     var d = document.createElement('div');
     d.className = 'msg bot';
-    d.innerHTML = '<div class="who-line">税务助手</div>' +
+    d.innerHTML = '<div class="who-line">' + esc(T().bot) + '</div>' +
       '<div class="body"><div class="stage"><span class="dot"></span>' +
-      '<span class="st">正在准备…</span></div><div class="pre"></div>' +
+      '<span class="st">' + esc(T().preparing) + '</span></div><div class="pre"></div>' +
       '<div class="ans"></div></div>';
     log.appendChild(d);
     return {
@@ -383,8 +456,8 @@ document.querySelectorAll('.ex').forEach(function (b) {
 
   function refreshFiles() {
     filesBox.innerHTML = files.map(function (f, i) {
-      return '<span class="chip">' + esc(f.name) + '　' + f.chars + ' 字' +
-        '<button type="button" data-i="' + i + '" title="移除">×</button></span>';
+      return '<span class="chip">' + esc(f.name) + '　' + f.chars + esc(T().chars) +
+        '<button type="button" data-i="' + i + '" title="' + esc(T().remove) + '">×</button></span>';
     }).join('');
     filesBox.querySelectorAll('button').forEach(function (b) {
       b.onclick = function () {
@@ -399,20 +472,20 @@ document.querySelectorAll('.ex').forEach(function (b) {
     var f = fileInput.files[0];
     fileInput.value = '';
     if (!f) return;
-    if (f.size > 40 * 1024 * 1024) { alert('文件超过 40MB，请拆分后再传'); return; }
+    if (f.size > 40 * 1024 * 1024) { alert(T().fileTooBig); return; }
     var rd = new FileReader();
-    pf('正在读取 ' + f.name + '…');
+    pf(T().reading + f.name + '…');
     rd.onload = function () {
       fetch('/api/assistant/upload', {
         method: 'POST', headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({name: f.name, data: rd.result})
       }).then(function (r) { return r.json().then(function (j) { return [r.ok, j]; }); })
         .then(function (pair) {
-          if (!pair[0]) { alert('解析失败：' + (pair[1].error || '未知原因')); return; }
+          if (!pair[0]) { alert(T().parseFailed + (pair[1].error || T().unknownReason)); return; }
           files.push({id: pair[1].file_id, name: pair[1].name, chars: pair[1].chars});
           refreshFiles();
-          pf('已解析 ' + pair[1].name + '（' + pair[1].chars + ' 字），可以提问了');
-        }).catch(function (e) { alert('上传失败：' + e); });
+          pf(T().parsing + pair[1].name + '（' + pair[1].chars + T().chars + '）' + T().ready);
+        }).catch(function (e) { alert(T().uploadFailed + e); });
     };
     rd.readAsDataURL(f);
   };
@@ -430,10 +503,10 @@ document.querySelectorAll('.ex').forEach(function (b) {
     if (busy) return;
     busy = true;
     sendBtn.disabled = true;
-    addUser(text || '（仅分析上传的文件）');
+    addUser(text || T().onlyFiles);
     var shown = text;
     if (files.length) {
-      shown += (text ? '\n\n' : '') + '附件：' + files.map(function (f) { return f.name; }).join('、');
+      shown += (text ? '\n\n' : '') + T().attachments + files.map(function (f) { return f.name; }).join(T().listSep);
     }
     var b = addBot();
     var raw = '';
@@ -445,7 +518,7 @@ document.querySelectorAll('.ex').forEach(function (b) {
     fetch('/api/assistant/ask', {
       method: 'POST', headers: {'Content-Type': 'application/json'},
       body: JSON.stringify({
-        text: text || '请分析我上传的文件，重点看税务合规与优化空间。',
+        text: text || T().askDefault,
         file_ids: usedFiles.map(function (f) { return f.id; }),
         history: chatHistory
       })
@@ -474,7 +547,7 @@ document.querySelectorAll('.ex').forEach(function (b) {
               b.pre.innerHTML = '<div class="facts">' + obj.facts.map(function (f, i) {
                 return '<div class="fact"><b>' + (i + 1) + '.</b> ' + esc(f.fact) +
                   (f.keywords && f.keywords.length
-                    ? '　<span style="color:var(--ink-3)">检索词：' +
+                    ? '　<span style="color:var(--ink-3)">' + esc(T().keywords) +
                       esc(f.keywords.join(' / ')) + '</span>' : '') + '</div>';
               }).join('') + '</div>';
               b.pre.innerHTML += renderEvidence(obj.policies, obj.groups, obj.facts);
@@ -493,7 +566,7 @@ document.querySelectorAll('.ex').forEach(function (b) {
       }
       return pump();
     }).catch(function (e) {
-      b.stage.outerHTML = '<div class="err">分析失败：' + esc(e.message || e) + '</div>';
+      b.stage.outerHTML = '<div class="err">' + esc(T().askFailed) + esc(e.message || e) + '</div>';
     }).then(function () {
       // 记下这一轮，供下一次追问。**助手的回答只留前 1200 字** ——
       // 完整的四节报告好几千字，全带上会挤掉本轮的检索上下文。

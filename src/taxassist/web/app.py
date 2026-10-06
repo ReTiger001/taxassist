@@ -23,8 +23,8 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 
 from fastapi import FastAPI, Query, Request
-from fastapi.responses import (HTMLResponse, JSONResponse, RedirectResponse,
-                               Response)
+from fastapi.responses import (FileResponse, HTMLResponse, JSONResponse,
+                               RedirectResponse, Response)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -252,6 +252,18 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     if font_dir.is_dir():
         app.mount("/static/fonts", StaticFiles(directory=str(font_dir)),
                   name="fonts")
+
+    # 语言脚本：**精确到这一个文件**，理由同上 —— /static/ 整个前缀免认证，
+    # 挂 static/ 根目录就等于开一个免认证的文件出口。
+    # 用显式路由而不是 mount，是因为挂载的最小单位是目录，没法只暴露其中一个
+    # 文件（挂 lang.js 所在目录会把 fonts 之外的任何东西一起放出去）。
+    # 这份脚本必须能从**未登录**状态取到：登录页用的是 auth_base.html，
+    # 它不继承 base.html，但同样需要语言切换。
+    lang_js = HERE / "static" / "lang.js"
+    if lang_js.is_file():
+        @app.get("/static/lang.js", include_in_schema=False)
+        def _lang_js() -> FileResponse:
+            return FileResponse(lang_js, media_type="application/javascript")
 
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
