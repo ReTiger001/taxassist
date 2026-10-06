@@ -15,12 +15,29 @@ import gzip
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 
 from .config import RAW_DIR, ensure_dirs
 from .db import now_iso
 
 log = logging.getLogger(__name__)
+
+# 列表页标题**完全不是标题**的情形 —— 只给了个日期，如广西的 "2026-09-28"。
+# 单独提出来是因为它触发的修复路径与「标题被截断」不同：截断可以用列表标题
+# 做前缀定位，纯日期则根本无从定位（见 apply_enrichment 里的两分支）。
+_DATE_ONLY_TITLE_RE = re.compile(
+    r"^\s*(?:19|20)?\d{2}\s*[-./年]\s*\d{1,2}\s*[-./月]\s*\d{1,2}\s*日?\s*$")
+
+# 政策标题的结尾体裁词。用来判断一段文本"像不像标题" —— 专门用来区分
+# 「干净的真标题」与「站点名+栏目名」（后者实测如
+# "国家税务总局河北省税务局 最新文件"，结尾不是体裁词）。
+_TITLE_TAIL_WORDS = (
+    "公告", "通知", "办法", "规定", "决定", "批复", "意见", "细则",
+    "条例", "制度", "指引", "清单", "目录", "解读", "答复", "函",
+    "规则", "标准", "基准", "方案", "规程", "规范", "计划", "报告",
+    "通告", "公告）", "公告)", "通知）", "通知）",
+)
 
 # 参与内容哈希的字段：只含"政策本身变了才应该变"的字段，
 # 不含 last_seen_at / fetch_count 这类每次抓取都会变的计数列。
@@ -284,6 +301,35 @@ def apply_enrichment(conn, doc_uid: str, detail) -> str:
                 fixed = detail.page_title[idx:].strip()
                 if len(fixed) > len(old_title):
                     updates["title"] = fixed
+        elif _DATE_ONLY_TITLE_RE.match(old_title.strip()):
+            # 另一种病灶（广西 gx_zcwj 实测 4 条）：列表页压根没给标题，
+            # 只给了日期 —— "2026-09-28"。上面那套「用列表标题做前缀定位」
+            # 在此**必然失效**（日期不可能出现在详情页标题里），于是详情页
+            # 明明有真标题（<title> 里就是）也用不上。
+            #
+            # 这里改成分隔符切法：详情页 <title> 形如
+            #   "国家税务总局关于发布《…》的公告_国家税务总局广西壮族自治区税务局"
+            # 即「真标题 + 站点名」。站点后缀分隔符各省不一，取常见的几个；
+            # 中文标题本身极少含这些符号，所以切错的风险很低，且下面还有
+            # 「必须比原标题长」这道闸。
+            cand = detail.page_title
+            for sep in ("_", "|", " - ", "－", "—"):
+                if sep in cand:
+                    cand = cand.split(sep)[0].strip()
+                    break
+            else:
+                # 没命中分隔符。两种可能，**必须分开**：
+                #   · page_title 本身**就是干净标题** —— detail.py 是三级取法，
+                #     meta ArticleTitle 与 <h1> 都不含站点名，广西这 4 条实测
+                #     取到的正是纯标题（第一次写这个分支时我漏了这种情况，
+                #     结果把真标题当"可疑"扔掉了）；
+                #   · 或它是"站点名 + 栏目名"（河北实测：
+                #     "国家税务总局河北省税务局 最新文件"），毫无标题信息。
+                # 判据用**结尾体裁词**：政策标题几乎都以这些词收尾，而站点名
+                # 与栏目名不会 —— 两种情况都能正确区分。
+                cand = cand if cand.endswith(_TITLE_TAIL_WORDS) else ""
+            if len(cand) > len(old_title) and len(cand) > 4:
+                updates["title"] = cand
 
     updates["p_detail_fetched_at"] = now_iso()
     assignments = ",".join(f"{k}=?" for k in updates)

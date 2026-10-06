@@ -129,3 +129,41 @@ def test_archive_page_writes_gzip_and_index(tmp_path, conn, monkeypatch):
         assert json.loads(fh.read())["searchResultAll"]["total"] == 1
     n = conn.execute("SELECT COUNT(*) FROM raw_snapshot WHERE kind='api_json_page'").fetchone()[0]
     assert n == 1
+
+
+def test_date_only_title_is_fixed_from_detail_page_title(conn):
+    """列表页只给了日期时，真标题从详情页 <title> 取回。
+
+    广西 gx_zcwj 实测 4 条栽在这：库里的 title 是 "2026-09-28" 这种值。
+    原有的「用列表标题做前缀定位」在此**必然失效**（日期不可能出现在详情页
+    标题里），所以走分隔符切法。
+    """
+    from taxassist.collect.detail import DetailResult
+
+    store.upsert_policy(conn, _row(title="2026-09-28"))
+    detail = DetailResult(
+        page_title="国家税务总局关于发布《税务行政处罚裁量基准》的公告"
+                   "_国家税务总局广西壮族自治区税务局",
+        body="正文内容",
+    )
+    store.apply_enrichment(conn, "uid-1", detail)
+    row = conn.execute(
+        "SELECT title FROM policy WHERE doc_uid='uid-1'").fetchone()
+    assert row["title"] == "国家税务总局关于发布《税务行政处罚裁量基准》的公告"
+
+
+def test_date_only_title_without_separator_is_left_alone(conn):
+    """<title> 里没有「真标题+站点名」结构时，宁可不修。
+
+    否则会把「国家税务总局河北省税务局 最新文件」这种站点名当政策名写进去，
+    那比留着一个没信息量的日期更糟。河北的 <title> 实测就是这个形态。
+    """
+    from taxassist.collect.detail import DetailResult
+
+    store.upsert_policy(conn, _row(title="2026-09-28"))
+    detail = DetailResult(page_title="国家税务总局河北省税务局 最新文件",
+                          body="正文内容")
+    store.apply_enrichment(conn, "uid-1", detail)
+    row = conn.execute(
+        "SELECT title FROM policy WHERE doc_uid='uid-1'").fetchone()
+    assert row["title"] == "2026-09-28"
