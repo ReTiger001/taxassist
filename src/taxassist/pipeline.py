@@ -227,7 +227,14 @@ def enrich_details(
     from .config import RAW_DIR
 
     sql = ("SELECT doc_uid, url, cwrq FROM policy "
-           "WHERE url IS NOT NULL AND url <> ''")
+           "WHERE url IS NOT NULL AND url <> ''"
+           # **排除 `kb:` 伪 URL。** 北京接口不返回详情页链接（只有 id），
+           # build_provincial_row 用 ``kb:<id>`` 合成一个供 doc_uid 使用；
+           # 这类条目的正文由 api_content_field 直接带回，**本就没有详情页**。
+           # 不排除的话 enrich 会逐条去访问 `kb:697286` 这种不存在的地址，
+           # 必然失败 —— 实测一轮 7200 条里 4181 条（58%）都是这个原因，
+           # 白花了一半时间，真正的补抓量只有 3019 条。
+           " AND url NOT LIKE 'kb:%'")
     if only_missing:
         sql += " AND (content IS NULL OR p_detail_fetched_at IS NULL)"
     sql += " ORDER BY cwrq DESC LIMIT ?"
