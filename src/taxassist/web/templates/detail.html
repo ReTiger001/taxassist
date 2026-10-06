@@ -13,27 +13,27 @@
         机器翻译（{{ tr_title.model }}），以中文原文为准</span></p>
     {% endif %}
     <div class="meta">
-      <span><b>文号</b>
+      <span><b data-zh="文号" data-en="Doc. no.">文号</b>
         {% if p.p_doc_no_full %}<span class="docno">{{ p.p_doc_no_full }}</span>
           {% if p.p_doc_no_confidence == 'none' %}<span class="badge b-mut">官方未提供文号</span>{% endif %}
         {% else %}<span class="d">未识别到完整文号 ——
           {{ '未抓取到正文，无法识别' if not p.content
              else '正文中未出现文号' }}</span>{% endif %}
       </span>
-      <span><b>成文日期</b>{{ p.cwrq or '—' }}</span>
+      <span><b data-zh="成文日期" data-en="Date">成文日期</b>{{ p.cwrq or '—' }}</span>
       {% if p.p_effective_date %}<span><b>施行日期</b>{{ p.p_effective_date }}</span>
       {%- else %}<span><b>施行日期</b><span class="d">未标注 ——
         {{ '未抓取到正文，无法抽取' if not p.content
            else '正文中没有「自…年…月…日起施行」这类表述' }}</span></span>{% endif %}
-      {% if p.pub_date %}<span><b>发布日期</b>{{ p.pub_date }}</span>{% endif %}
-      <span><b>发文机关</b>{{ p.pub_name or '—' }}</span>
-      <span><b>栏目</b>{{ p.o_column or '—' }}</span>
-      <span><b>效力</b>{{ effect_badge(p.p_effect_status) }}{{ source_mark(p.p_effect_source) }}</span>
+      {% if p.pub_date %}<span><b data-zh="发布日期" data-en="Published">发布日期</b>{{ p.pub_date }}</span>{% endif %}
+      <span><b data-zh="发文机关" data-en="Issued by">发文机关</b>{{ p.pub_name or '—' }}</span>
+      <span><b data-zh="栏目" data-en="Column">栏目</b>{{ p.o_column or '—' }}</span>
+      <span><b data-zh="效力" data-en="Validity">效力</b>{{ effect_badge(p.p_effect_status) }}{{ source_mark(p.p_effect_source) }}</span>
     </div>
   </div>
 
   <div class="note">
-    <b>效力判定依据：</b>{{ p.p_effect_reason or '未记录' }}
+    <b data-zh="效力判定依据：" data-en="Basis of determination:">效力判定依据：</b>{{ p.p_effect_reason or '未记录' }}
     {% if p.p_effect_evidence %}<div style="margin-top:4px">证据：{{ p.p_effect_evidence }}</div>{% endif %}
     {% if p.p_effect_source == 'default' %}
       <div style="margin-top:6px;color:var(--accent)">
@@ -94,7 +94,7 @@
 </div>
 
 {% if citations or repealed %}
-<h2>引用与废止关系</h2>
+<h2 data-zh="引用与废止关系" data-en="Citations and repeals">引用与废止关系</h2>
 <div class="card pad">
   {% if citations %}
     <div style="font-weight:600;margin-bottom:6px">本文引用（{{ citations|length }}）</div>
@@ -129,7 +129,7 @@
 </div>
 {% endif %}
 
-<h2>溯源</h2>
+<h2 data-zh="溯源" data-en="Provenance">溯源</h2>
 <div class="card pad">
   <div><b>官方原文：</b>
     {% if p.url %}<a href="{{ p.url }}" target="_blank" rel="noopener">{{ p.url }}</a>
