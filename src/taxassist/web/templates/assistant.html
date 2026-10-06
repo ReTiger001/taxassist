@@ -4,6 +4,53 @@
 
 <style>
 /* =================================================================
+   一屏放下
+   -----------------------------------------------------------------
+   助手页的任务是"输入一件事 → 读报告"。原布局把说明、示例、免责
+   声明一路往下排，使用者得先滚过它们才碰到输入框 —— 而那些留白
+   并不承载信息。改成：整页固定为视口高度，只有对话区内部滚动，
+   输入框永远在视野里。
+
+   特异性用 body>main：base.html 的 main 带 padding 与宽度约束，
+   本页 style 在它之后加载（同优先级后者胜），但显式提高更稳妥。
+   ================================================================= */
+/* 整页不滚：顶栏 / 对话区 / 页脚依次排，中间那块自己滚。
+   **选择器必须带 .wrap** —— main 上挂着 class="wrap"，而 base.html 的
+   .wrap{max-width:1200px;margin:0 auto;padding:0 20px} 是类选择器 (0,1,0)，
+   压得过元素选择器组合 body>main (0,0,2)。实测踩到：我的 max-width:none
+   与 padding 全被它盖掉，只有它没声明的 display/height 生效了 —— 表现为
+   "改了一半"，最难查的那种。 */
+body{display:flex;flex-direction:column;height:100vh;overflow:hidden}
+body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
+  height:auto;max-width:none;padding:14px 20px 12px}
+.foot{flex:none}
+/* 对话区撑满剩余高度，日志内部滚动，输入区始终在视野里 */
+.chat{width:100%;flex:1;display:flex;flex-direction:column;
+  min-height:0;max-width:940px;margin:0 auto}
+.log{flex:1;overflow-y:auto;min-height:0;padding-right:6px}
+.composer{position:static;margin-top:10px}
+/* 解除 base.html 的 .body{max-width:78ch} —— 那条是给**详情页正文**用的
+   （限制行宽便于长文阅读），但助手页的消息体也叫 .body，被一并限住：
+   实测对话区 852px 里内容只有 565px，右侧平白空出 287px，观感就是
+   "左边一窄条、右边一大片空"。同名的 .msg.bot .body 只覆盖了 padding，
+   max-width 漏了。 */
+.msg .body{max-width:none}
+.hd{width:100%;max-width:940px;margin:0 auto 10px}
+.hd h1{font-size:17px;margin:0 0 3px}
+.hd .sub{font-size:12px;color:var(--ink-3);margin:0;line-height:1.6}
+
+/* 示例：可点，点了就填进输入框 —— 省掉"照着抄一遍"这一步 */
+.examples{display:flex;flex-direction:column;gap:6px;margin:9px 0 4px}
+.ex{text-align:left;font:inherit;font-size:12.5px;line-height:1.5;
+  color:var(--ink-2);background:var(--sunken);border:1px solid var(--line);
+  border-radius:0;padding:7px 11px;cursor:pointer}
+.ex:hover{background:#001a00;border-color:var(--brand-2);color:var(--ink)}
+.ex::before{content:"▸ ";color:var(--brand-2)}
+.tiny{font-size:11.5px;color:var(--ink-3);margin:8px 0 0;line-height:1.5}
+</style>
+
+<style>
+/* =================================================================
    对话窗口
    -----------------------------------------------------------------
    使用者是税务师，任务是把一份合同/方案/想法丢进来，拿到"合不合规、
@@ -121,12 +168,14 @@
 }
 </style>
 
-<h1>税务助手</h1>
-<p class="sub" style="margin-bottom:16px">
-  把合同、方案、或一个想法放进来，它对照本机政策库给出四节报告：
-  <b>合规判断</b>　<b>适用政策</b>　<b>优化空间</b>（税负最低 / 风险最低分开列）　
-  <b>风险与待确认</b>。每条结论都标依据编号，依据卡片可点回政策原文。
-</p>
+<div class="hd">
+  <h1>税务助手</h1>
+  <p class="sub">
+    把合同、方案或一个想法放进来，对照本机政策库给出四节报告：
+    <b>合规判断</b>、<b>适用政策</b>、<b>优化空间</b>、<b>风险与待确认</b>；
+    每条结论都标依据编号，可点回政策原文。
+  </p>
+</div>
 
 {% if not model_ok %}
 <div class="warn-bar">
@@ -145,12 +194,11 @@
       <div class="body">
         <div class="ans">
           <p>说一件事我就开始分析。例如：</p>
-          <ul>
-            <li>我们是一家做软件的公司，年收入 5000 万，有 80 名研发人员，
-              老板想用期权激励核心团队，同时打算把闲置厂房租给关联公司 —— 税务上怎么处理？</li>
-            <li>（上传一份合同或方案，直接问它有没有税务风险、有没有更省的做法）</li>
-          </ul>
-          <p style="color:var(--ink-3);font-size:12.5px">
+          <div class="examples">
+            <button class="ex" type="button" data-q="我们是一家做软件的公司，年收入 5000 万，有 80 名研发人员，老板想用期权激励核心团队，同时打算把闲置厂房租给关联公司 —— 税务上怎么处理？">软件公司：期权激励 + 闲置厂房出租给关联公司，税务上怎么处理？</button>
+            <button class="ex" type="button" data-q="请分析这份合同的税务风险，并指出有没有更省税的做法。">帮我看看这份合同的税务风险（点「＋ 文件」上传后发送）</button>
+          </div>
+          <p class="tiny">
             数据全程在本机处理：检索走本机政策库，推理走本机
             <code>{{ model }}</code>，不联网、不外传。
           </p>
@@ -167,13 +215,24 @@
       <button class="ibtn go" id="send" type="button" {% if not model_ok %}disabled{% endif %}>发送</button>
     </div>
     <div class="hint">
-      支持 PDF / Word / Excel / CSV / TXT（扫描件没有文字层，读不了）。
-      单次分析约 1–2 分钟，正文会边生成边出现。
+      支持 PDF / Word / Excel / CSV / TXT · 单次分析约 1–2 分钟，正文边生成边出现
     </div>
   </div>
 </div>
 
 <input type="file" id="pick-file" accept=".pdf,.doc,.docx,.xls,.xlsx,.csv,.txt,.md,.zip,.rar" hidden>
+
+<script>
+// 示例可点：填进输入框并聚焦 —— 省掉"照着抄一遍"这一步。
+// 放在独立 script 里，不碰下面的主逻辑。
+document.querySelectorAll('.ex').forEach(function (b) {
+  b.addEventListener('click', function () {
+    var q = document.getElementById('q');
+    q.value = b.dataset.q || b.textContent.trim();
+    q.focus();
+  });
+});
+</script>
 
 <script>
 (function () {

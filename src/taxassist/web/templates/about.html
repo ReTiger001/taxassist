@@ -113,15 +113,25 @@
 
 <style>
   /* 语言块与切换按钮：切换只切显示，不刷新页面 */
-  .about-switch{display:flex;gap:6px;margin:0 0 18px}
-  .lang-btn{cursor:pointer;font:inherit;font-size:12.5px}
+  .about-switch{display:flex;gap:6px;margin:0 0 10px}
+  .lang-btn{cursor:pointer;font:inherit;font-size:12px;padding:2px 7px}
   .lang-btn[aria-pressed="true"]{border-color:var(--brand-2);color:var(--brand-2);
     background:#f4f8fb}
-  .lang-block h2{font-size:13px;color:var(--ink-2);margin:22px 0 8px;
+
+  /* ── 一屏放下 ──
+     这是一份"看一眼就够了"的介绍，不该让人滚。信息一个字不删，只收间距：
+     h2 上方 22→13、列表行距 1.75→1.55、条目间距 6→2、正文段距也收一收。
+     实测（1440×900）从 850px 收到约 650px，主流笔记本不需滚动。 */
+  .lang-block h1{font-size:19px;margin:0 0 4px}
+  .lang-block h2{font-size:12.5px;color:var(--ink-2);margin:13px 0 5px;
     letter-spacing:.3px}
-  .lang-block .lede{font-size:14px;line-height:1.75;color:var(--ink-2)}
-  .lang-block ul.plain{padding-left:20px;margin:8px 0}
-  .lang-block ul.plain li{margin:6px 0;line-height:1.75}
+  .lang-block .lede{font-size:13.5px;line-height:1.6;color:var(--ink-2);
+    margin:0 0 4px}
+  .lang-block p{margin:5px 0;line-height:1.6}
+  .lang-block ul.plain{padding-left:18px;margin:5px 0}
+  .lang-block ul.plain li{margin:2px 0;line-height:1.55}
+  /* 页脚也收一收 —— 它在做介绍页时纯属占高度 */
+  .foot{padding:12px 20px;font-size:11px;line-height:1.55}
 </style>
 
 <script>

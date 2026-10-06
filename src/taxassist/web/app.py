@@ -365,8 +365,14 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
 
     # ------------------------------------------------------------ 首页
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/library", response_class=HTMLResponse)
     def index(request: Request):
+        """政策库总览。
+
+        **路径是 /library 而不是 /** —— 首页留给税务助手。用户实测后的判断：
+        这个站的核心是"把一件事丢进来、拿到合规判断"，而不是"浏览政策列表"；
+        把人先领到一堆文件面前，等于让他自己去找答案。政策库降为第二入口。
+        """
         from .. import scheduler
 
         conn = dbmod.connect()

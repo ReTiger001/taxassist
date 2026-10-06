@@ -454,8 +454,15 @@ a{color:#00cc00;border-bottom-color:#0e3a0e}
 a:hover{background:#00ff00;color:#000;border-bottom-color:#00ff00}
 
 /* 顶栏 */
-.top{background:#000;border-bottom-color:#0e3a0e}
+/* 顶栏悬浮：长页面（资料库、详情页、关于）往下滚时导航不消失 ——
+   否则想换栏目只能一路滚回顶部。z-index 低于扫描线层（2），
+   高于内容。 */
+.top{background:#000;border-bottom-color:#0e3a0e;
+  position:sticky;top:0;z-index:50}
 .top nav a{color:#008800}
+/* 当前所在栏目：亮绿 + 下划线。用户诉求是「点进去以后这个标签不能消失」
+   —— 指的是导航还在（靠上面的 sticky），而且要能看出自己在哪一项。 */
+.top nav a.on{color:#00ff00;border-bottom-color:#00ff00}
 .top nav a:hover{background:none;color:#00ff00;
   border-bottom-color:#00ff00}
 .brand{color:#00ff00;font-weight:700;letter-spacing:.5px}
@@ -565,12 +572,13 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
     <a class="brand" href="/">税务智能知识助手<span
        class="local {{ 'mode-out' if exposed else '' }}">{{ '对外' if exposed else '本地' }}</span></a>
     {% if user or not exposed %}
+    {% set _p = (request.url.path if request is defined else '') %}
     <nav>
-      <a href="/">总览</a>
-      <a href="/assistant">税务助手</a>
-      <a href="/daily">每日简报</a>
-      <a href="/search">检索</a>
-      <a href="/about">介绍</a>
+      <a href="/" class="{{ 'on' if _p == '/' or _p.startswith('/assistant') else '' }}">税务助手</a>
+      <a href="/library" class="{{ 'on' if _p.startswith('/library') else '' }}">资料库</a>
+      <a href="/search" class="{{ 'on' if _p.startswith('/search') or _p.startswith('/policy') else '' }}">检索</a>
+      <a href="/daily" class="{{ 'on' if _p.startswith('/daily') else '' }}">每日简报</a>
+      <a href="/about" class="{{ 'on' if _p.startswith('/about') else '' }}">关于</a>
     </nav>
     <form class="quick" action="/search" method="get">
       <input type="search" name="q" value="{{ q or '' }}" placeholder="文号 / 标题 / 正文关键词"

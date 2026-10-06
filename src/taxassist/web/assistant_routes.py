@@ -91,6 +91,7 @@ def register(app, *, ctx, templates) -> None:
 
     # ------------------------------------------------------------ 税务助手
 
+    @app.get("/", response_class=HTMLResponse)
     @app.get("/assistant", response_class=HTMLResponse)
     def assistant_page(request: Request):
         """对话窗口：上传文件或说想法 → 四节报告。
