@@ -571,7 +571,13 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
   <div class="wrap">
     <a class="brand" href="/">税务智能知识助手<span
        class="local {{ 'mode-out' if exposed else '' }}">{{ '对外' if exposed else '本地' }}</span></a>
-    {% if user or not exposed %}
+    {# 导航**始终渲染** —— 它是一份站点结构，不该随登录状态消失。
+       原来的 {% if user or not exposed %} 在对外模式（exposed）下把未登录
+       访客的导航整个藏了起来：而 /about 恰好允许未登录访问，于是"点关于
+       → 导航没了 → 回不去"。用户实测踩到，根因就在这里。
+       未登录时点"助手/资料库"会自然跳到登录页（认证中间件处理），这是
+       可理解的；但"没有返回路径"是不可接受的。
+       搜索框仍只在登录后显示 —— 它对未登录访客点了也是跳登录，不如不给。 #}
     {% set _p = (request.url.path if request is defined else '') %}
     <nav>
       <a href="/" class="{{ 'on' if _p == '/' or _p.startswith('/assistant') else '' }}">税务助手</a>
@@ -580,6 +586,7 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
       <a href="/daily" class="{{ 'on' if _p.startswith('/daily') else '' }}">每日简报</a>
       <a href="/about" class="{{ 'on' if _p.startswith('/about') else '' }}">关于</a>
     </nav>
+    {% if user or not exposed %}
     <form class="quick" action="/search" method="get">
       <input type="search" name="q" value="{{ q or '' }}" placeholder="文号 / 标题 / 正文关键词"
              aria-label="检索政策">
