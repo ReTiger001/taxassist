@@ -47,7 +47,40 @@ def parse_pdf(path: Path) -> str:
     with pymupdf.open(str(path)) as doc:
         for page in doc:
             parts.append(page.get_text())
-    return "\n".join(parts)
+    text = "\n".join(parts)
+    if text.strip():
+        return text
+    # **无文字层 → 走 OCR。** 扫描件（图片型 PDF）用 get_text() 抽不出任何
+    # 文字，此前一律记为 no_text_layer 而作罢 —— 但它们的文字是"看得见、
+    # 读不出"，OCR 正好解决这一类。选 RapidOCR（PaddleOCR 模型的 ONNX 版），
+    # 中文精度与 PaddleOCR 同级，却只要 onnxruntime，CPU 可跑。
+    return _ocr_pdf(path)
+
+
+def _ocr_pdf(path: Path) -> str:
+    """扫描件 PDF：逐页渲染成图后做 OCR。
+
+    只在 ``get_text()`` 完全抽不出文字时调用 —— 有文字层的 PDF 走原生抽取，
+    又快又准，不该浪费 OCR 的时间。
+    """
+    import numpy as np
+    import pymupdf
+
+    from rapidocr_onnxruntime import RapidOCR
+
+    ocr = RapidOCR()
+    out: list[str] = []
+    with pymupdf.open(str(path)) as doc:
+        for page in doc:
+            pix = page.get_pixmap(dpi=200)
+            arr = np.frombuffer(pix.samples, dtype=np.uint8).reshape(
+                pix.height, pix.width, pix.n)
+            if pix.n == 4:            # 带 alpha 的转成 RGB
+                arr = arr[:, :, :3]
+            result, _elapse = ocr(arr)
+            if result:
+                out.append("\n".join(r[1] for r in result))
+    return "\n".join(out)
 
 
 @_register(["xlsx", "xlsm"])

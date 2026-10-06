@@ -16,10 +16,15 @@
       <span><b>文号</b>
         {% if p.p_doc_no_full %}<span class="docno">{{ p.p_doc_no_full }}</span>
           {% if p.p_doc_no_confidence == 'none' %}<span class="badge b-mut">官方未提供文号</span>{% endif %}
-        {% else %}<span class="d">未识别到完整文号</span>{% endif %}
+        {% else %}<span class="d">未识别到完整文号 ——
+          {{ '未抓取到正文，无法识别' if not p.content
+             else '正文中未出现文号' }}</span>{% endif %}
       </span>
       <span><b>成文日期</b>{{ p.cwrq or '—' }}</span>
-      {% if p.p_effective_date %}<span><b>施行日期</b>{{ p.p_effective_date }}</span>{% endif %}
+      {% if p.p_effective_date %}<span><b>施行日期</b>{{ p.p_effective_date }}</span>
+      {%- else %}<span><b>施行日期</b><span class="d">未标注 ——
+        {{ '未抓取到正文，无法抽取' if not p.content
+           else '正文中没有「自…年…月…日起施行」这类表述' }}</span></span>{% endif %}
       {% if p.pub_date %}<span><b>发布日期</b>{{ p.pub_date }}</span>{% endif %}
       <span><b>发文机关</b>{{ p.pub_name or '—' }}</span>
       <span><b>栏目</b>{{ p.o_column or '—' }}</span>
