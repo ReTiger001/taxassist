@@ -128,11 +128,13 @@
     {% for i in invites %}
       <tr>
         <td><span class="docno">{{ i.display }}</span></td>
-        {#- 状态是库里的值（可用/已用/已吊销…）：双语映射写在模板里，
-             遇到没列出的值原样显示，而不是显示成空白。 -#}
+        {#- 状态是库里的值（可用/已使用/已吊销…）：双语映射写在模板里，
+             遇到没列出的值原样显示，而不是显示成空白。
+             **key 要跟库里的实际值一致** —— 曾经按猜的写 "已用"，而库里是
+             "已使用"，于是英文界面下这一格原样漏出中文。不确定就多列几个。 -#}
         <td><span class="badge {{ 'b-ok' if i.state == '可用' else 'b-mut' }}"
                   data-zh="{{ i.state }}"
-                  data-en="{{ {'可用': 'Usable', '已用': 'Used', '已吊销': 'Revoked', '已过期': 'Expired', '过期': 'Expired'}.get(i.state, i.state) }}">{{ i.state }}</span></td>
+                  data-en="{{ {'可用': 'Usable', '已使用': 'Used', '已用': 'Used', '已吊销': 'Revoked', '已过期': 'Expired', '过期': 'Expired'}.get(i.state, i.state) }}">{{ i.state }}</span></td>
         <td class="sub" style="margin:0">
           {% if i.grants_role == 'owner' %}<span class="badge b-warn" data-zh="管理员码" data-en="Owner code">管理员码</span>
           {% else %}<span data-zh="普通" data-en="Member">普通</span>{% endif %}
