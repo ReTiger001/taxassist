@@ -141,8 +141,30 @@ def chat(messages: list[dict], *, model: str = DEFAULT_MODEL,
     return ((data.get("message") or {}).get("content") or "").strip()
 
 
+# 模型可用性缓存：**这个探测要 800ms，而页面每次请求都调它**，于是每次点
+# 导航都要白等 0.8 秒。慢的不是 ollama（curl 实测 3-5ms），是 httpx 库自身
+# 的开销 —— 实测同一时刻同一个 URL：socket 裸连 6ms、urllib 38ms、
+# httpx 793-933ms；trust_env=False 无效（排除代理）、第二次调用仍慢
+# （排除冷启动）。可用性不需要实时，30 秒内复用结果。
+_AVAIL_CACHE = None
+_AVAIL_TTL = 30.0
+
+
 def is_available(model: str = DEFAULT_MODEL) -> tuple[bool, str]:
-    """检查本机模型是否可用，返回 ``(是否可用, 说明)``。
+    """模型是否可用。**带 30 秒缓存**，理由见上面 _AVAIL_CACHE 的注释。"""
+    global _AVAIL_CACHE
+    import time
+
+    now = time.time()
+    if _AVAIL_CACHE is not None and now - _AVAIL_CACHE[0] < _AVAIL_TTL:
+        return _AVAIL_CACHE[1]
+    result = _probe_available(model)
+    _AVAIL_CACHE = (now, result)
+    return result
+
+
+def _probe_available(model: str) -> tuple[bool, str]:
+    """实际探测一次。
 
     页面上要先显示这个状态：模型没起来时让用户点了发送干等 90 秒，
     是最糟的失败方式（他会以为系统坏了）。参考 translate_llm.is_available，

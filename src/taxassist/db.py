@@ -105,6 +105,14 @@ CREATE INDEX IF NOT EXISTS idx_policy_column      ON policy(o_column);
 CREATE INDEX IF NOT EXISTS idx_policy_docno       ON policy(p_doc_no_full);
 CREATE INDEX IF NOT EXISTS idx_policy_effect      ON policy(p_effect_status);
 CREATE INDEX IF NOT EXISTS idx_policy_review      ON policy(p_review_state);
+-- 下面三条是 2026-10-06 补的：用户反馈"点导航跳转很慢"，逐条 SQL 计时
+-- 定位到全是全表扫描（328MB / 13946 行），与翻译任务无关。
+--   · 状态+来源的联合查询（首页与资料库都要）原本 145ms；
+--   · 按地区分组原本 176ms；
+--   · 附件按解析状态统计原本 84ms。
+-- 单列 idx_policy_effect 不够用：它只能过滤状态，来源那一段仍要回表逐行判。
+CREATE INDEX IF NOT EXISTS idx_policy_effsrc     ON policy(p_effect_status, p_effect_source);
+CREATE INDEX IF NOT EXISTS idx_policy_region     ON policy(p_region);
 CREATE INDEX IF NOT EXISTS idx_policy_urumd5      ON policy(url_md5);
 
 -- 原文归档索引：每条政策的每次抓取快照（响应体存文件，此处只记索引与哈希）
@@ -158,6 +166,8 @@ CREATE TABLE IF NOT EXISTS attachment (
 );
 
 CREATE INDEX IF NOT EXISTS idx_attach_docuid ON attachment(doc_uid);
+-- 按解析状态统计（资料库页要算"已解析附件"）：原本全表扫描 84ms
+CREATE INDEX IF NOT EXISTS idx_attach_status ON attachment(parse_status);
 
 -- 政策间关系（引用 / 废止 / 修订 / 替代）
 -- 为什么单独建表而不是塞一个字符串字段：废止是"一引多"关系且必须能反向查询
