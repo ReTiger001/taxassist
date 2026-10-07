@@ -50,7 +50,14 @@ def register(app, *, require_auth: bool, auth_mode: str) -> None:
         # fonts、里面只有两个 woff2；哪天挂了更宽的目录，这里就变成
         # 认证绕过入口。下面两个 ".." 检查是第二道闸，但挡不住 URL
         # 编码的变体（如 %2e%2e%2f）—— 真正的保证是"别挂宽"。
-        if path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/"):
+        # `/api/` 也放行 —— **它有自己的一套鉴权**（Authorization: Bearer tk_…），
+        # 与页面的会话认证是两回事。不放行的话，客户用 Key 调 API 只会收到
+        # 302 跳登录页：实测（2026-10）在免认证的测试站上一切正常，一上
+        # 开了认证的正式站全部 302，API 等于不可用。
+        # 注意下面"尽力解析登录态"那段只对 PUBLIC_PATHS 生效，所以 /api/*
+        # 不会为每个请求多查一次库。
+        if (path in PUBLIC_PATHS or path == "/static"
+                or path.startswith("/static/") or path.startswith("/api/")):
             if ".." not in path and "\\" not in path:
                 # **白名单页也要尽力解析登录态，只是不拦截。**
                 # 原来这里直接 call_next，request.state.user 从未被设置，

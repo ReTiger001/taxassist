@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}客户与余量 · 税务智能知识助手{% endblock %}
+{% block body %}
+<h1>客户与余量</h1>
+<p class="sub" style="r{
+   "客户"是**能调 API 的对象**，与"账号"（能进这个站的人）是两回事：一个客户
+  可以没有任何登录账号，只需要一枚 API Key 和足够的余量。收款走人工充值 ——
+  收到转账后在这里加额。
+</p>
+
+{% if msg %}<div class="ok">{{ msg }}</div>{% endif %}
+{% if err %}<div class="err">{{ err }}</div>{% endif %}
+
+<h2>新建客户 / 调整余量</h2>
+<div class="card pad">
+  {#- 显式写 flex：靠 class="filters" 不够 —— 那一套是给检索页的表单用的，
+      在 .card.pad 里不生效，实测渲染成"每个控件一行、居中堆叠"，占了大半屏。 #}
+  <form method="post" action="/admin/customers/add"
+        style="margin:0;display:flex;flex-wrap:wrap;gap:8px;align-items:center">
+    <input name="name" placeholder="客户名（如：某某事务所）" style="max-width:220px" required>
+    <select name="kind">
+      <option value="search">检索次数</option>
+      <option value="assistant">助手次数</option>
+    </select>
+    <input name="amount" type="number" value="100" style="max-width:110px">
+    <input name="note" placeholder="备注（发给谁）" style="max-width:200px">
+    <button type="submit">加 / 减余量</button>
+    <button type="submit" name="action" value="create" class="f-go">只新建客户</button>
+  </form>
+  <p class="hint" style="color:var(--ink-3);font-size:12px;margin:10px 0 0;line-height:1.7">
+    数量可填负数纠错，但余额不会低于 0 —— 负数会让"还能用几次"没法回答。
+    检索与助手<b>分开计价</b>（助手要跑本机大模型，成本高得多），所以两种余量各算各的。
+    新建客户后余额为 0，记得加额再发 Key。
+  </p>
+</div>
+
+<h2>客户 · {{ customers|length }}</h2>
+<div class="card">
+  <table>
+    <thead><tr>
+      <th style="width:20%">客户</th>
+      <th style="width:9%">检索余</th>
+      <th style="width:9%">助手余</th>
+      <th style="width:12%">成功 / 失败</th>
+      <th style="width:16%">最近调用</th>
+      <th style="width:8%">可用 Key</th>
+      <th>操作</th>
+    </tr></thead>
+    <tbody>
+    {% for c in customers %}
+      <tr>
+        <td><b>{{ c.name }}</b>
+          {% if c.note %}<div class="sub" style="margin:0">{{ c.note }}</div>{% endif %}</td>
+        <td class="d">{{ c.balance }}</td>
+        <td class="d">{{ c.assistant_balance }}</td>
+        <td class="d">{{ c.calls_ok }} / {{ c.calls_failed }}</td>
+        <td class="d">{{ c.last_call[:16].replace('T', ' ') if c.last_call else '从未调用' }}</td>
+        <td class="d">{{ c.active_keys }}</td>
+        <td>
+          <form method="post" action="/admin/customers/key" class="inline"
+                data-confirm-zh="给 {{ c.name }} 签发一枚新 API Key？旧 Key 仍然有效。"
+                data-confirm-en="Issue a new API key for {{ c.name }}? Existing keys stay valid.">
+            <input type="hidden" name="name" value="{{ c.name }}">
+            <button class="mini">发 Key</button>
+          </form>
+        </td>
+      </tr>
+      {% if calls[c.name] %}
+      <tr><td colspan="7" class="sub" style="padding:0 12px 8px;line-height:1.9">
+        <span style="color:var(--ink-3)">最近调用：</span>
+        {% for u in calls[c.name] %}<span style="margin-right:12px;white-space:nowrap">{{ u.ts[5:16].replace('T', ' ') }} {{ u.kind }}{% if not u.ok %}（失败）{% endif %}{% if u.detail %} · {{ u.detail[:36] }}{% endif %}</span>{% endfor %}
+      </td></tr>
+      {% endif %}
+    {% endfor %}
+    {% if not customers %}
+      <tr><td colspan="7" class="empty" style="padding:14px 12px">
+        还没有客户。用上面的表单建一个，加额后再发 Key。</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div class="note" style="margin-top:26px">
+  <b>API Key 只在签发的那一次显示</b> —— 库里存的是它的哈希，谁也反推不出来，
+  所以离开本页就看不到了；丢了就重新签一枚。
+  <br><b>吊销 Key</b> 目前只能在命令行做：<code>taxassist billing revoke &lt;key&gt;</code>。
+</div>
+{% endblock %}

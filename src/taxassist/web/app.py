@@ -315,6 +315,8 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     from .admin_routes import register as _register_admin
     from .assistant_routes import register as _register_assistant
     from .auth_routes import register as _register_auth
+    from .api_routes import register as _register_api
+    from .billing_routes import register as _register_billing
     from .browse_routes import register as _register_browse
     from .middleware import register as _register_middleware
 
@@ -326,6 +328,8 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     _register_about(app, templates=templates, require_auth=require_auth)
     _register_auth(app, templates=templates, require_auth=require_auth)
     _register_admin(app, templates=templates, require_auth=require_auth)
+    _register_billing(app, templates=templates, require_auth=require_auth)
+    _register_api(app, require_auth=require_auth)
     return app
 
 

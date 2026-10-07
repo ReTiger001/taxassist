@@ -291,6 +291,27 @@ _EN_TO_ZH: dict[str, str] = {}
 for _zh, _en in {**TERMS, **LAWS}.items():
     _EN_TO_ZH.setdefault(_en.lower(), _zh)
 
+# 常见英文**缩写与别称** → 对应中文术语。
+# 为什么要单独一张表：TERMS 是「中文 → 英文全称」的一对一映射，装不下 VAT
+# 这类缩写（同一个中文词有多个英文写法）。实测（2026-10 检索验证）：搜 "VAT"
+# 不触发映射，退化成 LIKE 匹配"正文里含 VAT 三个字母的文档"，返回出口退税、
+# 公共租赁住房这类无关结果 —— 而 "value-added tax" 能正确映射成增值税。
+# 这些缩写恰恰是客户最可能输入的写法。
+ALIASES: dict[str, str] = {
+    "vat": "增值税",
+    "cit": "企业所得税",
+    "corporate income tax": "企业所得税",   # TERMS 里记的是 enterprise income tax，同义
+    "iit": "个人所得税",
+    "customs duties": "关税",
+    "import duty": "关税",
+    "export rebate": "出口退税",
+    "stamp tax": "印花税",
+    "super deduction": "加计扣除",
+    "annual settlement": "汇算清缴",
+}
+for _en, _zh in ALIASES.items():
+    _EN_TO_ZH.setdefault(_en, _zh)
+
 
 def to_chinese_query(query: str) -> tuple[str, list[str]]:
     """把查询里的英文术语换成对应中文。
@@ -304,7 +325,13 @@ def to_chinese_query(query: str) -> tuple[str, list[str]]:
     work = query
     hits: list[str] = []
     for en in sorted(_EN_TO_ZH, key=len, reverse=True):
-        pattern = re.compile(re.escape(en), re.IGNORECASE)
+        # **短缩写按词边界匹配**：表里有 vat / cit 这类 3 字母缩写，作子串会让
+        # "private" 里的 vat、"city" 里的 cit 被当成术语替换掉（实测过这个
+        # 误匹配）。长词（含空格或连字符）不受影响，保持原样的子串匹配。
+        if len(en) <= 4 and en.isalnum():
+            pattern = re.compile(rf"\b{re.escape(en)}\b", re.IGNORECASE)
+        else:
+            pattern = re.compile(re.escape(en), re.IGNORECASE)
         if pattern.search(work):
             zh = _EN_TO_ZH[en]
             if zh not in hits:

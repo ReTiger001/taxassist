@@ -524,6 +524,35 @@ a:hover{background:#00ff00;color:#000;border-bottom-color:#00ff00}
   color:#00cc00;cursor:pointer}
 .lang-toggle:hover{background:#002a00;border-color:#00cc00;color:#00ff00}
 
+/* ── 鼠标光标特效（终端风）────────────────────────────────────────
+   一支绿色准星代替系统箭头，点击时中心泛起一圈涟漪。**全程只用 CSS 加一个
+   data-URI 的 SVG**，不引外部资源 —— 与全站"不引用 CDN"的约定一致。
+   三条克制（用户明确要求"不干扰阅读与输入"）：
+     · 只在默认箭头上替换；**输入框、文本域、下拉与可编辑区保持系统光标**
+       —— 那些地方换光标会让人找不到插入点
+     · 不做拖尾/粒子/跟随动画：这一站正文是公文，一读几千字
+     · 涟漪只画一圈、360ms 消散，用站内的暗绿而非亮绿，免得抢注意力
+   准星热点取 (9,9)（SVG 中心），避免"看着对准了、点下去偏一格"。 */
+html{cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Cpath d='M9 1v6M9 11v6M1 9h6M11 9h6' stroke='%2300cc00' stroke-width='1.2'/%3E%3Ccircle cx='9' cy='9' r='1.1' fill='%2300ff00'/%3E%3C/svg%3E") 9 9, auto}
+a,button,.chip,.q-chip,.ibtn,.ex,.q-more>summary,.legend>summary{
+  cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Cpath d='M2 1l9 6-4 .8 2.2 4-1.7.9-2.2-4L2 12z' fill='%2300ff00' stroke='%23001a00' stroke-width='.8'/%3E%3C/svg%3E") 2 1, pointer}
+/* 输入类控件显式回到系统光标，否则会被上面的 html 规则继承 */
+input,textarea,select,[contenteditable="true"]{cursor:auto}
+input[type=search]{cursor:text}
+/* 点击涟漪：绝对定位一个圆圈，动画结束由 JS 移除。pointer-events:none
+   保证它不会挡住点击 —— 特效再好看也不该改变点击行为。 */
+.click-ripple{position:fixed;width:14px;height:14px;margin:-7px 0 0 -7px;
+  border:1px solid #00cc00;border-radius:50%;pointer-events:none;z-index:9999;
+  animation:ta-ripple .36s ease-out forwards}
+@keyframes ta-ripple{
+  0%{opacity:.85;transform:scale(.4)}
+  100%{opacity:0;transform:scale(3.2)}
+}
+/* 尊重系统的"减少动态效果"设置 */
+@media (prefers-reduced-motion:reduce){
+  .click-ripple{display:none}
+}
+
 /* 标题：终端里用提示符前缀，比加粗更贴 */
 h1{color:#00ff00}
 h1::before{content:"> ";color:#008800}
@@ -686,6 +715,22 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
   <span class="src src-default" data-zh="未发现废止" data-en="No repeal found">未发现废止</span>
   <span data-zh="库内无废止证据，" data-en="no repeal evidence in this database;">库内无废止证据，</span><b data-zh="非官方确认有效" data-en="not an official confirmation of validity">非官方确认有效</b>
 </footer>
+<script>
+/* 点击涟漪：在点击处画一圈，360ms 后自行移除。
+   **刻意只做这一件事** —— 不监听 mousemove（无拖尾）、不动键盘路径、
+   不改变任何点击行为（CSS 里 pointer-events:none）。它纯粹是视觉反馈，
+   出问题也只是没动画，不会影响操作。 */
+(function () {
+  document.addEventListener('click', function (ev) {
+    var r = document.createElement('span');
+    r.className = 'click-ripple';
+    r.style.left = ev.clientX + 'px';
+    r.style.top = ev.clientY + 'px';
+    document.body.appendChild(r);
+    setTimeout(function () { r.remove(); }, 400);
+  }, true);
+})();
+</script>
 <script src="/static/lang.js"></script>
 </body>
 </html>
