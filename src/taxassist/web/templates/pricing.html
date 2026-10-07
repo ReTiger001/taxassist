@@ -12,7 +12,9 @@
   合成一个价格必然有一边吃亏。
 
   文案纪律：单价不写死在这里（会变），只写"按次、分开计价、余额预充"的
-  规则；具体数字见合同。这一页说的是**怎么算**，不是**多少钱**。
+  规则与单价都在这一页。单价不是拍脑袋定的：检索的对照物是通用网页搜索接口
+  （约 ¥0.1/次），助手的对照物是一次人工财税咨询（几十到几百元）——我们落在
+  两者之间。依据记在这次改动的提交信息里，价格要调先看那里。
 #}
 <div class="about-switch">
   <button type="button" class="chip lang-btn" data-lang="zh">中文</button>
@@ -33,26 +35,32 @@
   </p>
   <table class="plain">
     <thead>
-      <tr><th>能力</th><th>做什么</th><th>成本量级</th><th>计价</th></tr>
+      <tr><th>能力</th><th>做什么</th><th>成本量级</th><th>单价</th></tr>
     </thead>
     <tbody>
       <tr>
         <td><b>政策检索</b></td>
         <td>全文检索、按条件筛选、取单篇政策原文</td>
         <td>本机库查询，毫秒级</td>
-        <td>按次</td>
+        <td><b>¥0.5 / 次</b></td>
       </tr>
       <tr>
         <td><b>税务助手</b></td>
         <td>结合客户业务事实，出带依据的税务分析报告</td>
         <td>调用本机 14B 模型，每次数十秒</td>
-        <td>按次（单价高于检索）</td>
+        <td><b>¥8 / 次</b></td>
       </tr>
     </tbody>
   </table>
   <p class="note">
-    助手单价高于检索是成本决定的：一次助手调用要跑一次大模型（首字约 2 秒、
-    整篇约 20 秒），而一次检索是对本机索引的查询。具体单价见合同。
+    助手单价是检索的 16 倍，这是成本与用途共同决定的：一次助手调用要跑一轮大模型
+    （首字约 2 秒、整篇约 20 秒），而出的是<b>一份带原文依据的分析</b>，不是几条链接；
+    检索则是对本机索引的查询。作为参照：通用网页搜索接口约 ¥0.1/次，而一次人工
+    财税咨询通常在几十到几百元 —— 助手定价落在这两者之间。
+  </p>
+  <p class="note">
+    <b>充值档位</b>：¥100 / ¥500 / ¥2000。新客户可申请试用额度：
+    <b>检索 100 次 + 助手 20 次</b>（按上述单价约值 ¥210），够完整跑通接入并感受真实消耗。
   </p>
 
   <h2>余额与扣费规则</h2>
@@ -135,27 +143,36 @@
   </p>
   <table class="plain">
     <thead>
-      <tr><th>Capability</th><th>What it does</th><th>Cost scale</th><th>Billing</th></tr>
+      <tr><th>Capability</th><th>What it does</th><th>Cost scale</th><th>Unit price</th></tr>
     </thead>
     <tbody>
       <tr>
         <td><b>Policy search</b></td>
         <td>Full-text search, filtered browsing, fetch a single document</td>
         <td>Local index query, milliseconds</td>
-        <td>Per call</td>
+        <td><b>¥0.50 / call</b></td>
       </tr>
       <tr>
         <td><b>Tax assistant</b></td>
         <td>Analysis with citations, grounded in your stated business facts</td>
         <td>Runs the local 14B model, tens of seconds per call</td>
-        <td>Per call (higher unit price)</td>
+        <td><b>¥8 / call</b></td>
       </tr>
     </tbody>
   </table>
   <p class="note">
-    The assistant costs more because each call runs a large language model
-    (roughly 2 s to first token, ~20 s for a full report), whereas a search is
-    an index lookup. Unit prices are stated in the agreement.
+    The assistant is 16× the search price — a matter of both cost and purpose.
+    Each assistant call runs a language model (roughly 2 s to first token,
+    ~20 s for a full report) and returns <b>a reasoned analysis with source
+    excerpts</b>, not a list of links; a search is an index lookup. For
+    reference: general web-search APIs cost about ¥0.1 per call, while a
+    human tax consultation typically runs from tens to hundreds of yuan — the
+    assistant sits between the two.
+  </p>
+  <p class="note">
+    <b>Top-up tiers</b>: ¥100 / ¥500 / ¥2000. New clients may request a trial
+    allowance of <b>100 searches + 20 assistant calls</b> (about ¥210 at the
+    prices above) — enough to complete an integration and gauge real usage.
   </p>
 
   <h2>Balance and charging rules</h2>
