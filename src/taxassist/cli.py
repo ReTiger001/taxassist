@@ -165,6 +165,16 @@ def build_parser() -> argparse.ArgumentParser:
     w.add_argument("--stop", action="store_true", help="请求优雅停止")
     b.add_argument("--recheck-docno", action="store_true",
                    help="复核并修正被正文污染的文号（历史上贪婪匹配留下的，只动受污染的）")
+
+    svc = sub.add_parser(
+        "service", help="一条命令管住整套系统：启动 / 停止 / 看状态（无窗口）")
+    svc.add_argument("action", choices=("start", "stop", "status"),
+                     help="start=起 web 与 worker（已在跑的不重复起）；"
+                          "stop=按 PID 精准收工，不误杀别的进程；"
+                          "status=看谁在跑、HTTP 是否通、日志尾部")
+    svc.add_argument("--port", type=int, default=8765, help="web 端口（默认 8765）")
+    svc.add_argument("--expose", action="store_true",
+                     help="start 时按对外提供服务启动（开认证闸门）")
     return p
 
 
@@ -855,6 +865,21 @@ def _kb_selftest() -> int:
     return 0
 
 
+def cmd_service(args) -> int:
+    """一条命令管住整套系统：启动 / 停止 / 看状态。
+
+    实现全在 service.py（那里解释了为什么它存在、为什么 ollama 不在此启动、
+    以及 Windows 上 os.kill(pid, 0) 那个会真的杀进程的坑）。
+    """
+    from . import service
+
+    if args.action == "start":
+        return service.start(port=args.port, expose=args.expose)
+    if args.action == "stop":
+        return service.stop(port=args.port)
+    return service.status(port=args.port)
+
+
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     _setup_console()
@@ -897,6 +922,7 @@ def main(argv: list[str] | None = None) -> int:
         "search": cmd_search,
         "kb": cmd_kb,
         "mcp": cmd_mcp,
+        "service": cmd_service,
     }
     return handlers[args.command](args)
 
