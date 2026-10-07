@@ -50,7 +50,7 @@ header.top .mode-out{background:rgba(255,214,145,.16);
    实测从 146px 一路拉到 1377px，把页面撑出横向滚动条。 */
 header.top .lang-toggle{margin-left:auto;flex:none;white-space:nowrap;
   width:auto;margin-top:0;
-  font:inherit;font-size:12.5px;padding:3px 9px;cursor:pointer;
+  font:inherit;font-size:12.5px;padding:3px 9px;
   border:1px solid #0e3a0e;background:#001a00;color:#00cc00;
   border-radius:0;line-height:1.5}
 header.top .lang-toggle:hover{background:#002a00;border-color:#00cc00;
@@ -68,7 +68,7 @@ input:focus{outline:none;border-color:var(--brand-2)}
 .hint{font-size:11.5px;color:var(--ink-3);margin-top:5px;line-height:1.65}
 button{width:100%;margin-top:22px;padding:9px;border:0;border-radius:2px;
   background:var(--brand);color:#fff;font-family:inherit;font-size:14px;
-  font-weight:500;cursor:pointer}
+  font-weight:500;}
 button:hover{background:var(--brand-2)}
 .err{background:var(--bad-bg);color:var(--bad-fg);border:1px solid #e3cccc;
   padding:10px 12px;border-radius:2px;font-size:12.5px;line-height:1.7;margin:0 0 18px}
@@ -257,7 +257,10 @@ button:hover,.ibtn:hover{background:#002a00;border-color:#00cc00;
      · 涟漪只画一圈、360ms 消散，用站内的暗绿而非亮绿，免得抢注意力
    准星热点取 (9,9)（SVG 中心），避免"看着对准了、点下去偏一格"。 */
 html{cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18'%3E%3Cpath d='M9 1v6M9 11v6M1 9h6M11 9h6' stroke='%2300cc00' stroke-width='1.2'/%3E%3Ccircle cx='9' cy='9' r='1.1' fill='%2300ff00'/%3E%3C/svg%3E") 9 9, auto}
-a,button,.chip,.q-chip,.ibtn,.ex,.q-more>summary,.legend>summary{
+/* 表单标签显式指回继承 —— 浏览器给 label 的默认是系统白箭头，html 那条追不到。
+   与 base.html 同一份。 */
+label,label *{cursor:inherit}
+a,button,summary,[role=button],.chip,.q-chip,.ibtn,.ex{
   cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Cpath d='M2 1l9 6-4 .8 2.2 4-1.7.9-2.2-4L2 12z' fill='%2300ff00' stroke='%23001a00' stroke-width='.8'/%3E%3C/svg%3E") 2 1, pointer}
 /* 输入类控件显式回到系统光标，否则会被上面的 html 规则继承 */
 /* 输入类控件给**绿色 I 形光标**（自画，热点在竖线中心 (8,8)）。
