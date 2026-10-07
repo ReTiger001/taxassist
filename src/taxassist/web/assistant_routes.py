@@ -22,7 +22,14 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from .. import db as dbmod
-from .app import _origin_ok, _read_json
+
+# 注意：`_origin_ok` / `_read_json` 定义在 app.py，但**不能在这里模块级导入** ——
+# app.py 在模块级就执行 `create_app()`，而 create_app 内部要导入本模块的
+# `register()`；于是"先导入本模块"会形成循环（本模块 → app → create_app →
+# 本模块尚未执行完）。平时不报错只因进程入口恰好先导入 app；任何直接导入本模块
+# 的代码都会拿到 "partially initialized module"（2026-10 补测试时暴露）。
+# 因此各处按需在函数内导入 —— 本文件对 assistant、attachments 的依赖本就是
+# 这么写的，这里沿用同一模式。
 
 #: 这个模块此前**漏了 logger 定义**，而 except 块里调用了 log.warning ——
 #: 后果不是"少一条日志"，而是异常发生时 NameError 顶掉后面的 emit({"error"})，
@@ -133,6 +140,7 @@ def register(app, *, ctx, templates) -> None:
         import threading
 
         from .. import assistant as am
+        from .app import _origin_ok
 
         if not _origin_ok(request):
             return JSONResponse({"error": "请求来源异常，请回本站重新提交"},
@@ -232,6 +240,7 @@ def register(app, *, ctx, templates) -> None:
         import binascii
 
         from ..collect import attachments as att
+        from .app import _origin_ok, _read_json
 
         if not _origin_ok(request):
             return JSONResponse({"error": "请求来源异常"}, status_code=403)
