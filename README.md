@@ -40,6 +40,15 @@
 .venv/Scripts/python.exe -m taxassist mcp    # MCP stdio 服务，挂给 Claude Desktop / Cursor 等
 .venv/Scripts/python.exe -m taxassist kb     # 本机 JSON 接口 http://127.0.0.1:8767/
 .venv/Scripts/python.exe -m taxassist kb --selftest   # 自检：库能否读、检索能否命中、是否真的只读
+
+# 日常运行：一条命令管住整套（无窗口，日志落 data/logs/）
+.venv/Scripts/python.exe -m taxassist service start    # 起 web(8765) 与 worker；已在跑的不重复起
+.venv/Scripts/python.exe -m taxassist service status   # 谁在跑、/health 通不通、各日志尾部
+.venv/Scripts/python.exe -m taxassist service stop     # 停 —— 只动它自己起的进程，不碰别的
+
+# ollama 不归它管：它的可执行文件路径因机器而异，只检测 11434 端口。
+# 想让 service 代劳，先设环境变量 TAXASSIST_OLLAMA_EXE 指向 ollama.exe。
+# 也可以照旧双击 启动Taxassist.bat（会开三个控制台窗口）。
 ```
 
 AI 接入的完整说明（客户端配置、端点清单、数据边界）见
@@ -165,6 +174,7 @@ attach        下载并解析附件
 judge         效力判定与引用关系
 review        待人工确认队列
 serve         启动网页界面（含后台定时）
+service       一条命令管住整套：start / stop / status（无窗口，日志落 data/logs/）
 reparse       从归档快照重解析详情页（不联网，改进解析器后跑它）
 backfill      从已有正文补全施行日期与文号（不联网）
 dedupe        清理跨源重复
