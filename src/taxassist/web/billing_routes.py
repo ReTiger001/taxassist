@@ -18,14 +18,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import billing
 from .. import db as dbmod
+from .helpers import _origin_ok, _read_form
 
 log = logging.getLogger(__name__)
 
-
 def register(app, *, templates, require_auth: bool) -> None:
     """把 /admin/customers 挂到 app 上。"""
-    from .app import _origin_ok, _read_form
-
     def _back(msg: str = "", err: str = "") -> RedirectResponse:
         query = urlencode({k: v for k, v in (("msg", msg), ("err", err)) if v})
         return RedirectResponse(f"/admin/customers?{query}" if query else "/admin/customers",

@@ -6,10 +6,10 @@
 
 依赖用参数注入（与 assistant_routes / about_routes 同范式）。
 
-**为什么 `_origin_ok` 等在函数内导入**：它们定义在 app.py，而 app.py 在模块级
-就执行 `create_app()`、create_app 内部又要导入本模块 —— 模块级导入会成环
-（详见 assistant_routes.py 里那段说明）。这里在 `register()` 里取一次，
-下面各路由作为闭包捕获，不必每个函数各写一遍。
+公共辅助（`_origin_ok` 等）从 `web/helpers.py` 做模块级导入。它们原先住在
+app.py 里，那时只能在 `register()` 里函数内导入以避开循环（app.py 在模块级就
+执行 `create_app()`，模块级导入会成环）；搬进 helpers 之后循环断了，于是改回
+常规的模块级导入 —— 连带测试里的打桩点也从 app 挪到了**使用方模块**。
 """
 from __future__ import annotations
 
@@ -20,15 +20,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import auth
 from .. import db as dbmod
+from .helpers import _is_local_request, _origin_ok, _read_form, _safe_next, _set_session_cookie
 
 log = logging.getLogger(__name__)
 
-
 def register(app, *, templates, require_auth: bool) -> None:
     """把登录/退出/注册挂到 app 上。"""
-    # 一次取出，供下面各路由闭包捕获（理由见模块头部）
-    from .app import _is_local_request, _origin_ok, _read_form, _safe_next, _set_session_cookie
-
     def _login_view(request: Request, *, error=None, next_url="/", username="",
                     status_code=200):
         conn = dbmod.connect()

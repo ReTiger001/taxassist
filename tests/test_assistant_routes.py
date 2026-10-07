@@ -41,11 +41,12 @@ def client(db_path, monkeypatch):
     origin 校验单独放行：那不是本文件关注点（已有专门测试），而这里要验的是
     错误能不能传到前端。
     """
-    # patch 的是 **app 模块**上的 _origin_ok：assistant_routes 现在是函数内
-    # `from .app import _origin_ok`，即调用时才取属性，所以改 app 上那份有效；
-    # assistant_routes 模块上已经没有这个名字了（不再是模块级导入）。
-    from taxassist.web import app as web_app
-    monkeypatch.setattr(web_app, "_origin_ok", lambda request: True)
+    # patch 的是 **assistant_routes 模块**上的 _origin_ok：该模块用模块级
+    # `from .helpers import _origin_ok`，名字在导入时就绑进了它自己的命名空间 ——
+    # 所以改 helpers 上那份是没用的（那正是从「函数内导入」改成模块级导入带来的
+    # 区别），得改**使用方**这份。
+    from taxassist.web import assistant_routes as ar
+    monkeypatch.setattr(ar, "_origin_ok", lambda request: True)
     return TestClient(create_app(require_auth=False))
 
 

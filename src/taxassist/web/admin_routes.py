@@ -18,14 +18,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import auth
 from .. import db as dbmod
+from .helpers import _origin_ok, _read_form
 
 log = logging.getLogger(__name__)
 
-
 def register(app, *, templates, require_auth: bool) -> None:
     """把 /admin 五个路由挂到 app 上。"""
-    from .app import _origin_ok, _read_form
-
     # ------------------------------------------------------------ 后台（账号管理）
     #
     # 这是 Web 层**唯一**的写操作区，理由：一旦对外提供服务，如果只有命令行能管

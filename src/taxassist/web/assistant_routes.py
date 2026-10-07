@@ -22,6 +22,7 @@ from fastapi import Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
 from .. import db as dbmod
+from .helpers import _origin_ok, _read_json
 
 # 注意：`_origin_ok` / `_read_json` 定义在 app.py，但**不能在这里模块级导入** ——
 # app.py 在模块级就执行 `create_app()`，而 create_app 内部要导入本模块的
@@ -36,7 +37,6 @@ from .. import db as dbmod
 #: 前端拿不到错误、只收到 finally 里的 done，**助手失败会静默显示成"完成"**。
 #: （2026-10 全量审计发现；全项目只有这一个模块漏了。）
 log = logging.getLogger(__name__)
-
 
 def register(app, *, ctx, templates) -> None:
     """把 /health 与 /assistant 系列挂到 app 上。"""
@@ -140,8 +140,6 @@ def register(app, *, ctx, templates) -> None:
         import threading
 
         from .. import assistant as am
-        from .app import _origin_ok
-
         if not _origin_ok(request):
             return JSONResponse({"error": "请求来源异常，请回本站重新提交"},
                                 status_code=403)
@@ -240,8 +238,6 @@ def register(app, *, ctx, templates) -> None:
         import binascii
 
         from ..collect import attachments as att
-        from .app import _origin_ok, _read_json
-
         if not _origin_ok(request):
             return JSONResponse({"error": "请求来源异常"}, status_code=403)
 

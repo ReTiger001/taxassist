@@ -21,18 +21,16 @@ from fastapi.responses import HTMLResponse
 from .. import db as dbmod
 from .. import filters, kb
 from ..translate import to_chinese_query
+from .helpers import _SUBSTANTIVE_FIRST, _one, _rows
 
 log = logging.getLogger(__name__)
 
-
 def register(app, *, ctx, templates) -> None:
     """把 /library、/search、/policy/{doc_uid}、/daily 挂到 app 上。"""
-    # 这些来自 app.py：一个模块级变量（_SUBSTANTIVE_FIRST = 实质政策优先的
-    # ORDER BY 片段）与两个查询辅助。**漏一个 ruff 就报 F821** —— 搬移时正是
-    # 靠它的提示逐个补全的（初版漏了 _SUBSTANTIVE_FIRST / kb / sqlite3 /
+    # 实质政策优先的 ORDER BY 片段与两个查询辅助来自 web/helpers.py（模块级
+    # 导入，见文件头）。**漏一个 ruff 就报 F821** —— 当初把这些从 app.py 搬出
+    # 来时，正是靠它逐个补全的（初版漏了 _SUBSTANTIVE_FIRST / kb / sqlite3 /
     # to_chinese_query 四处，也误留了一个用不到的 _highlight）。
-    from .app import _SUBSTANTIVE_FIRST, _one, _rows
-
     # ------------------------------------------------------------ 首页
 
     @app.get("/library", response_class=HTMLResponse)

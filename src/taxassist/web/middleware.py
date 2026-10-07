@@ -19,14 +19,12 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 
 from .. import auth
 from .. import db as dbmod
+from .helpers import PUBLIC_PATHS
 
 log = logging.getLogger(__name__)
 
-
 def register(app, *, require_auth: bool, auth_mode: str) -> None:
     """注册两个中间件（顺序见模块头部说明）。"""
-    from .app import PUBLIC_PATHS
-
     @app.middleware("http")
     async def auth_middleware(request: Request, call_next):
         """对外暴露时的唯一门锁。
