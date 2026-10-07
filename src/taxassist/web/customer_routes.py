@@ -16,7 +16,7 @@ import logging
 from urllib.parse import urlencode
 
 from fastapi import Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 
 from .. import billing
 from .. import db as dbmod
@@ -78,6 +78,35 @@ def register(app, *, templates, require_auth: bool) -> None:
             context={"request": request, "user": name,
                      "is_owner": getattr(request.state, "is_owner", False),
                      "exposed": require_auth, "lang": "zh"})
+
+    @app.get("/account/mcp.json", response_class=JSONResponse)
+    def account_mcp_json():
+        """给客户下载/复制的 MCP 配置模板。
+
+        **为什么是模板而不是填好的**：两处必须由客户自己填 ——
+        ① 服务器地址：取决于他从哪台机器访问，本机的 127.0.0.1 在别人那里
+           不是同一个东西；② 密钥：库里只有 sha256，服务端**拿不回明文**，
+           所以没有任何办法替他填上。
+        模板里用 <主机:端口> 与 tk_你的密钥 两个占位符标出这两处。
+
+        两种写法都给：
+        · url + headers —— Cursor / Claude Code / VS Code 支持 HTTP transport
+        · command + args —— Claude Desktop 只支持 stdio，必须用 npx mcp-remote
+          桥接一道（这是社区为此专门做的代理）
+        """
+        return JSONResponse({
+            "mcpServers": {
+                "taxassist": {
+                    "url": "http://<主机:端口>/api/mcp",
+                    "headers": {"Authorization": "Bearer tk_你的密钥"},
+                },
+                "taxassist-via-mcp-remote": {
+                    "command": "npx",
+                    "args": ["-y", "mcp-remote", "http://<主机:端口>/api/mcp",
+                             "--header", "Authorization: Bearer tk_你的密钥"],
+                },
+            }
+        })
 
     @app.post("/account/key", response_class=HTMLResponse)
     async def account_issue_key(request: Request):

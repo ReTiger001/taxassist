@@ -177,9 +177,58 @@
 
 <h2 data-zh="六、接进 AI 客户端（MCP）" data-en="6. Attach to an AI client (MCP)">六、接进 AI 客户端（MCP）</h2>
 <div class="card pad">
-  <p style="margin:0 0 10px;line-height:1.8"
-     data-zh="如果你的工作流在 Cursor、Claude Desktop 这类支持 MCP 的客户端里，可以让模型自己查政策、取原文。本服务用的是 **MCP over HTTP**：请求体放一条 JSON-RPC 消息，响应体放对应的回复，方法与标准 MCP 一致。"
-     data-en="If you work in an MCP-capable client such as Cursor or Claude Desktop, let the model look policies up itself. This server speaks MCP over HTTP: put one JSON-RPC message in the request body, get the reply in the response body; methods match standard MCP.">如果你的工作流在 Cursor、Claude Desktop 这类支持 MCP 的客户端里，可以让模型自己查政策、取原文。本服务用的是 <b>MCP over HTTP</b>：请求体放一条 JSON-RPC 消息，响应体放对应的回复，方法与标准 MCP 一致。</p>
+  <p style="margin:0 0 12px;line-height:1.8"
+     data-zh="本服务的 MCP 走 HTTP，你只需要两样东西：地址与密钥。下面四种方式选一种即可 —— 按客户端挑，不用全做。"
+     data-en="This server speaks MCP over HTTP. You need two things: the address and your key. Pick whichever of the four ways below matches your client — no need to do all of them.">本服务的 MCP 走 HTTP，你只需要两样东西：地址与密钥。下面四种方式选一种即可 —— 按客户端挑，不用全做。</p>
+
+  <p style="margin:0 0 6px"><b data-zh="方式 A：一条命令（Claude Code）" data-en="Way A: one command (Claude Code)">方式 A：一条命令（Claude Code）</b></p>
+  <p style="margin:0 0 8px;color:var(--ink-3);font-size:12.5px"
+     data-zh="终端里跑一次就注册好了，不用手改 JSON。" data-en="Run once in your terminal; no JSON editing.">终端里跑一次就注册好了，不用手改 JSON。</p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>claude mcp add --transport http taxassist \
+  "http://&lt;主机:端口&gt;/api/mcp" \
+  --header "Authorization: Bearer tk_你的密钥"</code></pre>
+
+  <p style="margin:16px 0 6px"><b data-zh="方式 B：一次点击（Cursor）" data-en="Way B: click once (Cursor)">方式 B：一次点击（Cursor）</b></p>
+  <p style="margin:0 0 8px;color:var(--ink-3);font-size:12.5px"
+     data-zh="Cursor 支持直接用 url 连 HTTP 服务。把下面这段放进 MCP 设置或项目里的 .cursor/mcp.json 即可。"
+     data-en="Cursor can connect to HTTP servers directly by url. Put the block below into its MCP settings or into .cursor/mcp.json in your project.">Cursor 支持直接用 url 连 HTTP 服务。把下面这段放进 MCP 设置或项目里的 <code>.cursor/mcp.json</code> 即可。</p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>{
+  "mcpServers": {
+    "taxassist": {
+      "url": "http://&lt;主机:端口&gt;/api/mcp",
+      "headers": { "Authorization": "Bearer tk_你的密钥" }
+    }
+  }
+}</code></pre>
+
+  <p style="margin:16px 0 6px"><b data-zh="方式 C：Claude Desktop（需要桥接）" data-en="Way C: Claude Desktop (needs a bridge)">方式 C：Claude Desktop（需要桥接）</b></p>
+  <p style="margin:0 0 8px;color:var(--ink-3);font-size:12.5px"
+     data-zh="Claude Desktop 只支持本地 stdio 服务，不认 HTTP 地址，所以要借社区代理 mcp-remote 转一道。前提：装 Node.js。"
+     data-en="Claude Desktop only supports local stdio servers and cannot take an HTTP url, so a community proxy (mcp-remote) bridges it. Requires Node.js.">Claude Desktop 只支持本地 stdio 服务，不认 HTTP 地址，所以要借社区代理 <code>mcp-remote</code> 转一道。前提：装 Node.js。</p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>{
+  "mcpServers": {
+    "taxassist": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "http://&lt;主机:端口&gt;/api/mcp",
+               "--header", "Authorization: Bearer tk_你的密钥"]
+    }
+  }
+}</code></pre>
+  <p style="margin:10px 0 0;line-height:1.8;font-size:12.5px"
+     data-zh="Windows 上有三个已知的坑：① 报 spawn npx ENOENT —— 把 command 改成 cmd、args 首项加 /c；② JSON 里路径反斜杠必须双写 \\；③ 改完配置必须从系统托盘完全退出再启动（点窗口的 X 只是最小化，不会重载）。"
+     data-en="Three known Windows pitfalls: (1) spawn npx ENOENT — set command to cmd and prepend /c to args; (2) backslashes in JSON must be doubled; (3) after editing, fully quit from the system tray and relaunch (clicking X only minimizes and does not reload).">Windows 上有三个已知的坑：① 报 <code>spawn npx ENOENT</code> —— 把 command 改成 <code>cmd</code>、args 首项加 <code>/c</code>；② JSON 里路径反斜杠必须双写 <code>\\</code>；③ 改完配置必须从系统托盘<b>完全退出</b>再启动（点窗口的 X 只是最小化，不会重载）。</p>
+
+  <p style="margin:16px 0 6px"><b data-zh="方式 D：下载配置模板" data-en="Way D: download the config template">方式 D：下载配置模板</b></p>
+  <p style="margin:0;line-height:1.8"
+     data-zh="不确定怎么写就拿模板：里面两种写法都备好了，把两处占位符换掉即可。"
+     data-en="Not sure how to write it? Grab the template — both styles are prepared, just replace the two placeholders.">不确定怎么写就拿模板：里面两种写法都备好了，把两处占位符换掉即可。</p>
+  <p style="margin:8px 0 0"><a class="chip" href="/account/mcp.json" data-zh="下载 mcp.json 模板 →" data-en="Download mcp.json →">下载 mcp.json 模板 →</a></p>
+
+  <p style="margin:18px 0 6px"><b data-zh="接上了怎么验证" data-en="How to verify it works">接上了怎么验证</b></p>
+  <p style="margin:0 0 15px;line-height:1.8"
+     data-zh="在客户端里问一句「用 taxassist 查一下研发费用加计扣除的政策」。它应该调用 search_policies 并返回带文号的结果。若要手工确认协议层，用右边的 curl 直连握手（先 initialize，再 tools/list）。"
+     data-en="Ask your client something like “use taxassist to look up the R&amp;D super-deduction policy”. It should call search_policies and return results with document numbers. To check the protocol layer by hand, use the curl handshake on the right.">在客户端里问一句「用 taxassist 查一下研发费用加计扣除的政策」。它应该调用 <code>search_policies</code> 并返回带文号的结果。若要手工确认协议层，用下面的 curl 直连握手（先 initialize，再 tools/list）。</p>
+
   <p style="margin:0 0 8px"><b data-zh="可用的四个工具" data-en="Four tools available">可用的四个工具</b></p>
   <table class="plain">
     <thead><tr>
@@ -193,21 +242,22 @@
       <tr><td><code>kb_overview</code></td><td data-zh="库概况" data-en="Knowledge base overview">库概况</td></tr>
     </tbody>
   </table>
-  <p style="margin:14px 0 6px"><b data-zh="握手：先问服务支持什么" data-en="Handshake: ask what the server supports">握手：先问服务支持什么</b></p>
+
+  <p style="margin:16px 0 6px"><b data-zh="协议层：直接看它怎么答" data-en="Protocol layer: what it replies">协议层：直接看它怎么答</b></p>
   <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>curl -X POST -H "Authorization: Bearer tk_你的密钥" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
        "params":{"protocolVersion":"2025-06-18"}}' \
-  "http://&lt;主机:端口&gt;/api/mcp"</code></pre>
-  <p style="margin:14px 0 6px"><b data-zh="列出工具 / 调用工具" data-en="List tools / call a tool">列出工具 / 调用工具</b></p>
-  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+  "http://&lt;主机:端口&gt;/api/mcp"
+
+{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
 
 {"jsonrpc":"2.0","id":3,"method":"tools/call",
  "params":{"name":"search_policies",
            "arguments":{"query":"增值税","limit":3}}}</code></pre>
-  <p style="margin:12px 0 0;line-height:1.8"
-     data-zh="在客户端里配置时，把地址填成 http://&lt;主机:端口&gt;/api/mcp、鉴权头填上你的 Key 即可；MCP 调用与网页共用同一份检索余额，也共用同一枚 Key。"
-     data-en="In the client, point the URL at http://<host:port>/api/mcp and set the Authorization header to your key. MCP calls share the same search balance and the same key as the HTTP API.">在客户端里配置时，把地址填成 <code>http://&lt;主机:端口&gt;/api/mcp</code>、鉴权头填上你的 Key 即可；MCP 调用与网页共用同一份检索余额，也共用同一枚 Key。</p>
+  <p style="margin:12px 0 0;line-height:1.8;color:var(--ink-3);font-size:12.5px"
+     data-zh="MCP 调用与网页共用同一份检索余额，也共用同一枚 Key。"
+     data-en="MCP calls share the same search balance and the same key as the HTTP API.">MCP 调用与网页共用同一份检索余额，也共用同一枚 Key。</p>
 </div>
 
 <h2 data-zh="七、常见问题" data-en="7. FAQ">七、常见问题</h2>

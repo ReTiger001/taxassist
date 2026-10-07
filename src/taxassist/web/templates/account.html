@@ -145,6 +145,13 @@
     <span data-zh="标识是密钥哈希的前 12 位 —— 库内只存哈希，明文只在申请那一次显示，所以谁也拿不回旧 Key。丢了就吊销旧的、再申请一枚。"
           data-en="The ID is the first 12 chars of the key hash. Only hashes are stored; the plaintext appears once at issue time and cannot be recovered. If lost, revoke it and issue another.">标识是密钥哈希的前 12 位 —— 库内只存哈希，明文只在申请那一次显示，所以谁也拿不回旧 Key。丢了就吊销旧的、再申请一枚。</span>
   </p>
+  <p style="margin:12px 0 0;line-height:1.8"
+     data-zh="拿到 Key 之后怎么接进 Cursor / Claude 等客户端，见接入文档；不想手写配置就用模板。"
+     data-en="For how to wire the key into Cursor / Claude and other clients, see the docs; or grab the template if you would rather not hand-write config.">拿到 Key 之后怎么接进 Cursor / Claude 等客户端，见接入文档；不想手写配置就用模板。</p>
+  <p style="margin:8px 0 0">
+    <a class="chip" href="/account/docs" data-zh="接入文档（含一条命令接入）→" data-en="Integration docs →">接入文档（含一条命令接入）→</a>
+    <a class="chip" href="/account/mcp.json" data-zh="下载 MCP 配置模板 →" data-en="Download MCP config →">下载 MCP 配置模板 →</a>
+  </p>
   {% else %}
   <p style="margin:0;color:var(--ink-3)"
      data-zh="还没有 Key。用上面的表单申请一枚就能开始接入了。"
