@@ -54,9 +54,15 @@ PYW = ROOT / ".venv" / "Scripts" / "pythonw.exe"
 
 CHECK_INTERVAL = 60          # 秒。翻译掉了最多一分钟内被拉起。
 STILL_ACTIVE = 259           # GetExitCodeProcess 的「还活着」常量
+
+#: 拉起子进程用的标志。**只用 CREATE_NO_WINDOW，绝不要 DETACHED_PROCESS。**
+#:
+#: 实测（本机 Windows 11，A/B 六组组合都跑过）：用 DETACHED_PROCESS 启动
+#: python 会**弹出一个 Windows Terminal 窗口** —— venv launcher 与真 python
+#: 都一样；单独用会弹、与 CREATE_NO_WINDOW 组合也弹。只有 CREATE_NO_WINDOW
+#: 不弹。两者的"脱离终端"效果等价（CREATE_NO_WINDOW 给的是一份不继承父进程
+#: 的、不可见的控制台），所以没有任何理由再用 DETACHED。
 NO_WINDOW = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-DETACHED = getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(
-    subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
 
 log = logging.getLogger("translate_daemon")
 
@@ -179,7 +185,7 @@ def start_translate() -> int | None:
             [str(PY), str(batch), "--anytime"],
             cwd=str(ROOT), stdin=subprocess.DEVNULL,
             stdout=handle, stderr=subprocess.STDOUT,
-            creationflags=DETACHED)
+            creationflags=NO_WINDOW)
     except Exception as e:  # noqa: BLE001
         log.error("拉起翻译失败：%s", e)
         handle.close()
@@ -262,7 +268,7 @@ def start_background() -> int:
         subprocess.Popen([str(PYW), str(Path(__file__).resolve()), "--run"],
                          cwd=str(ROOT), stdin=subprocess.DEVNULL,
                          stdout=err_handle, stderr=subprocess.STDOUT,
-                         creationflags=DETACHED, close_fds=True)
+                         creationflags=NO_WINDOW, close_fds=True)
     finally:
         err_handle.close()          # 子进程持有自己那份副本
 

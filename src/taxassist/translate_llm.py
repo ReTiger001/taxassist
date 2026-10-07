@@ -106,6 +106,64 @@ def translate(text: str, *, model: str = DEFAULT_MODEL, timeout: int = 600) -> s
     return out
 
 
+# ⚠ 下面两个函数**不是死代码，不许删**。
+#
+# 它们在提交 f063f56「删净死代码」里被当成"零引用"删过一次，后果是
+# **正文翻译当场停摆**：唯一的调用点是 scripts/translate_batch.py 里的
+# ``tl.translate_long(...)`` —— 别名导入（``import translate_llm as tl``）
+# 加属性访问，按函数名做静态扫描**看不到它**。
+#
+# 删任何"零引用"函数之前，务必再搜一遍 ``\.函数名`` 这种属性访问形式，
+# 以及 scripts/ 与 tools/ 这两个不含在包内、最容易被扫描漏掉的目录。
+# tests/test_llm_contract.py 把这条契约钉住了。
+
+
+def split_chunks(text: str, max_chars: int = 1200) -> list[str]:
+    """按段落切块，尽量避免把一句话劈开。
+
+    中文政策正文段落很长，所以按「段落」优先，段落超长再按句号切。
+    """
+    text = (text or "").strip()
+    if not text:
+        return []
+    if len(text) <= max_chars:
+        return [text]
+
+    chunks: list[str] = []
+    buf = ""
+    for para in text.split("\n"):
+        para = para.strip()
+        if not para:
+            continue
+        if len(para) > max_chars:
+            # 长段落按句号切
+            for sent in para.replace("。", "。\n").split("\n"):
+                if not sent.strip():
+                    continue
+                if len(buf) + len(sent) > max_chars and buf:
+                    chunks.append(buf.strip())
+                    buf = ""
+                buf += sent
+        else:
+            if len(buf) + len(para) > max_chars and buf:
+                chunks.append(buf.strip())
+                buf = ""
+            buf += para + "\n"
+    if buf.strip():
+        chunks.append(buf.strip())
+    return chunks
+
+
+def translate_long(text: str, *, model: str = DEFAULT_MODEL,
+                   max_chars: int = 1200) -> str:
+    """长文本分块翻译再拼回。块间用空行分隔，保持可读。"""
+    parts = split_chunks(text, max_chars)
+    if not parts:
+        return ""
+    outs = [translate(p, model=model) for p in parts]
+    return "\n\n".join(outs)
+
+
 # ---------------------------------------------------------------- 落库
 
 def ensure_table(conn) -> None:

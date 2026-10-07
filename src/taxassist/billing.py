@@ -39,7 +39,7 @@ KEY_PREFIX = "tk_"
 
 
 def ensure_tables(conn: sqlite3.Connection) -> None:
-    """建表（幂等）。"""
+    """建表（幂等），并把老库缺的列补上。"""
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS customer (
@@ -48,6 +48,9 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
             balance           INTEGER NOT NULL DEFAULT 0,  -- 检索次数余额
             assistant_balance INTEGER NOT NULL DEFAULT 0,  -- 助手次数余额
             active            INTEGER NOT NULL DEFAULT 1,
+            -- 无限额度：调用照常记录进 usage_log（看得见用量），但不扣减、
+            -- 也不受余额检查拦截。给超管自己的账号用。
+            unlimited         INTEGER NOT NULL DEFAULT 0,
             created_at        TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS api_key (
@@ -71,6 +74,12 @@ def ensure_tables(conn: sqlite3.Connection) -> None:
             ON usage_log(customer, ts);
         """
     )
+    # 老库补 unlimited 列。SQLite 没有 ADD COLUMN IF NOT EXISTS，只能先查
+    # PRAGMA —— 与 auth.ensure_user_table 补 role 列是同一个写法。
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(customer)")}
+    if "unlimited" not in cols:
+        conn.execute("ALTER TABLE customer ADD COLUMN"
+                     " unlimited INTEGER NOT NULL DEFAULT 0")
     conn.commit()
 
 
@@ -189,10 +198,23 @@ def ensure_customer(conn: sqlite3.Connection, name: str) -> bool:
     # 没有名字的幽灵行，而且要有人发现才清得掉（本机验证时就真出现过一条）。
     if not name:
         return False
+    # 超管自动无限额度。角色在 app_user 表里 —— 同库一条 SQL 就能问，不必
+    # import auth（那会让 billing 依赖 auth，而 web 层两边都用，容易绕成环）。
+    # app_user 可能还不存在（全新库、还没建号），所以要容错。
+    try:
+        is_owner = conn.execute(
+            "SELECT 1 FROM app_user WHERE username = ? AND role = 'owner'",
+            (name,)).fetchone() is not None
+    except sqlite3.OperationalError:
+        is_owner = False
     cur = conn.execute(
-        "INSERT OR IGNORE INTO customer(name, balance, assistant_balance, created_at)"
-        " VALUES(?, 0, 0, ?)",
-        (name, now_iso()))
+        "INSERT OR IGNORE INTO customer"
+        " (name, balance, assistant_balance, unlimited, created_at)"
+        " VALUES(?, 0, 0, ?, ?)",
+        (name, 1 if is_owner else 0, now_iso()))
+    # 客户早就存在、但后来被封为超管的情形：把标志补上（老库首次跑到这里时有用）。
+    if is_owner:
+        conn.execute("UPDATE customer SET unlimited = 1 WHERE name = ?", (name,))
     conn.commit()
     return cur.rowcount == 1
 
@@ -224,13 +246,15 @@ def get_balance(conn: sqlite3.Connection, name: str) -> dict:
     """取客户的两个余额与状态。"""
     ensure_tables(conn)
     row = conn.execute(
-        "SELECT balance, assistant_balance, active FROM customer WHERE name = ?",
-        (name,)).fetchone()
+        "SELECT balance, assistant_balance, active, unlimited"
+        " FROM customer WHERE name = ?", (name,)).fetchone()
     if row is None:
-        return {"exists": False, "search": 0, "assistant": 0, "active": False}
+        return {"exists": False, "search": 0, "assistant": 0,
+                "active": False, "unlimited": False}
     return {"exists": True, "search": int(row["balance"]),
             "assistant": int(row["assistant_balance"]),
-            "active": bool(row["active"])}
+            "active": bool(row["active"]),
+            "unlimited": bool(row["unlimited"])}
 
 
 def charge(conn: sqlite3.Connection, customer: str, kind: str, *,
@@ -249,23 +273,47 @@ def charge(conn: sqlite3.Connection, customer: str, kind: str, *,
         raise ValueError(f"未知的计费种类：{kind!r}")
     ensure_tables(conn)
     try:
-        if ok:
+        # 无限额度的客户（超管自己）跳过余额检查与扣减，**但用量照记** ——
+        # 否则连自己都不知道跑了多少。所以这里不能直接 return，要继续走
+        # 下面的 usage_log 插入。
+        row = conn.execute("SELECT unlimited FROM customer WHERE name = ?",
+                           (customer,)).fetchone()
+        free = bool(row and row[0])
+        if ok and not free:
             cur = conn.execute(
                 f"UPDATE customer SET {col} = {col} - ?"
                 f" WHERE name = ? AND {col} >= ?", (cost, customer, cost))
             if cur.rowcount == 0:
                 conn.rollback()
                 return False
+        # 无限额度的那笔记账面 0 —— 因为**确实没扣**。把"本可扣多少"写在
+        # detail 里，账面上就不会出现"记了扣减但余额没动"的对不上。
+        mark = "　[无限额度，未扣减]" if (free and ok) else ""
         conn.execute(
             "INSERT INTO usage_log(ts, customer, kind, ok, cost, detail)"
             " VALUES(?,?,?,?,?,?)",
-            (now_iso(), customer, kind, 1 if ok else 0, cost if ok else 0,
-             (detail or "")[:300]))
+            (now_iso(), customer, kind, 1 if ok else 0,
+             cost if (ok and not free) else 0,
+             ((detail or "") + mark)[:300]))
         conn.commit()
     except Exception:
         conn.rollback()
         raise
     return True
+
+
+def set_unlimited(conn: sqlite3.Connection, name: str, on: bool = True) -> bool:
+    """开关某个客户的无限额度。返回是否生效（客户不存在则 False）。
+
+    用于两处：超管建号时自动打开，以及后台手工勾选某个客户为"不计量"。
+    """
+    ensure_tables(conn)
+    cur = conn.execute("UPDATE customer SET unlimited = ? WHERE name = ?",
+                       (1 if on else 0, (name or "").strip()))
+    conn.commit()
+    if cur.rowcount:
+        log.info("客户 %s 的无限额度：%s", name, "开" if on else "关")
+    return bool(cur.rowcount)
 
 
 def usage_summary(conn: sqlite3.Connection, customer: str | None = None) -> list[dict]:
@@ -276,7 +324,7 @@ def usage_summary(conn: sqlite3.Connection, customer: str | None = None) -> list
         where, params = (" WHERE c.name = ?", (customer,))
     rows = conn.execute(
         "SELECT c.name, c.note, c.balance, c.assistant_balance, c.active,"
-        " c.created_at,"
+        " c.unlimited, c.created_at,"
         " (SELECT COUNT(*) FROM usage_log u WHERE u.customer = c.name AND u.ok = 1)"
         "   AS calls_ok,"
         " (SELECT COUNT(*) FROM usage_log u WHERE u.customer = c.name AND u.ok = 0)"

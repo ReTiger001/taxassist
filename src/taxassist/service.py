@@ -108,8 +108,11 @@ def _kill(pid: int) -> bool:
 def _hidden_popen(name: str, argv: list[str]) -> int:
     """把子进程无窗口地拉起来，日志与 PID 都落到 data/logs/。
 
-    两个 flag 一起用：CREATE_NO_WINDOW 不建控制台窗口，DETACHED_PROCESS 让它
-    不受本进程退出影响 —— 用户关掉终端，服务照样在跑（这正是"托管"的含义）。
+    **只用 CREATE_NO_WINDOW，不能加 DETACHED_PROCESS。** 原先两个一起用，
+    但实测（本机 Windows 11）DETACHED_PROCESS 会让 python 子进程**弹出一个
+    Windows Terminal 窗口** —— 单独用会弹、与 NO_WINDOW 组合也弹。
+    CREATE_NO_WINDOW 本身就给了子进程一份不继承自本进程的、不可见的控制台，
+    "关掉终端服务照样跑"它已经满足，DETACHED 是多余且有害的。
     """
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     # 这两行**故意不接 with**：句柄要留给子进程当 stdout/stderr，本函数返回后
@@ -120,7 +123,7 @@ def _hidden_popen(name: str, argv: list[str]) -> int:
         LOG_DIR / f"{name}.err.log", "a", encoding="utf-8", buffering=1)
     flags = 0
     if IS_WIN:
-        flags = (subprocess.CREATE_NO_WINDOW | subprocess.DETACHED_PROCESS)
+        flags = subprocess.CREATE_NO_WINDOW
     proc = subprocess.Popen(argv, cwd=str(ROOT), stdout=out, stderr=err,
                             stdin=subprocess.DEVNULL, creationflags=flags,
                             close_fds=True)

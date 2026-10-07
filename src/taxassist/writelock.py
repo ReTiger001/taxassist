@@ -103,15 +103,23 @@ def _pid_alive(pid: int) -> bool:
     """进程是否还活着（Windows 用 tasklist，POSIX 用 kill -0）。
 
     **注意它只回答"进程在不在"，不回答"还活着吗"** —— 后者要靠心跳。
+
+    ``creationflags`` 不是可有可无的：调用方（翻译进程）是无控制台启动的，
+    没这个标志时每次探活都会**弹出一个命令窗口**（见 taxassist.proc 头部）。
+    这里是全项目最热的一条探活路径 —— 每批拿锁一次、等锁时每 0.2~2 秒一次，
+    漏掉的后果就是桌面不停闪黑框。
     """
     if pid <= 0:
         return False
     try:
         if os.name == "nt":
             import subprocess
+
+            from . import proc
             out = subprocess.run(
                 ["tasklist", "/FI", f"PID eq {pid}", "/NH"],
-                capture_output=True, text=True, timeout=10).stdout
+                capture_output=True, text=True, timeout=10,
+                creationflags=proc.hidden_flags()).stdout
             return str(pid) in out
         os.kill(pid, 0)
         return True

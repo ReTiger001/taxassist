@@ -45,12 +45,24 @@ STAGES = [
 def run(what: str, model: str, label: str) -> int:
     print(f"\n{'=' * 76}\n【{label}】 模型 {model}\n{'=' * 76}", flush=True)
     t0 = time.time()
-    proc = subprocess.run(
+    # creationflags 不能省：本脚本由守护以无控制台方式启动，不给这个标志的话
+    # Windows 会给下面这个 python 子进程**弹一个新窗口**（见 taxassist.proc）。
+    # 变量不叫 proc，避免遮蔽别名 procutil。
+    from taxassist import proc as procutil
+
+    done = subprocess.run(
         [PY, str(BATCH), "--what", what, "--model", model],
-        cwd=str(ROOT))
-    print(f"  {label} 结束，退出码 {proc.returncode}，用时 {(time.time() - t0) / 60:.1f} 分钟",
+        cwd=str(ROOT), creationflags=procutil.hidden_flags(),
+        # stdout/stderr **必须显式传**，不能靠继承：本脚本被守护以
+        # CREATE_NO_WINDOW 拉起、输出重定向到日志文件时，子进程只靠"继承"
+        # 会把自己的输出丢进一个不可见的控制台 —— 实测 translate_run.log
+        # 里从头到尾没出现过子进程的「待处理 / 已译」进度行，于是
+        # "正文其实一条都没译成"这件事被藏了很久，看日志只知道"瞬间完成"。
+        stdout=sys.stdout, stderr=sys.stderr)
+    done_stamp = time.time()
+    print(f"  {label} 结束，退出码 {done.returncode}，用时 {(done_stamp - t0) / 60:.1f} 分钟",
           flush=True)
-    return proc.returncode
+    return done.returncode
 
 
 def _in_window(spec: str) -> bool:

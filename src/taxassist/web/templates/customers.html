@@ -59,18 +59,36 @@
     {% for c in customers %}
       <tr>
         <td><b>{{ c.name }}</b>
+          {% if c.unlimited %}<span class="chip" style="margin-left:6px"
+            data-zh="无限额度" data-en="Unlimited">无限额度</span>{% endif %}
           {% if c.note %}<div class="sub" style="margin:0">{{ c.note }}</div>{% endif %}</td>
         <td class="d">{{ c.balance }}</td>
         <td class="d">{{ c.assistant_balance }}</td>
         <td class="d">{{ c.calls_ok }} / {{ c.calls_failed }}</td>
         <td class="d">{{ c.last_call[:16].replace('T', ' ') if c.last_call else '从未调用' }}</td>
         <td class="d">{{ c.active_keys }}</td>
-        <td>
+        <td style="white-space:nowrap">
+          {# 行内加额：客户名由隐藏字段带上，不必抄到上面的表单里。
+             数量默认为 100（最常见的一次充值），负数用来纠错。 #}
+          <form method="post" action="/admin/customers/adjust" class="inline">
+            <input type="hidden" name="name" value="{{ c.name }}">
+            <input name="amount" type="number" value="100"
+                   style="width:62px;padding:3px 6px"
+                   data-title-zh="正数加、负数减" data-title-en="Positive adds, negative subtracts"
+                   data-aria-zh="调整数量" data-aria-en="Amount">
+            <select name="kind" style="padding:3px 6px"
+                    data-aria-zh="计费种类" data-aria-en="Balance kind">
+              <option value="search" data-zh="检索" data-en="Search">检索</option>
+              <option value="assistant" data-zh="助手" data-en="Assistant">助手</option>
+            </select>
+            <button class="mini" data-zh="加额" data-en="Add">加额</button>
+          </form>
           <form method="post" action="/admin/customers/key" class="inline"
+                style="margin-left:4px"
                 data-confirm-zh="给 {{ c.name }} 签发一枚新 API Key？旧 Key 仍然有效。"
                 data-confirm-en="Issue a new API key for {{ c.name }}? Existing keys stay valid.">
             <input type="hidden" name="name" value="{{ c.name }}">
-            <button class="mini">发 Key</button>
+            <button class="mini" data-zh="发 Key" data-en="Issue key">发 Key</button>
           </form>
         </td>
       </tr>

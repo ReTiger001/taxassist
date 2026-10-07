@@ -152,5 +152,8 @@ def test_start_translate_uses_anytime(daemon, monkeypatch, tmp_path):
     assert pid == 4242
     assert "--anytime" in captured["cmd"]
     assert captured["cmd"][1].endswith("translate_all.py")
-    # 必须脱离终端，否则关窗口又会被带走 —— 那就白挂守护了
-    assert captured["kwargs"]["creationflags"] & 0x00000008  # DETACHED_PROCESS
+    # 拉起时必须带 CREATE_NO_WINDOW：既是"脱离终端"（不掉线），也是"不弹窗"。
+    # 用 DETACHED_PROCESS 会弹出 Windows Terminal 窗口 —— 实测，见
+    # tests/test_no_window_guard.py 里的 A/B 结论。
+    assert captured["kwargs"]["creationflags"] == daemon.NO_WINDOW
+    assert daemon.NO_WINDOW != 0, "Windows 上必须带真实的 CREATE_NO_WINDOW"

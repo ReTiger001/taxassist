@@ -102,26 +102,44 @@
 
 <h2 data-zh="发出邀请码" data-en="Issue an invite code">发出邀请码</h2>
 <div class="card pad">
-  <form method="post" action="/admin/invite" class="filters" style="margin:0">
-    <input name="note" style="max-width:260px" maxlength="200"
-           data-ph-zh="发给谁，如：客户张三" data-ph-en="For whom, e.g. Client Zhang"
-           placeholder="发给谁，如：客户张三">
-    {#- <option> 里没有子元素，可以直接挂属性；但 select 本身不能挂，
-        否则会把整组选项的 textContent 一起清掉。 -#}
-    <select name="days">
-      <option value="7" data-zh="7 天有效" data-en="Valid 7 days">7 天有效</option>
-      <option value="30" selected data-zh="30 天有效" data-en="Valid 30 days">30 天有效</option>
-      <option value="90" data-zh="90 天有效" data-en="Valid 90 days">90 天有效</option>
-      <option value="0" data-zh="不过期" data-en="No expiry">不过期</option>
-    </select>
-    <select name="role">
-      <option value="member" selected data-zh="普通成员" data-en="Member">普通成员</option>
-      <option value="owner" data-zh="超级管理员" data-en="Owner">超级管理员</option>
-    </select>
-    <button type="submit" data-zh="生成邀请码" data-en="Create invite code">生成邀请码</button>
+  {# 主流程只有一步：按一下就拿码。备注 / 有效期 / 角色收进「更多选项」——
+     邀请码**不绑定任何人**（对方还没注册，你本来也不知道他是谁），所以这些
+     不该挡在第一步。原先把四个控件挤在一行，还误用了检索页的 .filters 样式
+     （那套在 .card.pad 里不生效），看着像"必须填完才能生成"。 #}
+  <form method="post" action="/admin/invite"
+        style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:0">
+    <button type="submit" data-zh="生成邀请码" data-en="Create an invite code">生成邀请码</button>
+    <span style="color:var(--ink-3);font-size:12px"
+          data-zh="按一下即可。生成后把码发给对方，他自己去注册、自己设口令。"
+          data-en="One click. Send the code to the recipient — they register and set their own password.">按一下即可。生成后把码发给对方，他自己去注册、自己设口令。</span>
   </form>
+  <details style="margin-top:12px">
+    <summary style="cursor:pointer;font-size:12.5px;color:var(--brand-2)"
+             data-zh="更多选项（备注 / 有效期 / 角色）"
+             data-en="More options (note / expiry / role)">更多选项（备注 / 有效期 / 角色）</summary>
+    <form method="post" action="/admin/invite"
+          style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0 0">
+      <input name="note" style="flex:1;min-width:220px" maxlength="200"
+             data-ph-zh="备注（可选）：写给自己看，如「给某某事务所」"
+             data-ph-en="Note (optional): for your own reference"
+             placeholder="备注（可选）：写给自己看，如「给某某事务所」">
+      {#- <option> 里没有子元素，可以直接挂属性；但 select 本身不能挂，
+          否则会把整组选项的 textContent 一起清掉。 -#}
+      <select name="days">
+        <option value="7" data-zh="7 天有效" data-en="Valid 7 days">7 天有效</option>
+        <option value="30" selected data-zh="30 天有效" data-en="Valid 30 days">30 天有效</option>
+        <option value="90" data-zh="90 天有效" data-en="Valid 90 days">90 天有效</option>
+        <option value="0" data-zh="不过期" data-en="No expiry">不过期</option>
+      </select>
+      <select name="role">
+        <option value="member" selected data-zh="普通成员" data-en="Member">普通成员</option>
+        <option value="owner" data-zh="超级管理员" data-en="Owner">超级管理员</option>
+      </select>
+      <button type="submit" data-zh="按这些选项生成" data-en="Create with these options">按这些选项生成</button>
+    </form>
+  </details>
   <p class="hint" style="color:var(--ink-3);font-size:12px;margin:10px 0 0;line-height:1.7">
-    <span data-zh="一个邀请码只能注册一个账号。生成后把「网址 + 邀请码」发给对方，让他在 " data-en="Each invite code creates one account. Send the recipient the site URL plus the code and have them set up their own username and password on the "></span><code>/register</code><span data-zh=" 页面自己设账号与口令 —— 口令由对方设定，你不必也不该替他设。" data-en=" page — they set their own password; you neither need to nor should set it for them."></span>
+    <span data-zh="一个邀请码只能注册一个账号，但它是**通用的** —— 先不指名给谁也没问题：发出后谁先拿到谁就能用。把「网址 + 邀请码」给对方，让他在 " data-en="An invite code creates one account, but it is generic — you do not need to know who will use it. Send the recipient the site URL plus the code and have them sign up on the "></span><code>/register</code><span data-zh=" 页面自己设账号与口令 —— 口令由对方设定，你不必也不该替他设。" data-en=" page with their own username and password — you neither need to nor should set it for them."></span>
   </p>
 </div>
 

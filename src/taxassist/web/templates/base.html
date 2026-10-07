@@ -126,9 +126,14 @@ a:hover{text-decoration:underline}
   .quick+.who,.quick+.who-login{margin-left:auto}
 }
 /* ---------------- 布局 ---------------- */
-main{padding:24px 20px 48px}
+/* 注意：**不要在这里写 main{padding:...} 指望它生效** —— <main> 带着
+   class="wrap"，而 .wrap{padding:0 20px} 是类选择器、权重高于元素选择器，
+   会把它整个盖掉。历史上这里写过 padding:24px 20px 48px，从未生效过，却让人
+   以为"底部有 48px 留白"（排查滚动问题时被误导过一次）。真要给 main 加间距，
+   写成 main.wrap{...}；但当前上下间距为 0 是有意的 —— 上下留白交给内容自己的
+   margin 与页脚，页面总高度更小，短页面就不必滚动。 */
 h1{font-size:20px;font-weight:600;margin:0 0 4px;letter-spacing:-.1px}
-h2{font-size:11.5px;font-weight:600;margin:26px 0 9px;color:var(--ink-3);
+h2{font-size:11.5px;font-weight:600;margin:20px 0 8px;color:var(--ink-3);
   letter-spacing:.9px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:3px}
 .pad{padding:16px 18px}
@@ -321,8 +326,8 @@ ul.plain li{margin:5px 0}
 .day{font-size:12.5px;font-weight:600;color:var(--ink-2);padding:8px 14px;
   background:var(--sunken);border:1px solid var(--line);border-bottom:0;
   border-radius:3px 3px 0 0;margin-top:20px;letter-spacing:.3px}
-.foot{color:var(--ink-3);font-size:11.5px;padding:20px;border-top:1px solid var(--line);
-  margin-top:36px;line-height:1.9}
+.foot{color:var(--ink-3);font-size:11.5px;padding:16px 20px;border-top:1px solid var(--line);
+  margin-top:22px;line-height:1.8}
 .err{background:var(--bad-bg);color:var(--bad-fg);padding:11px 15px;
   border-radius:3px;font-size:13px;border:1px solid #e3cccc;line-height:1.7}
 .ok{background:var(--ok-bg);color:var(--ok-fg);padding:11px 15px;

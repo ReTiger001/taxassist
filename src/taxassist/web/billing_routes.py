@@ -93,6 +93,39 @@ def register(app, *, templates, require_auth: bool) -> None:
         label = "检索" if kind == billing.KIND_SEARCH else "助手"
         return _back(msg=f"{name} 的{label}余量已调整为 {after}（本次 {amount:+d}）")
 
+    @app.post("/admin/customers/adjust", response_class=HTMLResponse)
+    async def customers_adjust(request: Request):
+        """行内加额：直接从客户名单那一行改余额。
+
+        **为什么单独一条路由**：/add 要同时管"建客户"和"加额"，所以客户名是
+        一堆输入框里的一个 —— 要给名单里第 7 个客户加额，得先把名字抄下来再
+        填进去（抄错就是"没有这个客户"）。这条只认 name / kind / amount，
+        模板在每一行里带上隐藏的客户名，点一下就到账。
+        """
+        if not _is_owner(request):
+            return HTMLResponse("<h1>无权访问</h1>", status_code=403)
+        if not _origin_ok(request):
+            return _back(err="请求来源异常，请回后台重新提交")
+        form = await _read_form(request)
+        name = (form.get("name") or "").strip()
+        kind = (form.get("kind") or "").strip()
+        if kind not in (billing.KIND_SEARCH, billing.KIND_ASSISTANT):
+            return _back(err="请选择计费种类（检索 / 助手）")
+        try:
+            amount = int((form.get("amount") or "").strip() or 0)
+        except ValueError:
+            return _back(err="数量要填整数")
+        conn = dbmod.connect()
+        try:
+            after = billing.add_balance(conn, name, kind, amount)
+        except ValueError as exc:
+            return _back(err=str(exc))
+        finally:
+            conn.close()
+        label = "检索" if kind == billing.KIND_SEARCH else "助手"
+        log.info("后台行内加额：%s 的%s %+d → %d", name, label, amount, after)
+        return _back(msg=f"{name} 的{label}余量已调整为 {after}（本次 {amount:+d}）")
+
     @app.post("/admin/customers/key", response_class=HTMLResponse)
     async def customers_key(request: Request):
         """给客户签一枚 API Key。**明文只在这一次返回**，库里只有哈希。"""

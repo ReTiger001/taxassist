@@ -341,15 +341,21 @@ def parse_rar(path: Path) -> str:
     import subprocess
     import tempfile
 
+    from .. import proc as procutil
+
     exe = Path(r"C:\Program Files\WinRAR\UnRAR.exe")
     if not exe.exists():
         raise RuntimeError("找不到 UnRAR.exe（本机未装 WinRAR）")
     with tempfile.TemporaryDirectory() as td:
-        proc = subprocess.run(
+        # creationflags：附件解析会跑在无控制台的进程里（守护/service 拉起
+        # 的采集与翻译），不给这个标志 UnRAR 会弹出一个控制台窗口。
+        # 变量不叫 proc，避免遮蔽别名 procutil。
+        done = subprocess.run(
             [str(exe), "x", "-y", "-o+", str(path), str(td) + "\\"],
-            capture_output=True, timeout=120)
-        if proc.returncode != 0:
-            raise RuntimeError(f"UnRAR 退出码 {proc.returncode}")
+            capture_output=True, timeout=120,
+            creationflags=procutil.hidden_flags())
+        if done.returncode != 0:
+            raise RuntimeError(f"UnRAR 退出码 {done.returncode}")
         parts: list[str] = []
         for f in sorted(Path(td).rglob("*"))[:20]:
             if f.is_file() and f.suffix.lower().lstrip(".") in PARSERS:
