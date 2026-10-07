@@ -186,7 +186,7 @@ def _build_search(query: str, tax: str, region: str, effect: str, year: str,
         # （title, p_doc_no_full, pub_name, content, o_keywords）：
         # 标题命中远比正文里顺带一句重要；文号是精确标识，给次高；
         # 正文权重压到 1.0，避免长文靠体量压过标题。
-        rank_expr = "bm25(policy_fts, 12.0, 8.0, 4.0, 1.0, 2.0), "
+        rank_expr = f"bm25(policy_fts, {BM25_WEIGHTS}), "
     elif mode == "like":
         # LIKE 没有打分函数，退而求其次：**标题命中排在正文命中之前**。
         # 取首个词作判据即可 —— 多词时标题全中的概率低，首要词足够区分。
@@ -439,6 +439,46 @@ def _normalize_doc_no(value: str | None) -> str:
 
 # ---------------------------------------------------------------- 详情
 
+# ── 关系查询：**唯一定义处** ───────────────────────────────────────────
+# 详情页要展示"本文引用了谁 / 本文被谁废止 / 本文废止了谁"。这三条 SQL 原先在
+# kb.py 与 web/app.py 各写了一份，而且**已经分叉**：Web 那份少了
+# r.evidence_source、p.p_doc_no_full AS target_doc_no、s.url 三个字段 ——
+# 于是同一个详情页，走 MCP 接口能看到引用文号、走网页看不到。
+# （2026-10 全量审计发现。这类"抄一份再各自演进"是本项目重复代码的主要成因。）
+# 别名（target_* / src_*）是模板与下游直接使用的，改动需同步。
+SQL_CITATIONS = (
+    "SELECT r.dst_doc_uid, r.dst_doc_no, r.evidence, r.evidence_source,"
+    " r.confidence, p.title AS target_title, p.cwrq AS target_cwrq,"
+    " p.p_doc_no_full AS target_doc_no, p.p_effect_status AS target_effect"
+    " FROM policy_relation r LEFT JOIN policy p ON p.doc_uid = r.dst_doc_uid"
+    " WHERE r.src_doc_uid = ? AND r.relation = 'cites' ORDER BY r.id"
+)
+
+SQL_REPEALED_BY = (
+    "SELECT r.src_doc_uid, r.dst_doc_no, r.evidence, r.confidence,"
+    " s.title AS src_title, s.p_doc_no_full AS src_doc_no_full, s.cwrq AS src_cwrq,"
+    " s.url AS src_url"
+    " FROM policy_relation r LEFT JOIN policy s ON s.doc_uid = r.src_doc_uid"
+    " WHERE r.relation = 'repeals' AND r.dst_doc_uid = ? ORDER BY r.id"
+)
+
+SQL_REPEALS = (
+    "SELECT r.dst_doc_uid, r.dst_doc_no, r.evidence, r.confidence,"
+    " p.title AS target_title, p.p_doc_no_full AS target_doc_no,"
+    " p.p_effect_status AS target_effect"
+    " FROM policy_relation r LEFT JOIN policy p ON p.doc_uid = r.dst_doc_uid"
+    " WHERE r.src_doc_uid = ? AND r.relation = 'repeals' ORDER BY r.id"
+)
+
+
+#: FTS5 的 bm25 权重，按 FTS 表列序（title, p_doc_no_full, pub_name, content,
+#: o_keywords）：标题命中远比正文里顺带一句重要；文号是精确标识给次高；
+#: 正文压到 1.0，避免长文靠体量压过标题。
+#: **唯一定义处** —— Web 检索原先抄了同一串数字、靠注释声明"与 kb.py 一致"
+#: （2026-10 全量审计收拢为常量，以后调权重不会再漏改一处）。
+BM25_WEIGHTS = "12.0, 8.0, 4.0, 1.0, 2.0"
+
+
 def get_policy(doc_uid: str, *, content_offset: int = 0,
                max_chars: int = DEFAULT_CONTENT_CHARS,
                path: str | Path | None = None) -> dict | None:
@@ -461,27 +501,9 @@ def get_policy(doc_uid: str, *, content_offset: int = 0,
         total = len(full)
         chunk = full[content_offset:content_offset + max_chars]
 
-        citations = conn.execute(
-            "SELECT r.dst_doc_uid, r.dst_doc_no, r.evidence, r.evidence_source,"
-            " r.confidence, p.title AS target_title, p.cwrq AS target_cwrq,"
-            " p.p_doc_no_full AS target_doc_no, p.p_effect_status AS target_effect"
-            " FROM policy_relation r LEFT JOIN policy p ON p.doc_uid = r.dst_doc_uid"
-            " WHERE r.src_doc_uid = ? AND r.relation = 'cites' ORDER BY r.id",
-            (doc_uid,)).fetchall()
-        repealed_by = conn.execute(
-            "SELECT r.src_doc_uid, r.dst_doc_no, r.evidence, r.confidence,"
-            " s.title AS src_title, s.p_doc_no_full AS src_doc_no_full, s.cwrq AS src_cwrq,"
-            " s.url AS src_url"
-            " FROM policy_relation r LEFT JOIN policy s ON s.doc_uid = r.src_doc_uid"
-            " WHERE r.relation = 'repeals' AND r.dst_doc_uid = ? ORDER BY r.id",
-            (doc_uid,)).fetchall()
-        repeals = conn.execute(
-            "SELECT r.dst_doc_uid, r.dst_doc_no, r.evidence, r.confidence,"
-            " p.title AS target_title, p.p_doc_no_full AS target_doc_no,"
-            " p.p_effect_status AS target_effect"
-            " FROM policy_relation r LEFT JOIN policy p ON p.doc_uid = r.dst_doc_uid"
-            " WHERE r.src_doc_uid = ? AND r.relation = 'repeals' ORDER BY r.id",
-            (doc_uid,)).fetchall()
+        citations = conn.execute(SQL_CITATIONS, (doc_uid,)).fetchall()
+        repealed_by = conn.execute(SQL_REPEALED_BY, (doc_uid,)).fetchall()
+        repeals = conn.execute(SQL_REPEALS, (doc_uid,)).fetchall()
         attachments = conn.execute(
             "SELECT filename, ext, url, parse_status,"
             " SUBSTR(COALESCE(parsed_text,''), 1, ?) AS text_excerpt,"

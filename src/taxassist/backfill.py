@@ -27,7 +27,7 @@ from __future__ import annotations
 import logging
 import re
 
-from .collect.detail import _EFFECTIVE_RE   # 施行日期正则的唯一定义，见模块头「一致性要求」
+from .collect.detail import _EFFECTIVE_RE  # 施行日期正则的唯一定义，见模块头「一致性要求」
 from .collect.normalize import extract_full_doc_no, norm_text
 
 log = logging.getLogger(__name__)

@@ -299,12 +299,18 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
                 "UPDATE policy SET p_region=? WHERE p_region IS NULL AND IFNULL(o_site_name,'')=?",
                 (region_from_site_name(row["s"]), row["s"]),
             )
-    # 本地模型翻译结果。与中文原文**分列存放**：原文永远是权威版本，
-    # 译文只作阅读辅助 —— 两者必须能分别取用、分别清空，绝不混在一列里。
-    if _ensure_column(conn, "policy", "p_title_en", "p_title_en TEXT"):
-        applied.append("policy.p_title_en")
-    if _ensure_column(conn, "policy", "p_content_en", "p_content_en TEXT"):
-        applied.append("policy.p_content_en")
+    # 旧翻译链路的两个字段**已废弃并删除**（2026-10 全量审计，用户确认）：
+    # 它们属于 local_translate.py 那一代方案，现由独立的 translation 表承担
+    # （title/en 13945 条、content/en 6093 条）。
+    # 删前已逐 doc_uid 比对：旧字段里仅有的 863 条译文 **100% 在 translation 表
+    # 中有对应记录、缺失 0 条**，所以 DROP 不丢数据。
+    # SQLite 的 DROP COLUMN 需 3.35+（本机 3.49）；列本就不存在时忽略。
+    for legacy in ("p_title_en", "p_content_en"):
+        try:
+            conn.execute(f"ALTER TABLE policy DROP COLUMN {legacy}")
+            applied.append(f"policy.{legacy}（废弃字段，已删除）")
+        except sqlite3.OperationalError:
+            pass
     if _ensure_column(conn, "policy", "p_translated_at", "p_translated_at TEXT"):
         applied.append("policy.p_translated_at")
     conn.commit()

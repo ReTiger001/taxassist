@@ -31,7 +31,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
-from .. import auth, filters
+from .. import auth, filters, kb
 from .. import db as dbmod
 from ..translate import to_chinese_query
 from . import labels
@@ -551,7 +551,7 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
             if terms and all(len(t) >= 3 for t in terms):
                 # FTS5 的 bm25() 越小越相关；权重按 FTS 表列序
                 # （title, p_doc_no_full, pub_name, content, o_keywords）。
-                rank_expr = "bm25(policy_fts, 12.0, 8.0, 4.0, 1.0, 2.0), "
+                rank_expr = f"bm25(policy_fts, {kb.BM25_WEIGHTS}), "
             elif terms:
                 # LIKE 没有打分函数：退一步让**标题命中排在正文命中之前**。
                 rank_expr = "(CASE WHEN p.title LIKE ? THEN 0 ELSE 1 END), "
@@ -623,17 +623,12 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         policy = _one("SELECT * FROM policy WHERE doc_uid = ?", (doc_uid,))
         if policy is None:
             return HTMLResponse("<h1>404</h1><p>没有这条政策。</p>", status_code=404)
-        citations = _rows(
-            "SELECT r.dst_doc_uid, r.dst_doc_no, r.evidence, r.confidence,"
-            " p.title AS target_title, p.cwrq AS target_cwrq,"
-            " p.p_effect_status AS target_effect"
-            " FROM policy_relation r LEFT JOIN policy p ON p.doc_uid = r.dst_doc_uid"
-            " WHERE r.src_doc_uid=? AND r.relation='cites' ORDER BY r.id", (doc_uid,))
-        repealed = _rows(
-            "SELECT r.src_doc_uid, r.dst_doc_no, r.evidence, r.confidence,"
-            " s.title AS src_title, s.p_doc_no_full AS src_doc_no_full, s.cwrq AS src_cwrq"
-            " FROM policy_relation r LEFT JOIN policy s ON s.doc_uid = r.src_doc_uid"
-            " WHERE r.relation='repeals' AND r.dst_doc_uid=? ORDER BY r.id", (doc_uid,))
+        # 关系查询改为引用 kb.py 的**唯一一份定义**。
+        # 原先这里抄了一份，少了 r.evidence_source、p.p_doc_no_full AS target_doc_no
+        # 与 s.url 三个字段 —— 结果是同一份政策，走 MCP 接口能看到引用文号、
+        # 走网页看不到（2026-10 全量审计发现的分叉）。
+        citations = _rows(kb.SQL_CITATIONS, (doc_uid,))
+        repealed = _rows(kb.SQL_REPEALED_BY, (doc_uid,))
         # 附件正文：只取前 2 万字渲染 —— 有的申报表附件单篇就好几万字，
         # 全塞进页面会让详情页变得极慢。完整文本仍在库里（attachment.parsed_text），
         # 需要全文时另行导出，页面上会注明已截断。
