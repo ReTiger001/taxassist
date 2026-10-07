@@ -125,3 +125,41 @@ def register(app, *, require_auth: bool) -> None:
         if not _charge(customer, True, f"policy {doc_uid[:60]}"):
             return JSONResponse(_NO_BALANCE, status_code=402)
         return JSONResponse(_json(data))
+
+    @app.post("/api/mcp")
+    async def api_mcp(request: Request):
+        """**MCP over HTTP** —— 让 Cursor / Claude Desktop 这类 AI 客户端直连。
+
+        MCP 的标准传输是 stdio（本机子进程），远程客户用不了 —— 这正是
+        mcp_server.py 那样写着"只供本机"的原因。这里用 **JSON-RPC over HTTP**
+        承载同一套方法：请求体一条 JSON-RPC，响应体一条回复，直接复用
+        `mcp_server.handle_message` —— 所以方法集与 stdio 版**完全一致**
+        （search_policies / get_policy / lookup_by_doc_no / kb_overview），
+        不会出现"两个版本能力不一样"。
+
+        鉴权与计量同其它 /api/*：Bearer Key，**成功才扣**（JSON-RPC 的 error
+        回复同样不扣 —— 那是调用方的问题，不是我们提供了服务）。
+        """
+        customer = _auth(request)
+        if not customer:
+            return _unauthorized()
+        try:
+            msg = await request.json()
+        except Exception:  # noqa: BLE001 - 畸形 JSON 按 JSON-RPC 规范回 -32700
+            return JSONResponse(
+                {"jsonrpc": "2.0", "id": None,
+                 "error": {"code": -32700, "message": "Parse error"}},
+                status_code=400)
+
+        from ..mcp_server import handle_message
+
+        reply = handle_message(msg)
+        if reply is None:
+            # 通知类消息：MCP 约定不回复。仍然记一笔用量（便于看出客户端在活动）。
+            _charge(customer, True, f"mcp notify {str(msg.get('method'))[:40]}")
+            return JSONResponse({"jsonrpc": "2.0", "id": None, "result": {}})
+
+        ok = "error" not in reply
+        if not _charge(customer, ok, f"mcp {str(msg.get('method'))[:40]}"):
+            return JSONResponse(_NO_BALANCE, status_code=402)
+        return JSONResponse(_json(reply))
