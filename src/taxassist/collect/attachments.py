@@ -11,7 +11,7 @@
 | ``.xlsx`` | openpyxl | 抽所有工作表的单元格文本 |
 | ``.xls`` | xlrd | 老格式，税务申报表大量使用 |
 | ``.docx`` | python-docx | |
-| ``.doc`` / ``.wps`` / ``.et`` | **不支持** | 标记 unsupported，留待人工或后续接 WPS COM |
+| ``.doc`` / ``.wps`` / ``.et`` | **支持** | 走本机 WPS 的 COM（``KWPS.Application`` / ``KET.Application``）转成 docx/xlsx 后再解析；转不成才标 unsupported（见下方「老式文档」一节） |
 
 **扫描件是真实存在的**：内容为空的 PDF 返回 ``no_text_layer`` 而不是报错。
 必须区分"这份文件存在但需要 OCR"和"解析器坏了"——前者你打开看一眼就行，
@@ -84,19 +84,29 @@ def _ocr_pdf(path: Path) -> str:
 
 @_register(["xlsx", "xlsm"])
 def parse_xlsx(path: Path) -> str:
+    """解析 xlsx / xlsm。
+
+    **文件走 file-like 传入，不走路径**：openpyxl 会按**扩展名**判断格式，而
+    站点的扩展名会说谎 —— 实测名为 ``.xls`` 的文件内容是 PK 开头的 ZIP（即真
+    ``.xlsx``）：传路径时它抛 InvalidFileException 说"不支持老式 .xls 格式"，
+    那句话恰好把情况说反了。走文件对象就绕过扩展名检查，由内容自己说话 ——
+    与 parse_attachment「以内容为准」是同一条原则。
+    """
     from openpyxl import load_workbook
 
     parts: list[str] = []
-    wb = load_workbook(str(path), data_only=True, read_only=True)
-    try:
-        for ws in wb.worksheets:
-            parts.append(f"[工作表] {ws.title}")
-            for row in ws.iter_rows(values_only=True):
-                cells = [str(c).strip() for c in row if c is not None and str(c).strip()]
-                if cells:
-                    parts.append(" | ".join(cells))
-    finally:
-        wb.close()
+    with open(path, "rb") as fh:
+        wb = load_workbook(fh, data_only=True, read_only=True)
+        try:
+            for ws in wb.worksheets:
+                parts.append(f"[工作表] {ws.title}")
+                for row in ws.iter_rows(values_only=True):
+                    cells = [str(c).strip() for c in row
+                             if c is not None and str(c).strip()]
+                    if cells:
+                        parts.append(" | ".join(cells))
+        finally:
+            wb.close()
     return "\n".join(parts)
 
 
@@ -200,10 +210,25 @@ def convert_legacy_doc(path: Path) -> Path | None:
         doc = app.Documents.Open(str(path), ReadOnly=True, AddToRecentFiles=False)
         try:
             out = path.with_suffix(".docx")
+            if out == path:
+                # 扩展名**已经是** .docx、内容却是 OLE2（实测有 388 个这样的
+                # 附件 —— 站点用错了扩展名）。此时 SaveAs2 会写到原路径上：
+                # 既覆盖下载来的源文件，又让 parse_attachment 的 finally 把它
+                # unlink 掉 —— 那等于把附件删了。必须换个明确不同的临时名。
+                out = path.with_name(path.stem + ".converted.docx")
             doc.SaveAs2(str(out), FileFormat=_WD_FORMAT_DOCX)
         finally:
             doc.Close(False)
-        return out if out.exists() else None
+        # 产物要真的像个 docx（ZIP 容器）才算转换成功：WPS 是异步落盘的，
+        # 过早读会拿到半成品。转换没成时返回 None，让上层如实标 unsupported ——
+        # 那比让它以 failed:BadZipFile 的样子出现要诚实得多（后者会让人以为是
+        # 附件坏了，而其实是"这个老式格式我们转不动"）。
+        if out.exists() and out.stat().st_size > 0:
+            with open(out, "rb") as fh:
+                if fh.read(2) == b"PK":
+                    return out
+        log.warning("WPS 转换产物不是有效 docx，按不支持处理：%s", path.name)
+        return None
     except Exception as e:  # noqa: BLE001 - 外部程序，任何异常都算"转不了"
         log.warning("WPS 转换失败 %s: %s", path.name, e)
         return None

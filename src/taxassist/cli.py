@@ -71,7 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     at = sub.add_parser("attach", help="下载并解析附件（PDF/Excel/Word）")
     at.add_argument("--limit", type=int, default=20)
-    at.add_argument("--all", action="store_true", help="重抓已处理过的附件")
+    at.add_argument("--all", action="store_true",
+                    help="重抓已处理过的附件（含已成功的，较慢）")
+    at.add_argument("--retry-failed", action="store_true",
+                    help="只重试失败过的（failed:* 与下载失败），不碰已成功的")
 
     sub.add_parser("judge", help="效力判定与引用关系抽取")
 
@@ -361,7 +364,9 @@ def cmd_attach(args) -> int:
     try:
         conn = dbmod.connect()
         dbmod.init_db(conn)
-        stats = pipeline.fetch_attachments(conn, limit=args.limit, only_pending=not args.all)
+        stats = pipeline.fetch_attachments(
+            conn, limit=args.limit, only_pending=not args.all,
+            only_failed=args.retry_failed)
     finally:
         writelock.release()
     print(
