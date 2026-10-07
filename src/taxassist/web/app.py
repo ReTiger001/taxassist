@@ -18,14 +18,12 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from urllib.parse import parse_qs, urlencode, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import (
-    FileResponse,
     Response,
 )
-from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .. import auth, filters
@@ -253,59 +251,14 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     app = FastAPI(title="税务智能知识助手", docs_url=None, redoc_url=None,
                   openapi_url=None)
 
-    # 字体文件：**只挂 fonts 这一个子目录**。
-    # 认证中间件把 /static/ 整个放行（见下面 PUBLIC_PATHS 那段判断），所以
-    # 挂得比 fonts 更宽就等于开一个免认证的文件出口 —— 只暴露几个 woff2
-    # 是安全的，挂 static/ 根目录不是。目录不存在时静默跳过，字体回退到
-    # 系统字体，功能不受影响。
-    font_dir = HERE / "static" / "fonts"
-    if font_dir.is_dir():
-        app.mount("/static/fonts", StaticFiles(directory=str(font_dir)),
-                  name="fonts")
+    # 静态资源与模板上下文各自拆成了模块：
+    #   · static_assets —— 字体与语言脚本，那里写着"别挂宽"的安全边界
+    #   · context —— ctx 函数，被六个路由模块共用，是页面变量的唯一定义处
+    from .context import make_ctx
+    from .static_assets import register as _register_static
 
-    # 语言脚本：**精确到这一个文件**，理由同上 —— /static/ 整个前缀免认证，
-    # 挂 static/ 根目录就等于开一个免认证的文件出口。
-    # 用显式路由而不是 mount，是因为挂载的最小单位是目录，没法只暴露其中一个
-    # 文件（挂 lang.js 所在目录会把 fonts 之外的任何东西一起放出去）。
-    # 这份脚本必须能从**未登录**状态取到：登录页用的是 auth_base.html，
-    # 它不继承 base.html，但同样需要语言切换。
-    lang_js = HERE / "static" / "lang.js"
-    if lang_js.is_file():
-        @app.get("/static/lang.js", include_in_schema=False)
-        def _lang_js() -> FileResponse:
-            return FileResponse(lang_js, media_type="application/javascript")
-
-    def ctx(request: Request, **kw) -> dict:
-        def url_with(**changes) -> str:
-            """把当前查询串改几个参数后的 URL（快捷筛选用）。
-
-            为什么放在后端算：快捷筛选是 <a> 链接，点一下必须带上**当前其它
-            筛选条件** —— 改年份不该把地区丢掉。在模板里拼 query 容易漏参数，
-            这里统一处理；顺带清掉 limit，改条件就回到第一页。
-            """
-            args = {k: v for k, v in request.query_params.items() if v}
-            for key, val in changes.items():
-                if val in (None, ""):
-                    args.pop(key, None)
-                else:
-                    args[key] = str(val)
-            args.pop("limit", None)
-            return "/search" + ("?" + urlencode(args) if args else "")
-
-        base = {
-            "request": request,
-            "q": request.query_params.get("q", ""),
-            "url_with": url_with,
-            # 顶栏据此显示当前账号与"退出"；本机模式（无认证）下为 None
-            "user": getattr(request.state, "user", None),
-            # 是否对外提供访问：决定顶栏徽章写"本地"还是"对外"，
-            # 以及未登录时是否显示登录入口
-            "exposed": require_auth,
-            # 顶栏据此显示"后台"入口。在中间件里已算好，避免每页多查一次库。
-            "is_owner": getattr(request.state, "is_owner", False),
-        }
-        base.update(kw)
-        return base
+    _register_static(app)
+    ctx = make_ctx(require_auth)
 
 
     # 健康自检、税务助手、关于页、登录/注册的路由已拆到独立模块
