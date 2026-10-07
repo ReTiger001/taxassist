@@ -83,19 +83,7 @@ PROVINCIAL_SOURCES: tuple[ProvincialSource, ...] = (
 )
 
 
-def sources_by_status() -> dict[str, list[ProvincialSource]]:
-    out: dict[str, list[ProvincialSource]] = {}
-    for s in PROVINCIAL_SOURCES:
-        out.setdefault(s.status, []).append(s)
-    return out
 
 
-def coverage_note() -> str:
-    """给 CLI / 界面用的一句话覆盖度说明（不粉饰）。"""
-    counts = {k: len(v) for k, v in sources_by_status().items()}
-    return (
-        f"政策源覆盖：全国性核心源 1 个（已接入）；省级源登记 {len(PROVINCIAL_SOURCES)} 个 —— "
-        f"已验证 {counts.get('verified', 0)}、待适配 {counts.get('candidate', 0)}、"
-        f"未验证 {counts.get('unverified', 0)}。"
-        "省级站点结构各异，需逐个探测适配，当前不会静默跳过未接入的源。"
-    )
+
+

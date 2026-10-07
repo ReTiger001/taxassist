@@ -117,19 +117,9 @@ def is_substantive(row) -> bool:
     return classify(row) == SUBSTANTIVE
 
 
-def classify_all(conn) -> dict[str, int]:
-    """给全库打分类标签并写入 meta 表旁的分组统计。
-
-    分类结果**不落库**（每次查询实时判断即可），避免"分类规则改了、
-    库里还是旧标签"这种不一致 —— 规则应当随时可调，标签不该是历史包袱。
-    """
-    stats: dict[str, int] = {}
-    for row in conn.execute(
-        "SELECT o_column, p_doc_no_full, title FROM policy"
-    ):
-        cat = classify(row)
-        stats[cat] = stats.get(cat, 0) + 1
-    return stats
+# 设计原则（原先写在已删除的 classify_all 里 —— 2026-10 全量审计确认该函数
+# 零调用）：分类结果**不落库**，每次查询实时判断，避免"分类规则改了、库里还是
+# 旧标签"这种不一致。规则应当随时可调，标签不该是历史包袱。
 
 
 def substantive_first_sql(alias: str = "p") -> str:
@@ -311,8 +301,3 @@ def region_filter_sql(region: str, alias: str = "p") -> tuple[str, list]:
         # 历史数据或未识别地区一律归入"全国"，避免它们在任何筛选下都不出现
         return f"(IFNULL({alias}.p_region, '{NATIONWIDE}') = '{NATIONWIDE}')", []
     return f"({alias}.p_region = ?)", [region]
-
-
-def regions_present(conn) -> list[str]:
-    """库里实际存在的地区列表（全国优先）。"""
-    return [r for r, _ in region_counts(conn)]

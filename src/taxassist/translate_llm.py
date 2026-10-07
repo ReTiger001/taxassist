@@ -106,52 +106,6 @@ def translate(text: str, *, model: str = DEFAULT_MODEL, timeout: int = 600) -> s
     return out
 
 
-def split_chunks(text: str, max_chars: int = 1200) -> list[str]:
-    """按段落切块，尽量避免把一句话劈开。
-
-    中文政策正文段落很长，所以按「段落」优先，段落超长再按句号切。
-    """
-    text = (text or "").strip()
-    if not text:
-        return []
-    if len(text) <= max_chars:
-        return [text]
-
-    chunks: list[str] = []
-    buf = ""
-    for para in text.split("\n"):
-        para = para.strip()
-        if not para:
-            continue
-        if len(para) > max_chars:
-            # 长段落按句号切
-            for sent in para.replace("。", "。\n").split("\n"):
-                if not sent.strip():
-                    continue
-                if len(buf) + len(sent) > max_chars and buf:
-                    chunks.append(buf.strip())
-                    buf = ""
-                buf += sent
-        else:
-            if len(buf) + len(para) > max_chars and buf:
-                chunks.append(buf.strip())
-                buf = ""
-            buf += para + "\n"
-    if buf.strip():
-        chunks.append(buf.strip())
-    return chunks
-
-
-def translate_long(text: str, *, model: str = DEFAULT_MODEL,
-                   max_chars: int = 1200) -> str:
-    """长文本分块翻译再拼回。块间用空行分隔，保持可读。"""
-    parts = split_chunks(text, max_chars)
-    if not parts:
-        return ""
-    outs = [translate(p, model=model) for p in parts]
-    return "\n\n".join(outs)
-
-
 # ---------------------------------------------------------------- 落库
 
 def ensure_table(conn) -> None:

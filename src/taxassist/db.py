@@ -13,7 +13,7 @@ from __future__ import annotations
 import logging
 import sqlite3
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
 from .config import DB_PATH, ensure_dirs
@@ -237,10 +237,6 @@ END;
 def now_iso() -> str:
     """本地时区的 ISO 时间戳（本地库，用本地时间更便于人工核对）。"""
     return datetime.now().astimezone().replace(microsecond=0).isoformat()
-
-
-def utc_iso() -> str:
-    return datetime.now(UTC).replace(microsecond=0).isoformat()
 
 
 def connect(path: str | Path | None = None) -> sqlite3.Connection:
