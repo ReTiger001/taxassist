@@ -18,13 +18,11 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from urllib.parse import parse_qs, quote, urlencode, urlsplit
+from urllib.parse import parse_qs, urlencode, urlsplit
 
 from fastapi import FastAPI, Request
 from fastapi.responses import (
     FileResponse,
-    HTMLResponse,
-    RedirectResponse,
     Response,
 )
 from fastapi.staticfiles import StaticFiles
@@ -277,101 +275,6 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
         def _lang_js() -> FileResponse:
             return FileResponse(lang_js, media_type="application/javascript")
 
-    @app.middleware("http")
-    async def auth_middleware(request: Request, call_next):
-        """对外暴露时的唯一门锁。
-
-        ``require_auth=False``（仅监听本机）时完全放行，本机使用不受打扰。
-        page 模式下未登录一律 302 到登录页并带上 next，登录后回到原页面。
-        """
-        request.state.user = None
-        request.state.is_owner = False
-        if not require_auth:
-            # 只监听本机时，坐在这台电脑前的就是本人 —— 后台对他开放
-            request.state.is_owner = True
-            return await call_next(request)
-
-        path = request.url.path
-        # 精确匹配 /static 及其子路径，不用裸 startswith("/static") ——
-        # 后者会把 "/static/..%2fadmin" 这类路径也放过去。
-        #
-        # **这一段现在真的在放行静态文件**：create_app 里 mount 了
-        # /static/fonts（自托管字体）。之所以安全，是因为挂载点只到
-        # fonts、里面只有两个 woff2；哪天挂了更宽的目录，这里就变成
-        # 认证绕过入口。下面两个 ".." 检查是第二道闸，但挡不住 URL
-        # 编码的变体（如 %2e%2e%2f）—— 真正的保证是"别挂宽"。
-        if path in PUBLIC_PATHS or path == "/static" or path.startswith("/static/"):
-            if ".." not in path and "\\" not in path:
-                # **白名单页也要尽力解析登录态，只是不拦截。**
-                # 原来这里直接 call_next，request.state.user 从未被设置，
-                # 于是已登录的人在 /about 被当成未登录：顶栏显示"登录"按钮、
-                # 搜索框消失（用户实测踩到 —— 其它标签都正常，唯独关于页
-                # "掉登录"）。公开页对未登录访客开放，不代表它该对已登录的
-                # 人装不认识。
-                # 静态资源不解析：每个字体请求都连一次库纯属浪费。
-                if path in PUBLIC_PATHS and auth_mode != "basic":
-                    conn = dbmod.connect()
-                    try:
-                        user = auth.read_token(
-                            conn, request.cookies.get(auth.SESSION_COOKIE, ""))
-                        if user:
-                            request.state.user = user
-                            request.state.is_owner = auth.is_owner(conn, user)
-                    finally:
-                        conn.close()
-                return await call_next(request)
-
-        if auth_mode == "basic":
-            header = request.headers.get("authorization", "")
-            if header.lower().startswith("basic "):
-                import base64
-
-                try:
-                    raw = base64.b64decode(header[6:]).decode("utf-8")
-                    username, _, password = raw.partition(":")
-                except Exception:  # noqa: BLE001 - 畸形凭据一律当失败
-                    username = password = ""
-                conn = dbmod.connect()
-                try:
-                    if auth.check_credentials(conn, username, password):
-                        request.state.user = username
-                        request.state.is_owner = auth.is_owner(conn, username)
-                        return await call_next(request)
-                finally:
-                    conn.close()
-            return HTMLResponse(
-                "<h1>需要登录</h1><p>请输入账号与口令。</p>",
-                status_code=401,
-                headers={"WWW-Authenticate": 'Basic realm="taxassist"'},
-            )
-
-        conn = dbmod.connect()
-        try:
-            user = auth.read_token(conn, request.cookies.get(auth.SESSION_COOKIE, ""))
-            owner = auth.is_owner(conn, user) if user else False
-        finally:
-            conn.close()
-        if user:
-            request.state.user = user
-            request.state.is_owner = owner
-            return await call_next(request)
-        # 注意 quote 的 safe 里必须保留 %：query 已经是百分号编码形式，
-        # 再编码一次会变成 %25（双重编码），进 next 的地址就废了。
-        target = request.url.path
-        if request.url.query:
-            target = f"{target}?{request.url.query}"
-        return RedirectResponse(f"/login?next={quote(target, safe='%')}", status_code=302)
-
-    # 后注册的中间件在外层。安全头特意放在最后注册，才能覆盖认证中间件
-    # 直接返回的那个 302（它不经过内层）。
-    @app.middleware("http")
-    async def security_headers(request: Request, call_next):
-        response = await call_next(request)
-        response.headers.setdefault("X-Content-Type-Options", "nosniff")
-        response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Referrer-Policy", "same-origin")
-        return response
-
     def ctx(request: Request, **kw) -> dict:
         def url_with(**changes) -> str:
             """把当前查询串改几个参数后的 URL（快捷筛选用）。
@@ -413,7 +316,11 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     from .assistant_routes import register as _register_assistant
     from .auth_routes import register as _register_auth
     from .browse_routes import register as _register_browse
+    from .middleware import register as _register_middleware
 
+    # 中间件最先接上：它们包裹整个应用
+    _register_middleware(app, require_auth=require_auth,
+                         auth_mode=auth_mode)
     _register_assistant(app, ctx=ctx, templates=templates)
     _register_browse(app, ctx=ctx, templates=templates)
     _register_about(app, templates=templates, require_auth=require_auth)
