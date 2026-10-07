@@ -37,3 +37,21 @@ def register(app, *, templates, require_auth: bool) -> None:
             context={"request": request, "user": me,
                      "is_owner": getattr(request.state, "is_owner", False),
                      "exposed": require_auth, "lang": "zh"})
+
+    @app.get("/pricing", response_class=HTMLResponse)
+    def pricing_page(request: Request):
+        """中英双语「服务与价格」页。
+
+        **同样不需要登录**：客户在决定买之前要看清楚能拿到什么、怎么算钱、
+        怎么接进来 —— 放在后台里等于"先买再看"。
+
+        内容纪律：这一页写的是**怎么算**（按次、两项分开、成功才扣、余额预充），
+        不写**多少钱** —— 单价会变，写死在页面里迟早对不上，具体数字见合同。
+        文案里的成本量级（首字约 2 秒、整篇约 20 秒）是实测值，不是估计。
+        """
+        me = getattr(request.state, "user", None)
+        return templates.TemplateResponse(
+            request=request, name="pricing.html",
+            context={"request": request, "user": me,
+                     "is_owner": getattr(request.state, "is_owner", False),
+                     "exposed": require_auth, "lang": "zh"})

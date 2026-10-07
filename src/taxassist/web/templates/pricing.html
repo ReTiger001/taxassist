@@ -1,0 +1,227 @@
+{% extends "base.html" %}
+{% block title %}{{ '服务与价格 · 税务智能知识助手' if lang != 'en' else 'Service & Pricing · Tax Policy Knowledge Assistant' }}{% endblock %}
+{% block body %}
+{#
+  面向客户的服务说明页（/pricing）。
+
+  为什么单独一页、且**不需要登录**：客户在决定买之前要看清楚能拿到什么、
+  怎么算钱、怎么接进来。放在后台里等于"先买再看"。
+
+  计价口径：**按次数**，检索与助手**分开**。理由写在下面的表格里 ——
+  检索是从本机库里查，助手要跑本机 14B 模型，两者成本差一个量级，
+  合成一个价格必然有一边吃亏。
+
+  文案纪律：单价不写死在这里（会变），只写"按次、分开计价、余额预充"的
+  规则；具体数字见合同。这一页说的是**怎么算**，不是**多少钱**。
+#}
+<div class="about-switch">
+  <button type="button" class="chip lang-btn" data-lang="zh">中文</button>
+  <button type="button" class="chip lang-btn" data-lang="en">English</button>
+</div>
+
+<div class="lang-block" data-lang="zh">
+  <h1>服务与价格</h1>
+  <p class="lede">
+    本站在本机运行，把国家税务总局与 31 个省级税务局的公开政策文件收进一个可检索的库。
+    对外提供两种调用能力：<b>政策检索</b>与<b>税务助手</b>。
+  </p>
+
+  <h2>两种能力，分开计价</h2>
+  <p>
+    计价口径是<b>按调用次数</b>，不按流量 —— 政策正文体量很小，成本不在带宽上。
+    两项服务<b>分开计价、分开扣减</b>：
+  </p>
+  <table class="plain">
+    <thead>
+      <tr><th>能力</th><th>做什么</th><th>成本量级</th><th>计价</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>政策检索</b></td>
+        <td>全文检索、按条件筛选、取单篇政策原文</td>
+        <td>本机库查询，毫秒级</td>
+        <td>按次</td>
+      </tr>
+      <tr>
+        <td><b>税务助手</b></td>
+        <td>结合客户业务事实，出带依据的税务分析报告</td>
+        <td>调用本机 14B 模型，每次数十秒</td>
+        <td>按次（单价高于检索）</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">
+    助手单价高于检索是成本决定的：一次助手调用要跑一次大模型（首字约 2 秒、
+    整篇约 20 秒），而一次检索是对本机索引的查询。具体单价见合同。
+  </p>
+
+  <h2>余额与扣费规则</h2>
+  <ul class="plain">
+    <li><b>余额预充</b>：检索与助手各有一份余额，互相不占用。</li>
+    <li><b>成功才扣</b>：请求失败不扣费；余额不足时返回 402，不会让余额变成负数。</li>
+    <li><b>充值方式</b>：人工充值 —— 与本方确认金额后由后台入账，即时生效。</li>
+    <li><b>用量可查</b>：每一笔调用都有记录（时间、类型、扣减、成功与否），可随时核对。</li>
+  </ul>
+
+  <h2>接入方式</h2>
+
+  <h3>方式一：HTTP API</h3>
+  <p>适合你自己的系统调用。用发放的密钥鉴权，密钥只在服务端保存哈希，丢失可重新签发、旧密钥可即刻吊销。</p>
+  <table class="plain">
+    <thead><tr><th>端点</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /api/overview</code></td><td>库的概况（收录量、覆盖范围）</td></tr>
+      <tr><td><code>GET /api/search</code></td><td>政策全文检索，支持地区/栏目/效力/年份筛选</td></tr>
+      <tr><td><code>GET /api/policy/{id}</code></td><td>取单篇政策原文与效力依据</td></tr>
+      <tr><td><code>POST /api/mcp</code></td><td>MCP 协议入口（见下）</td></tr>
+    </tbody>
+  </table>
+  <p>调用时带上密钥：</p>
+  <pre><code>curl -H "Authorization: Bearer tk_你的密钥" \
+     "http://主机:端口/api/search?q=研发费用加计扣除"</code></pre>
+
+  <h3>方式二：MCP（给 AI 客户端用）</h3>
+  <p>
+    如果你的工作流在 Cursor、Claude Desktop 这类支持 MCP 的 AI 客户端里，
+    可以直接把这些能力挂进去，让模型自己查政策、取原文。方法与标准 MCP 一致，
+    共用同一把密钥与同一份余额。
+  </p>
+  <table class="plain">
+    <thead><tr><th>工具</th><th>用途</th></tr></thead>
+    <tbody>
+      <tr><td><code>search_policies</code></td><td>检索政策</td></tr>
+      <tr><td><code>get_policy</code></td><td>取单篇政策</td></tr>
+      <tr><td><code>lookup_by_doc_no</code></td><td>按文号查</td></tr>
+      <tr><td><code>kb_overview</code></td><td>库概况</td></tr>
+    </tbody>
+  </table>
+
+  <h2>免费试用</h2>
+  <p>
+    新客户可申请<b>试用额度</b> —— 两项能力各给若干次，够完整跑通一遍接入流程。
+    试用期内的调用同样计入用量记录，便于你评估真实消耗。
+  </p>
+
+  <h2>数据边界（请先读这一条）</h2>
+  <p>
+    本站收录的全部是<b>公开政策文件</b>，来自国家税务总局与各省税务局官网。
+    <b>你的业务数据不出本机</b>：助手调用时传入的业务事实仅用于当次分析，
+    不写入任何政策库、不发送给任何第三方 —— 助手本身也是在本机模型上跑的。
+    所有效力判断都附依据原文与来源网址，可逐条核验。
+  </p>
+
+  <h2>怎么开始</h2>
+  <ol class="plain">
+    <li>与我们联系，说明要用的能力（检索 / 助手 / 两者）与预估用量。</li>
+    <li>建立一个客户账号，分配密钥，并预充试用额度。</li>
+    <li>按上面的方式调用；用量与余额可随时核对。</li>
+  </ol>
+</div>
+
+<div class="lang-block" data-lang="en">
+  <h1>Service &amp; Pricing</h1>
+  <p class="lede">
+    This site runs entirely on the local machine, bringing the public policy
+    documents of the State Taxation Administration and 31 provincial tax
+    bureaus into one searchable knowledge base. Two capabilities are offered
+    for external use: <b>policy search</b> and the <b>tax assistant</b>.
+  </p>
+
+  <h2>Two capabilities, priced separately</h2>
+  <p>
+    Billing is <b>per call</b>, not by bandwidth — policy text is small, so the
+    cost is not in data transfer. The two services are metered and charged
+    <b>separately</b>:
+  </p>
+  <table class="plain">
+    <thead>
+      <tr><th>Capability</th><th>What it does</th><th>Cost scale</th><th>Billing</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Policy search</b></td>
+        <td>Full-text search, filtered browsing, fetch a single document</td>
+        <td>Local index query, milliseconds</td>
+        <td>Per call</td>
+      </tr>
+      <tr>
+        <td><b>Tax assistant</b></td>
+        <td>Analysis with citations, grounded in your stated business facts</td>
+        <td>Runs the local 14B model, tens of seconds per call</td>
+        <td>Per call (higher unit price)</td>
+      </tr>
+    </tbody>
+  </table>
+  <p class="note">
+    The assistant costs more because each call runs a large language model
+    (roughly 2 s to first token, ~20 s for a full report), whereas a search is
+    an index lookup. Unit prices are stated in the agreement.
+  </p>
+
+  <h2>Balance and charging rules</h2>
+  <ul class="plain">
+    <li><b>Prepaid balance</b>: search and assistant have separate balances; neither consumes the other.</li>
+    <li><b>Charged only on success</b>: failed requests cost nothing; when the balance runs out the API returns 402 and the balance never goes negative.</li>
+    <li><b>Top-up</b>: manual — confirm the amount with us and it is credited to your account, effective immediately.</li>
+    <li><b>Usage is auditable</b>: every call is logged (time, type, amount, success), so you can reconcile at any time.</li>
+  </ul>
+
+  <h2>How to connect</h2>
+
+  <h3>Option 1: HTTP API</h3>
+  <p>For your own systems. Authenticate with an issued key; only a hash of the key is stored server-side, and keys can be reissued or revoked immediately.</p>
+  <table class="plain">
+    <thead><tr><th>Endpoint</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td><code>GET /api/overview</code></td><td>Knowledge base overview (coverage, volume)</td></tr>
+      <tr><td><code>GET /api/search</code></td><td>Full-text search with region / column / validity / year filters</td></tr>
+      <tr><td><code>GET /api/policy/{id}</code></td><td>Fetch one policy with its validity grounds</td></tr>
+      <tr><td><code>POST /api/mcp</code></td><td>MCP protocol entry point (below)</td></tr>
+    </tbody>
+  </table>
+  <p>Pass the key with each call:</p>
+  <pre><code>curl -H "Authorization: Bearer tk_your_key" \
+     "http://host:port/api/search?q=R&amp;D super deduction"</code></pre>
+
+  <h3>Option 2: MCP (for AI clients)</h3>
+  <p>
+    If your workflow lives in an MCP-capable AI client such as Cursor or Claude
+    Desktop, you can attach these capabilities directly and let the model look
+    up policies and fetch source text itself. The methods match standard MCP and
+    share the same key and the same balance.
+  </p>
+  <table class="plain">
+    <thead><tr><th>Tool</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>search_policies</code></td><td>Search policies</td></tr>
+      <tr><td><code>get_policy</code></td><td>Fetch one policy</td></tr>
+      <tr><td><code>lookup_by_doc_no</code></td><td>Look up by document number</td></tr>
+      <tr><td><code>kb_overview</code></td><td>Knowledge base overview</td></tr>
+    </tbody>
+  </table>
+
+  <h2>Free trial</h2>
+  <p>
+    New clients can request a <b>trial allowance</b> — a number of calls for
+    each capability, enough to run the full integration end to end. Trial calls
+    are logged like any other, so you can gauge real consumption.
+  </p>
+
+  <h2>Data boundary (read this first)</h2>
+  <p>
+    Everything in the knowledge base is <b>public policy documents</b> from
+    official tax authority websites. <b>Your business data never leaves this
+    machine</b>: facts you supply to the assistant are used for that single
+    analysis, written to no knowledge base, and sent to no third party — the
+    assistant itself runs on a local model. Every validity judgement carries its
+    source snippet and URL for verification.
+  </p>
+
+  <h2>Getting started</h2>
+  <ol class="plain">
+    <li>Contact us with the capabilities you need (search / assistant / both) and your expected volume.</li>
+    <li>We create a client account, issue a key, and credit a trial allowance.</li>
+    <li>Call the API as shown above; usage and balance stay auditable throughout.</li>
+  </ol>
+</div>
+{% endblock %}
