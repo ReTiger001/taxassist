@@ -2,8 +2,17 @@
 {% block title %}客户与余量 · 税务智能知识助手{% endblock %}
 {% block body %}
 <h1>客户与余量</h1>
-<p class="sub" style="r{
-   "客户"是**能调 API 的对象**，与"账号"（能进这个站的人）是两回事：一个客户
+
+{# 后台分区导航（与 /admin 那份同一组，当前页高亮）。 #}
+<nav style="display:flex;gap:8px;margin:0 0 18px">
+  <a class="chip" href="/admin"
+     data-zh="账号与邀请码" data-en="Accounts &amp; invites">账号与邀请码</a>
+  <a class="chip" href="/admin/customers" style="border-color:var(--brand-2);color:var(--brand-2)"
+     data-zh="客户与计费" data-en="Clients &amp; billing">客户与计费</a>
+</nav>
+
+<p class="sub">
+  “客户”是<b>能调 API 的对象</b>，与“账号”（能进这个站的人）是两回事：一个客户
   可以没有任何登录账号，只需要一枚 API Key 和足够的余量。收款走人工充值 ——
   收到转账后在这里加额。
 </p>

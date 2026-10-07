@@ -18,7 +18,7 @@ import logging
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 
-from .. import auth
+from .. import auth, billing
 from .. import db as dbmod
 from .helpers import _is_local_request, _origin_ok, _read_form, _safe_next, _set_session_cookie
 
@@ -127,6 +127,11 @@ def register(app, *, templates, require_auth: bool) -> None:
         conn = dbmod.connect()
         try:
             name = auth.redeem_invite(conn, code, username, password)
+            # 注册即开户：建一个**同名**的计费客户（余额 0），于是客户自己就能
+            # 在「我的账户」里看余额、用量，并自助申请 API Key —— 不用等超管先
+            # 在后台建一遍。若超管早已建过同名客户（先谈好再开通的场景），
+            # ensure_customer 什么都不改：余额与备注原样保留，只是把两者接上。
+            billing.ensure_customer(conn, name)
             token = auth.issue_token(conn, name)
         except ValueError as e:
             auth.record_failure(ip_key)

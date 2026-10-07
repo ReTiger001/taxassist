@@ -537,8 +537,15 @@ html{cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.or
 a,button,.chip,.q-chip,.ibtn,.ex,.q-more>summary,.legend>summary{
   cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Cpath d='M2 1l9 6-4 .8 2.2 4-1.7.9-2.2-4L2 12z' fill='%2300ff00' stroke='%23001a00' stroke-width='.8'/%3E%3C/svg%3E") 2 1, pointer}
 /* 输入类控件显式回到系统光标，否则会被上面的 html 规则继承 */
-input,textarea,select,[contenteditable="true"]{cursor:auto}
-input[type=search]{cursor:text}
+/* 输入类控件给**绿色 I 形光标**（自画，热点在竖线中心 (8,8)）。
+   原来是 cursor:auto —— 系统指针是白的，深绿界面里突然出现一块白，
+   和准星、链接箭头凑成三套互不相干的光标。现在三态统一在绿色体系里：
+   普通区域=准星、可点=箭头、可输入=I 形；白色系统指针在站内不再出现。
+   为什么不用准星：输入框里要能看清插入点在两个字的哪一边，I 形是唯一
+   能表达这件事的形状。select 例外 —— 它是下拉不是输入，给箭头。 */
+input,textarea,[contenteditable="true"]{
+  cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cpath d='M5 2h6M5 14h6M8 2v12' stroke='%2300cc00' stroke-width='1.3'/%3E%3C/svg%3E") 8 8, text}
+select{cursor:url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14'%3E%3Cpath d='M2 1l9 6-4 .8 2.2 4-1.7.9-2.2-4L2 12z' fill='%2300ff00' stroke='%23001a00' stroke-width='.8'/%3E%3C/svg%3E") 2 1, pointer}
 /* 点击涟漪：绝对定位一个圆圈，动画结束由 JS 移除。pointer-events:none
    保证它不会挡住点击 —— 特效再好看也不该改变点击行为。 */
 .click-ripple{position:fixed;width:14px;height:14px;margin:-7px 0 0 -7px;
@@ -688,6 +695,9 @@ form button[type=submit]:hover,.ibtn.go:hover{background:#00cc00;
             title="切换界面语言 / Switch language">EN</button>
     {% if user %}
     <div class="who">
+      {# 「我的账户」对所有登录用户显示，「后台」只对超管 —— 顺序也照此：
+         先是人人有的自助入口，再是超管专属。 #}
+      <a href="/account" data-zh="我的账户" data-en="My account">我的账户</a>
       {% if is_owner %}<a href="/admin" data-zh="后台" data-en="Admin">后台</a>{% endif %}
       <span class="who-name" data-title-zh="{{ user }}" data-title-en="{{ user }}">{{ user }}</span>
       <a href="/logout" data-zh="退出" data-en="Sign out">退出</a>

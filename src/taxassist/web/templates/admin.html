@@ -2,6 +2,17 @@
 {% block title %}后台 · 税务智能知识助手{% endblock %}
 {% block body %}
 <h1 data-zh="后台" data-en="Admin">后台</h1>
+
+{# 后台分区导航 —— 两个后台页各带一份。之前它们之间**没有任何链接**：
+   顶栏「后台」只能到 /admin，而客户与计费在 /admin/customers，超管根本走不过去
+   （用户实测反馈：「我说过我在后台要看所有客户情况，这个功能又在哪里？」）。
+   新加后台页时记得两份都补上。 #}
+<nav style="display:flex;gap:8px;margin:0 0 18px">
+  <a class="chip" href="/admin" style="border-color:var(--brand-2);color:var(--brand-2)"
+     data-zh="账号与邀请码" data-en="Accounts &amp; invites">账号与邀请码</a>
+  <a class="chip" href="/admin/customers"
+     data-zh="客户与计费" data-en="Clients &amp; billing">客户与计费</a>
+</nav>
 <p class="lede" style="color:var(--ink-3);font-size:12.5px;margin:0 0 18px"
    data-zh="管理谁能访问本站。这里是唯一能改动数据的地方。"
    data-en="Manage who can access this site. This is the only page that changes data.">管理谁能访问本站。这里是唯一能改动数据的地方。</p>

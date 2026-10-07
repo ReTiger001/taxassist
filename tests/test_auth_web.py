@@ -7,13 +7,14 @@ next 参数能否被当成开放重定向跳板、登出是否真的清掉了会
 from __future__ import annotations
 
 import base64
+import re
 from datetime import UTC
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 from fastapi.testclient import TestClient
 
-from taxassist import auth
+from taxassist import auth, billing
 from taxassist import db as dbmod
 from taxassist.web.app import create_app
 
@@ -479,6 +480,61 @@ def test_last_owner_cannot_demote_itself(db_path):
         conn.close()
 
 
+def _seed_second_owner(username: str) -> None:
+    """再造一个超级管理员 —— 用来验证「有别人在，我也不能动自己」。"""
+    conn = dbmod.connect()
+    try:
+        auth.create_user(conn, username, GOOD_PWD, role=auth.ROLE_OWNER)
+    finally:
+        conn.close()
+
+
+def test_an_owner_cannot_demote_itself_even_with_another_owner_present(db_path):
+    """有两个超管时，谁也不能给自己降级 —— 只能由另一位来改。
+
+    这是用户定下的规则：「我要是取消了自己的超管，那哪还有超管呢？」
+    改动前的行为是：只要还有**另一个**超管，自降就放行 —— 于是 A 把自己降成
+    普通成员后只剩 B 是超管，A 从此进不去后台，而且自己再也改不回来。
+    """
+    _seed_second_owner("second-boss")
+    c = _owner_client(db_path)          # 以 boss 身份登录
+    assert c.post("/admin/user/role",
+                  data={"username": "boss", "role": "member"}).status_code == 303
+    conn = dbmod.connect()
+    try:
+        assert auth.is_owner(conn, "boss")        # 自己仍是超管
+        assert auth.owner_count(conn) == 2        # 没有被改掉
+    finally:
+        conn.close()
+
+
+def test_an_owner_cannot_delete_itself_even_with_another_owner_present(db_path):
+    """同理删自己也不行 —— 删号等于把自己锁在门外。"""
+    _seed_second_owner("second-boss")
+    c = _owner_client(db_path)
+    assert c.post("/admin/user/delete", data={"username": "boss"}).status_code == 303
+    conn = dbmod.connect()
+    try:
+        assert auth.is_owner(conn, "boss")
+        assert auth.owner_count(conn) == 2
+    finally:
+        conn.close()
+
+
+def test_an_owner_can_still_demote_another_owner(db_path):
+    """但处置**别人**必须仍然放行 —— 新规则不能顺手把正常管理也堵死。"""
+    _seed_second_owner("second-boss")
+    c = _owner_client(db_path)
+    assert c.post("/admin/user/role",
+                  data={"username": "second-boss", "role": "member"}).status_code == 303
+    conn = dbmod.connect()
+    try:
+        assert not auth.is_owner(conn, "second-boss")
+        assert auth.is_owner(conn, "boss")        # 自己不受影响
+    finally:
+        conn.close()
+
+
 def test_admin_writes_reject_cross_site_forms(db_path):
     """后台是本站唯一能改数据的地方，跨站表单必须打不进来。"""
     c = _owner_client(db_path)
@@ -718,3 +774,165 @@ def test_assistant_footer_allows_wrapping():
     foot = src.split(".foot{", 1)[1].split("}", 1)[0]
     assert "nowrap" not in foot, ".foot 又变成不换行了"
     assert "ellipsis" not in foot, ".foot 又变成截断了，英文合规声明会被吃掉一半"
+
+
+def test_admin_and_customers_pages_link_to_each_other(db_path):
+    """两个后台页必须互相可达 —— 这是用户实测踩到的坑。
+
+    用户原话：「我说过我在后台要看所有客户情况，这个功能又在哪里？」
+    页面本身一直是有的（/admin/customers，双余额、用量明细、发 Key 都在），
+    但 /admin 上**没有任何链接**指向它，顶栏「后台」也只能到 /admin ——
+    于是超管根本走不过去。这条测试守住那两个链接，防止以后又被拆掉。
+    """
+    c = _owner_client(db_path)
+    admin = c.get("/admin")
+    assert admin.status_code == 200
+    assert 'href="/admin/customers"' in admin.text
+
+    cust = c.get("/admin/customers")
+    assert cust.status_code == 200
+    assert 'href="/admin"' in cust.text
+
+
+def test_registering_creates_a_same_named_billing_account(client):
+    """注册即开户：新账号自动获得一个同名计费客户（余额 0）。
+
+    没有这一步，普通成员进「我的账户」会查到"没有这个客户"—— 他既看不了
+    余额，也申请不了 Key，只能等超管先在后台手工建一遍。
+    """
+    _register(client, _invite(), "newbie")
+    conn = dbmod.connect()
+    try:
+        bal = billing.get_balance(conn, "newbie")
+        assert bal["exists"] is True
+        assert bal["search"] == 0 and bal["assistant"] == 0
+    finally:
+        conn.close()
+
+
+def test_registering_keeps_an_existing_account_of_the_same_name(client):
+    """超管先建过同名客户时，注册只是**接上**，不动余额与备注。
+
+    这是"先谈好再开通"的场景：客户还没注册，超管已经把余量充好、备注写好。
+    注册流程若拿 create_customer（upsert，DO UPDATE 会写 note）去"确保存在"，
+    备注会被抹成 NULL —— 这正是 ensure_customer 用 INSERT OR IGNORE 的原因。
+    """
+    conn = dbmod.connect()
+    try:
+        billing.create_customer(conn, "earlybird", note="某某事务所，已收款 500",
+                                balance=500, assistant_balance=20)
+    finally:
+        conn.close()
+
+    _register(client, _invite(), "earlybird")
+
+    conn = dbmod.connect()
+    try:
+        bal = billing.get_balance(conn, "earlybird")
+        assert bal["search"] == 500 and bal["assistant"] == 20   # 余额没被清零
+        note = conn.execute(
+            "SELECT note FROM customer WHERE name='earlybird'").fetchone()[0]
+        assert note == "某某事务所，已收款 500"                    # 备注没被抹掉
+    finally:
+        conn.close()
+
+
+def test_account_page_shows_own_balance_and_nobody_elses(client):
+    """「我的账户」给普通成员看自己的余额与用量。
+
+    两件事一起验：
+    （a）注册即开户之后，打开这页就能看到 0，而不是"查无此客户"；
+    （b）别人的余额不会出现在这一页 —— 数据范围由服务端按
+        request.state.user 限定，不是靠页面隐藏。
+    """
+    _seed_user("someone-else")
+    conn = dbmod.connect()
+    try:
+        # 登录账号与计费客户是两张表，_seed_user 只建前者 —— 要显式开户才能
+        # 给他加余额（真实流程里这一步由注册时的 billing.ensure_customer 做）。
+        billing.ensure_customer(conn, "someone-else")
+        billing.add_balance(conn, "someone-else", billing.KIND_SEARCH, 999)
+    finally:
+        conn.close()
+
+    _register(client, _invite(), "viewer")
+    r = client.get("/account")
+    assert r.status_code == 200
+    assert "viewer" in r.text
+    # 别人的东西不能露出来。**别拿裸数字断言** —— 页面 CSS 里有 z-index:9999，
+    # "999" 必然命中，第一次就是这么挂的。用账号名，它不会出现在样式里。
+    assert "someone-else" not in r.text
+
+
+def test_a_member_can_issue_and_revoke_its_own_key(client):
+    """Key 自助：申请即发，拿到就能用；吊销后立刻失效。
+
+    这是用户要的「管理自己的 API」—— 在这之前，发 Key 只能超管在后台手动做，
+    吊销更只能进命令行。
+    """
+    _register(client, _invite(), "keyowner")
+    r = client.post("/account/key", data={"label": "生产"},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    m = re.search(r"tk_[0-9a-f]{32}", r.text)      # 明文只在这一次响应里出现
+    assert m, "响应里没有出现明文 Key"
+    raw = m.group(0)
+
+    conn = dbmod.connect()
+    try:
+        assert billing.resolve_key(conn, raw) == "keyowner"    # 立刻可用
+        kids = billing.list_keys(conn, "keyowner")
+    finally:
+        conn.close()
+    assert len(kids) == 1 and not kids[0]["revoked"]
+
+    client.post("/account/key/revoke", data={"key_id": kids[0]["id"]},
+                follow_redirects=True)
+    conn = dbmod.connect()
+    try:
+        assert billing.resolve_key(conn, raw) is None          # 立刻失效
+    finally:
+        conn.close()
+
+
+def test_a_member_cannot_revoke_someone_elses_key(client):
+    """短标识在页面上是公开可见的，所以吊销必须带 customer 条件。
+
+    少了那个条件，任何登录用户只要试到（或从别处看到）12 位片段，就能吊销
+    别人的 Key —— 而"可见"不等于"安全"，sha256 截断后更不是密文。
+    """
+    conn = dbmod.connect()
+    try:
+        billing.ensure_customer(conn, "victim")
+        victim_key = billing.create_key(conn, "victim")
+        vid = billing.list_keys(conn, "victim")[0]["id"]
+    finally:
+        conn.close()
+
+    _register(client, _invite(), "attacker")
+    r = client.post("/account/key/revoke", data={"key_id": vid},
+                    follow_redirects=True)
+    assert r.status_code == 200
+    conn = dbmod.connect()
+    try:
+        assert billing.resolve_key(conn, victim_key) == "victim"   # 没被动过
+    finally:
+        conn.close()
+
+
+def test_ensure_customer_refuses_an_empty_name():
+    """空名不能开户 —— 免认证模式下 /account 一被访问就会调到这里，
+    而 request.state.user 是 None。
+
+    不挡的话 customer 表会多出一条 name='' 的幽灵行：后台列表里没有名字，
+    客户数莫名多一个，而且要有人发现才清得掉（本机验证时真出现过一条）。
+    """
+    conn = dbmod.connect()
+    try:
+        assert billing.ensure_customer(conn, "") is False
+        assert billing.ensure_customer(conn, "   ") is False
+        assert billing.ensure_customer(conn, None) is False
+        assert conn.execute(
+            "SELECT COUNT(*) FROM customer WHERE name = ''").fetchone()[0] == 0
+    finally:
+        conn.close()

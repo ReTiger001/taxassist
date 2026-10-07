@@ -1,0 +1,241 @@
+{% extends "base.html" %}
+{% block title %}{{ '接入文档 · 税务智能知识助手' if lang != 'en' else 'API Docs · Tax Policy Knowledge Assistant' }}{% endblock %}
+{% block body %}
+{#
+  面向客户的接入文档（/account/docs）。
+
+  写这一页的纪律：
+  · **参数与错误码必须照实现写**，不凭印象。写错的文档比没有文档更糟 ——
+    客户会照着调，然后以为是自己写错了。
+  · **不计费的路径要说清楚**（400 参数错、503 异常都不扣），客户才知道
+    试错不要钱、可以放心调。
+  · 示例要能直接复制粘贴运行，占位符用 <> 标出。
+#}
+<h1 data-zh="接入文档" data-en="Integration docs">接入文档</h1>
+<p class="lede" style="color:var(--ink-3);font-size:12.5px;margin:0 0 18px"
+   data-zh="怎么拿 Key、怎么调、怎么接进 AI 客户端，以及哪些调用不计费。"
+   data-en="How to get a key, how to call, how to attach it to an AI client, and what is not billed.">怎么拿 Key、怎么调、怎么接进 AI 客户端，以及哪些调用不计费。</p>
+
+<h2 data-zh="一、先拿到 Key" data-en="1. Get a key">一、先拿到 Key</h2>
+<div class="card pad">
+  <p style="margin:0 0 10px;line-height:1.8"
+     data-zh="在「我的账户」页点「申请一枚新 Key」即可，**申请即发、不需要审批**。Key 只在签发那一次显示，请立刻保存 —— 库里只存它的哈希，谁也拿不回明文。"
+     data-en="On the My Account page, click “Issue a new key”. It is issued immediately, no approval. The key is shown once; only its hash is stored, so it cannot be recovered.">在「我的账户」页点「申请一枚新 Key」即可，<b>申请即发、不需要审批</b>。Key 只在签发那一次显示，请立刻保存 —— 库里只存它的哈希，谁也拿不回明文。</p>
+  <p style="margin:0;line-height:1.8"
+     data-zh="丢了就回那一页吊销旧的、再申请一枚。页面上那 12 位“标识”就是用来认出哪一枚是哪一枚的。"
+     data-en="If lost, revoke it from the same page and issue another. The 12-char “ID” shown there identifies which key is which.">丢了就回那一页吊销旧的、再申请一枚。页面上那 12 位“标识”就是用来认出哪一枚是哪一枚的。</p>
+  <p style="margin:10px 0 0">
+    <a class="chip" href="/account" data-zh="← 回我的账户" data-en="← Back to My Account">← 回我的账户</a>
+  </p>
+</div>
+
+<h2 data-zh="二、认证方式" data-en="2. Authentication">二、认证方式</h2>
+<div class="card pad">
+  <p style="margin:0 0 10px;line-height:1.8"
+     data-zh="每个请求带一个请求头，Key 前面加 Bearer 和一个空格："
+     data-en="Send one header with every request — the word Bearer, a space, then your key:">每个请求带一个请求头，Key 前面加 <code>Bearer</code> 和一个空格：</p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>Authorization: Bearer tk_你的密钥</code></pre>
+  <p style="margin:10px 0 0;line-height:1.8"
+     data-zh="Key 与网页登录是**两套**东西：登录用的是浏览器 Cookie，调 API 用的是这枚 Key。改密码、退出登录都不影响已发的 Key；要停用请显式吊销。"
+     data-en="Keys and web login are separate: the browser uses a cookie, the API uses this key. Changing your password or signing out does not affect issued keys — revoke them explicitly.">Key 与网页登录是<b>两套</b>东西：登录用的是浏览器 Cookie，调 API 用的是这枚 Key。改密码、退出登录都不影响已发的 Key；要停用请显式吊销。</p>
+</div>
+
+<h2 data-zh="三、四个端点" data-en="3. The four endpoints">三、四个端点</h2>
+<div class="card pad">
+  <table class="plain">
+    <thead>
+      <tr>
+        <th data-zh="方法与路径" data-en="Method &amp; path">方法与路径</th>
+        <th data-zh="用途" data-en="Purpose">用途</th>
+        <th data-zh="计费" data-en="Billed">计费</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><code>GET /api/overview</code></td>
+        <td data-zh="库的概况：收录量、覆盖范围" data-en="Knowledge base overview: volume and coverage">库的概况：收录量、覆盖范围</td>
+        <td data-zh="按次（检索）" data-en="Per call (search)">按次（检索）</td>
+      </tr>
+      <tr>
+        <td><code>GET /api/search</code></td>
+        <td data-zh="政策全文检索，可筛选排序" data-en="Full-text policy search with filters and sorting">政策全文检索，可筛选排序</td>
+        <td data-zh="按次（检索）" data-en="Per call (search)">按次（检索）</td>
+      </tr>
+      <tr>
+        <td><code>GET /api/policy/&lt;标识&gt;</code></td>
+        <td data-zh="取单篇政策原文与效力依据" data-en="Fetch one policy with its validity grounds">取单篇政策原文与效力依据</td>
+        <td data-zh="按次（检索）" data-en="Per call (search)">按次（检索）</td>
+      </tr>
+      <tr>
+        <td><code>POST /api/mcp</code></td>
+        <td data-zh="MCP 协议入口，给 AI 客户端用（见第六节）" data-en="MCP protocol entry for AI clients (see §6)">MCP 协议入口，给 AI 客户端用（见第六节）</td>
+        <td data-zh="按次（检索）" data-en="Per call (search)">按次（检索）</td>
+      </tr>
+    </tbody>
+  </table>
+</div>
+
+<h3 data-zh="GET /api/search 的参数" data-en="GET /api/search parameters" style="margin-top:20px">GET /api/search 的参数</h3>
+<div class="card pad">
+  <table class="plain">
+    <thead>
+      <tr>
+        <th data-zh="参数" data-en="Param">参数</th>
+        <th data-zh="类型 / 默认" data-en="Type / default">类型 / 默认</th>
+        <th data-zh="说明" data-en="Meaning">说明</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>q</code></td><td>字符串，空</td><td data-zh="关键词。支持中文、文号片段、英文缩写（如 VAT、CIT）。留空则按筛选条件列出。" data-en="Keywords: Chinese, doc-number fragments, or English abbreviations such as VAT / CIT. Empty lists by filters.">关键词。支持中文、文号片段、英文缩写（如 VAT、CIT）。留空则按筛选条件列出。</td></tr>
+      <tr><td><code>tax</code></td><td>字符串，空</td><td data-zh="税种筛选（如“增值税”“企业所得税”）" data-en="Tax type filter">税种筛选（如“增值税”“企业所得税”）</td></tr>
+      <tr><td><code>region</code></td><td>字符串，空</td><td data-zh="地区筛选（如“全国”“北京”）" data-en="Region filter">地区筛选（如“全国”“北京”）</td></tr>
+      <tr><td><code>effect</code></td><td>字符串，空</td><td data-zh="效力筛选（现行有效 / 已废止 / 部分失效 等）" data-en="Validity filter (in force / repealed / partly repealed)">效力筛选（现行有效 / 已废止 / 部分失效 等）</td></tr>
+      <tr><td><code>year</code></td><td>字符串，空</td><td data-zh="发文年份（如 2024）" data-en="Issue year, e.g. 2024">发文年份（如 2024）</td></tr>
+      <tr><td><code>column</code></td><td>字符串，空</td><td data-zh="栏目筛选（如“通知公告”）" data-en="Column / category filter">栏目筛选（如“通知公告”）</td></tr>
+      <tr><td><code>sort</code></td><td>字符串，<code>relevance</code></td><td data-zh="排序：relevance（相关度）或 date（按发文日期）" data-en="Sort: relevance or date">排序：<code>relevance</code>（相关度）或 <code>date</code>（按发文日期）</td></tr>
+      <tr><td><code>limit</code></td><td>整数，20</td><td data-zh="每页条数" data-en="Page size">每页条数</td></tr>
+      <tr><td><code>offset</code></td><td>整数，0</td><td data-zh="偏移，用于翻页" data-en="Offset for paging">偏移，用于翻页</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<h2 data-zh="四、能直接复制运行的示例" data-en="4. Copy-paste examples">四、能直接复制运行的示例</h2>
+<div class="card pad">
+  <p style="margin:0 0 8px"
+     data-zh="把 <主机:端口> 和 <你的密钥> 换成实际值即可。"
+     data-en="Replace <host:port> and <your key> with real values.">把 <code>&lt;主机:端口&gt;</code> 和 <code>&lt;你的密钥&gt;</code> 换成实际值即可。</p>
+
+  <p style="margin:14px 0 6px"><b data-zh="① 看库的概况" data-en="① Knowledge base overview">① 看库的概况</b></p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>curl -H "Authorization: Bearer tk_你的密钥" \
+  "http://&lt;主机:端口&gt;/api/overview"</code></pre>
+
+  <p style="margin:14px 0 6px"><b data-zh="② 检索（带筛选与排序）" data-en="② Search with filters">② 检索（带筛选与排序）</b></p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>curl -H "Authorization: Bearer tk_你的密钥" \
+  "http://&lt;主机:端口&gt;/api/search?q=研发费用加计扣除&amp;region=全国&amp;sort=date&amp;limit=5"</code></pre>
+
+  <p style="margin:14px 0 6px"><b data-zh="③ 取单篇原文（标识从检索结果里拿）" data-en="③ Fetch one document">③ 取单篇原文（标识从检索结果里拿）</b></p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>curl -H "Authorization: Bearer tk_你的密钥" \
+  "http://&lt;主机:端口&gt;/api/policy/&lt;检索结果里的标识&gt;"</code></pre>
+
+  <p style="margin:14px 0 6px"><b data-zh="④ 响应长什么样" data-en="④ What a response looks like">④ 响应长什么样</b></p>
+  <p style="margin:0 0 8px;color:var(--ink-3);font-size:12.5px"
+     data-zh="检索返回 JSON：hits 是结果数组，total_matched 是命中总数，has_more 表示还能继续翻页，hint 给出下一步建议。每条含标题、文号、发文机关、地区、日期、税种、效力状态、原文链接与摘录。"
+     data-en="Search returns JSON: hits is the result array, total_matched is the match count, has_more tells you if paging continues, hint suggests the next step. Each hit carries title, doc number, issuing body, region, date, tax types, validity status, source URL, and a snippet.">检索返回 JSON：<code>hits</code> 是结果数组，<code>total_matched</code> 是命中总数，<code>has_more</code> 表示还能继续翻页，<code>hint</code> 给出下一步建议。每条含标题、文号、发文机关、地区、日期、税种、效力状态、原文链接与摘录。</p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>{
+  "hits": [
+    {
+      "doc_uid": "...",
+      "title": "...",
+      "doc_no": "...",
+      "doc_no_confidence": "...",
+      "effect_status": "现行有效",
+      "pub_name": "国家税务总局",
+      "region": "全国",
+      "column": "通知公告",
+      "pub_date": "2023-...",
+      "tax_types": ["企业所得税"],
+      "url": "https://...",
+      "snippet": "..."
+    }
+  ],
+  "total_matched": 4286,
+  "returned": 2,
+  "has_more": true,
+  "query_used": "增值税",
+  "mode": "fts",
+  "hint": "共命中 4286 条，本次返回 2 条。可用 offset=2 继续取，或加筛选条件收窄。",
+  "error": null
+}</code></pre>
+  <p style="margin:12px 0 0;color:var(--ink-3);font-size:12.5px;line-height:1.7"
+     data-zh="两个字段值得留意：total_matched 是全库命中数（不是本次返回条数，那看 returned）；每条都带 url，可直接打开原文核对。取单篇政策时另会返回正文与效力依据（依据原文 + 来源网址）。"
+     data-en="Two fields worth noting: total_matched is the library-wide count (the batch size is returned); every hit carries url so you can open the source. Fetching one document additionally returns its body and the grounds for the validity call (source snippet + URL).">两个字段值得留意：<code>total_matched</code> 是全库命中数（不是本次返回条数，那看 <code>returned</code>）；每条都带 <code>url</code>，可直接打开原文核对。取单篇政策时另会返回正文与效力依据（依据原文 + 来源网址）。</p>
+</div>
+
+<h2 data-zh="五、错误码与计费规则" data-en="5. Errors and billing">五、错误码与计费规则</h2>
+<div class="card pad">
+  <table class="plain">
+    <thead>
+      <tr>
+        <th data-zh="状态码" data-en="Status">状态码</th>
+        <th data-zh="含义" data-en="Meaning">含义</th>
+        <th data-zh="是否扣费" data-en="Charged">是否扣费</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr><td><code>200</code></td><td data-zh="成功" data-en="Success">成功</td><td><b data-zh="扣" data-en="Yes">扣</b></td></tr>
+      <tr><td><code>400</code></td><td data-zh="参数有问题（比如排序值不认识），响应里 <code>error</code> 写明原因" data-en="Bad parameter (e.g. unknown sort value); the error field explains">参数有问题（比如排序值不认识），响应里 <code>error</code> 写明原因</td><td><b data-zh="不扣" data-en="No">不扣</b></td></tr>
+      <tr><td><code>401</code></td><td data-zh="没有带 Key，或 Key 无效 / 已被吊销" data-en="Missing, invalid, or revoked key">没有带 Key，或 Key 无效 / 已被吊销</td><td><b data-zh="不扣" data-en="No">不扣</b></td></tr>
+      <tr><td><code>402</code></td><td data-zh="余额不足。响应体里给出该怎么充值" data-en="Insufficient balance; the body says how to top up">余额不足。响应体里给出该怎么充值</td><td><b data-zh="不扣" data-en="No">不扣</b></td></tr>
+      <tr><td><code>404</code></td><td data-zh="要取的那篇政策不存在" data-en="The requested document does not exist">要取的那篇政策不存在</td><td><b data-zh="不扣" data-en="No">不扣</b></td></tr>
+      <tr><td><code>503</code></td><td data-zh="服务或检索暂时异常" data-en="Service or search temporarily unavailable">服务或检索暂时异常</td><td><b data-zh="不扣" data-en="No">不扣</b></td></tr>
+    </tbody>
+  </table>
+  <p style="margin:12px 0 0;line-height:1.8"
+     data-zh="只有 <b>200</b> 才扣费。余额在扣减时不会变成负数；余额不足时直接返回 402，请求本身不会被执行。"
+     data-en="Only 200 is charged. Balances never go negative; when the balance is short the request returns 402 and is not executed.">只有 <b>200</b> 才扣费。余额在扣减时不会变成负数；余额不足时直接返回 402，请求本身不会被执行。</p>
+</div>
+
+<h2 data-zh="六、接进 AI 客户端（MCP）" data-en="6. Attach to an AI client (MCP)">六、接进 AI 客户端（MCP）</h2>
+<div class="card pad">
+  <p style="margin:0 0 10px;line-height:1.8"
+     data-zh="如果你的工作流在 Cursor、Claude Desktop 这类支持 MCP 的客户端里，可以让模型自己查政策、取原文。本服务用的是 **MCP over HTTP**：请求体放一条 JSON-RPC 消息，响应体放对应的回复，方法与标准 MCP 一致。"
+     data-en="If you work in an MCP-capable client such as Cursor or Claude Desktop, let the model look policies up itself. This server speaks MCP over HTTP: put one JSON-RPC message in the request body, get the reply in the response body; methods match standard MCP.">如果你的工作流在 Cursor、Claude Desktop 这类支持 MCP 的客户端里，可以让模型自己查政策、取原文。本服务用的是 <b>MCP over HTTP</b>：请求体放一条 JSON-RPC 消息，响应体放对应的回复，方法与标准 MCP 一致。</p>
+  <p style="margin:0 0 8px"><b data-zh="可用的四个工具" data-en="Four tools available">可用的四个工具</b></p>
+  <table class="plain">
+    <thead><tr>
+      <th data-zh="工具" data-en="Tool">工具</th>
+      <th data-zh="用途" data-en="Purpose">用途</th>
+    </tr></thead>
+    <tbody>
+      <tr><td><code>search_policies</code></td><td data-zh="检索政策" data-en="Search policies">检索政策</td></tr>
+      <tr><td><code>get_policy</code></td><td data-zh="取单篇政策原文" data-en="Fetch one policy">取单篇政策原文</td></tr>
+      <tr><td><code>lookup_by_doc_no</code></td><td data-zh="按文号查" data-en="Look up by document number">按文号查</td></tr>
+      <tr><td><code>kb_overview</code></td><td data-zh="库概况" data-en="Knowledge base overview">库概况</td></tr>
+    </tbody>
+  </table>
+  <p style="margin:14px 0 6px"><b data-zh="握手：先问服务支持什么" data-en="Handshake: ask what the server supports">握手：先问服务支持什么</b></p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>curl -X POST -H "Authorization: Bearer tk_你的密钥" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize",
+       "params":{"protocolVersion":"2025-06-18"}}' \
+  "http://&lt;主机:端口&gt;/api/mcp"</code></pre>
+  <p style="margin:14px 0 6px"><b data-zh="列出工具 / 调用工具" data-en="List tools / call a tool">列出工具 / 调用工具</b></p>
+  <pre style="background:#0a0f0a;border:1px solid #0e3a0e;padding:10px 12px;overflow:auto"><code>{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}
+
+{"jsonrpc":"2.0","id":3,"method":"tools/call",
+ "params":{"name":"search_policies",
+           "arguments":{"query":"增值税","limit":3}}}</code></pre>
+  <p style="margin:12px 0 0;line-height:1.8"
+     data-zh="在客户端里配置时，把地址填成 http://&lt;主机:端口&gt;/api/mcp、鉴权头填上你的 Key 即可；MCP 调用与网页共用同一份检索余额，也共用同一枚 Key。"
+     data-en="In the client, point the URL at http://<host:port>/api/mcp and set the Authorization header to your key. MCP calls share the same search balance and the same key as the HTTP API.">在客户端里配置时，把地址填成 <code>http://&lt;主机:端口&gt;/api/mcp</code>、鉴权头填上你的 Key 即可；MCP 调用与网页共用同一份检索余额，也共用同一枚 Key。</p>
+</div>
+
+<h2 data-zh="七、常见问题" data-en="7. FAQ">七、常见问题</h2>
+<div class="card pad">
+  <p style="margin:0 0 10px;line-height:1.8">
+    <b data-zh="Key 泄露了怎么办？" data-en="My key leaked —">Key 泄露了怎么办？</b><br>
+    <span data-zh="回「我的账户」点那一枚的「吊销」，它立刻失效（用它调用的程序会收到 401），然后申请一枚新的。吊销不可撤销。" data-en="Revoke it from My Account; it stops working immediately (callers get 401), then issue a new one. Revocation cannot be undone.">回「我的账户」点那一枚的「吊销」，它立刻失效（用它调用的程序会收到 401），然后申请一枚新的。吊销不可撤销。</span>
+  </p>
+  <p style="margin:0 0 10px;line-height:1.8">
+    <b data-zh="余额用完了会怎样？" data-en="What happens when my balance runs out?">余额用完了会怎样？</b><br>
+    <span data-zh="接口返回 402，请求不会执行、也不扣费。充值后立刻恢复 —— 检索与助手是两份余额，一份用完不影响另一份。" data-en="The API returns 402; the request is not executed and nothing is charged. After topping up it works again immediately. Search and assistant have separate balances.">接口返回 402，请求不会执行、也不扣费。充值后立刻恢复 —— 检索与助手是两份余额，一份用完不影响另一份。</span>
+  </p>
+  <p style="margin:0 0 10px;line-height:1.8">
+    <b data-zh="怎么充值？" data-en="How do I top up?">怎么充值？</b><br>
+    <span data-zh="走人工充值：与对接人确认金额和方式，转账时备注你的账户名，管理员确认后即时入账。回「我的账户」页刷新就能看到新余额。" data-en="Top-ups are manual: confirm the amount and method with your contact, note your account name on the transfer, and an administrator credits it immediately. Refresh My Account to see it.">走人工充值：与对接人确认金额和方式，转账时备注你的账户名，管理员确认后即时入账。回「我的账户」页刷新就能看到新余额。</span>
+  </p>
+  <p style="margin:0 0 10px;line-height:1.8">
+    <b data-zh="怎么知道自己用了多少？" data-en="How do I see my usage?">怎么知道自己用了多少？</b><br>
+    <span data-zh="「我的账户」页有余额和最近 40 次调用明细（时间、类型、结果、扣减）。每一笔都记账，可以逐条核对。" data-en="My Account shows balances and the last 40 calls (time, type, result, charge). Every call is logged.">「我的账户」页有余额和最近 40 次调用明细（时间、类型、结果、扣减）。每一笔都记账，可以逐条核对。</span>
+  </p>
+  <p style="margin:0;line-height:1.8">
+    <b data-zh="业务数据会被存下来吗？" data-en="Is my business data stored?">业务数据会被存下来吗？</b><br>
+    <span data-zh="不会。政策库只收公开政策文件；你传给助手的业务事实仅用于当次分析，不写入任何库、不发给任何第三方 —— 助手本身也是在本机模型上跑的。" data-en="No. The knowledge base holds public policy documents only; facts you pass to the assistant are used for that single analysis, written to no database, and sent to no third party — the assistant runs on a local model.">不会。政策库只收公开政策文件；你传给助手的业务事实仅用于当次分析，不写入任何库、不发给任何第三方 —— 助手本身也是在本机模型上跑的。</span>
+  </p>
+</div>
+
+<p style="margin:20px 0 0">
+  <a class="chip" href="/account" data-zh="← 我的账户" data-en="← My Account">← 我的账户</a>
+  <a class="chip" href="/pricing" data-zh="服务与价格 →" data-en="Service &amp; Pricing →">服务与价格 →</a>
+</p>
+{% endblock %}

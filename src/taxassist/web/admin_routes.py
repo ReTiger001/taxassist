@@ -123,9 +123,17 @@ def register(app, *, templates, require_auth: bool) -> None:
         if not _origin_ok(request):
             return _admin_back(err="请求来源异常，请回后台重新提交")
         target = ((await _read_form(request)).get("username") or "").strip()
+        # 防呆一：不能对自己动手。超管把自己删了之后谁也恢复不了 ——
+        # 用户原话：「我要是取消了自己的超管，那哪还有超管呢？」
+        # 所以规则是只能处置**其他**账号，自己这个超管动不了。
+        me = getattr(request.state, "user", None)
+        if target and target == me:
+            return _admin_back(err="不能删除自己的账号 —— 请让另一位超级管理员操作")
         conn = dbmod.connect()
         try:
-            # 防呆：删掉最后一个超级管理员，等于把自己锁在门外
+            # 防呆二：不能删掉最后一个超级管理员，等于把自己锁在门外。
+            # 有上面那条之后理论上到不了这里（自己动不了 ⇒ 至少留一个），
+            # 留着是兜底：将来若加了别的改角色路径，这条仍能守住"后台进得去"。
             if auth.is_owner(conn, target) and auth.owner_count(conn) <= 1:
                 return _admin_back(err="这是最后一个超级管理员，删掉就没人能进后台了")
             removed = auth.delete_user(conn, target)
@@ -145,8 +153,15 @@ def register(app, *, templates, require_auth: bool) -> None:
         form = await _read_form(request)
         target = (form.get("username") or "").strip()
         want_owner = form.get("role") == auth.ROLE_OWNER
+        # 防呆一：不能改自己的角色。超管把自己降成普通成员后，后台就再没人
+        # 能把它改回来 —— 这不是"多一层确认"，是唯一能防止自锁的检查。
+        # 只能给**其他**账号升/降级。
+        me = getattr(request.state, "user", None)
+        if target and target == me:
+            return _admin_back(err="不能修改自己的角色 —— 请让另一位超级管理员操作")
         conn = dbmod.connect()
         try:
+            # 防呆二：最后一个超管不能取消（兜底，理由同上）
             if (not want_owner and auth.is_owner(conn, target)
                     and auth.owner_count(conn) <= 1):
                 return _admin_back(err="这是最后一个超级管理员，不能取消其权限")

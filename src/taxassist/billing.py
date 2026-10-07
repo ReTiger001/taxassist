@@ -120,6 +120,42 @@ def revoke_key(conn: sqlite3.Connection, raw: str) -> bool:
     return cur.rowcount > 0
 
 
+def list_keys(conn: sqlite3.Connection, customer: str) -> list[dict]:
+    """某客户名下的 Key 列表（供自助页与后台显示）。
+
+    **只给出不可逆的短标识（key_hash 前 12 位）与元数据**，不给任何可用于
+    调用的东西 —— 库里本来就只有 sha256，明文在签发那一次之后就无处可寻。
+    短标识的作用是让客户能指着某一枚说"吊销它"（那枚丢了/换人了）。
+    """
+    ensure_tables(conn)
+    rows = conn.execute(
+        "SELECT key_hash, label, created_at, last_used_at, revoked"
+        " FROM api_key WHERE customer = ? ORDER BY created_at DESC",
+        (customer,)).fetchall()
+    return [{"id": r["key_hash"][:12], "label": r["label"],
+             "created_at": r["created_at"], "last_used_at": r["last_used_at"],
+             "revoked": bool(r["revoked"])} for r in rows]
+
+
+def revoke_key_by_id(conn: sqlite3.Connection, customer: str, key_id: str) -> bool:
+    """按**短标识**吊销 Key —— 客户自助页用这条路，因为谁也拿不到明文。
+
+    **`customer` 条件不能省**：短标识在页面上是公开可见的，而可见不等于安全。
+    少了这个条件，任何登录用户只要猜到（或从自己页面上看到过后试别人的）
+    12 位片段，就能吊销别人的 Key。sha256 不可逆，但截断片段更不是密文。
+    """
+    ensure_tables(conn)
+    kid = (key_id or "").strip().lower()
+    if len(kid) != 12:
+        return False
+    cur = conn.execute(
+        "UPDATE api_key SET revoked = 1"
+        " WHERE customer = ? AND revoked = 0 AND substr(key_hash, 1, 12) = ?",
+        (customer, kid))
+    conn.commit()
+    return cur.rowcount > 0
+
+
 # ------------------------------------------------------------------ 客户与余额
 
 def create_customer(conn: sqlite3.Connection, name: str,
@@ -132,6 +168,33 @@ def create_customer(conn: sqlite3.Connection, name: str,
         (name, (note or "").strip() or None, max(0, int(balance)),
          max(0, int(assistant_balance)), now_iso()))
     conn.commit()
+
+
+def ensure_customer(conn: sqlite3.Connection, name: str) -> bool:
+    """确保有一个同名的计费客户，返回是否**新建**。
+
+    注册时用它"注册即开户"：客户自己就能在「我的账户」看余额、申请 Key，
+    不必等超管先在后台建一遍。若超管早已建过同名客户（先谈好再开通的场景），
+    这里**什么都不改** —— 余额、备注、已发的 Key、用量记录全部原样保留，
+    只是把这个登录账号和已有的计费账户接上。
+
+    **为什么不能拿 create_customer 顶替**：那条 SQL 是 upsert，DO UPDATE 会写
+    note —— 注册流程里若用它"确保存在"，会把后台手工写的备注抹成 NULL。
+    INSERT OR IGNORE 才是"只在不存在时建"的正确表达。
+    """
+    ensure_tables(conn)
+    name = (name or "").strip()
+    # 空名直接拒绝。这不是理论问题：免认证模式下 request.state.user 是 None，
+    # /account 一被访问就会插进一条 name='' 的客户 —— 它在后台列表里是个
+    # 没有名字的幽灵行，而且要有人发现才清得掉（本机验证时就真出现过一条）。
+    if not name:
+        return False
+    cur = conn.execute(
+        "INSERT OR IGNORE INTO customer(name, balance, assistant_balance, created_at)"
+        " VALUES(?, 0, 0, ?)",
+        (name, now_iso()))
+    conn.commit()
+    return cur.rowcount == 1
 
 
 def add_balance(conn: sqlite3.Connection, name: str, kind: str, amount: int) -> int:

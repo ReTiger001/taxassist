@@ -78,6 +78,7 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     from .auth_routes import register as _register_auth
     from .billing_routes import register as _register_billing
     from .browse_routes import register as _register_browse
+    from .customer_routes import register as _register_customer
     from .middleware import register as _register_middleware
 
     # 中间件最先接上：它们包裹整个应用
@@ -85,6 +86,10 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
                          auth_mode=auth_mode)
     _register_assistant(app, ctx=ctx, templates=templates)
     _register_browse(app, ctx=ctx, templates=templates)
+    # 客户自助页（/account）—— 权限模型与 /admin 正好相反：那是管别人，
+    # 这是管自己。所以它**不做 is_owner 检查**，只读 request.state.user
+    # 名下的余额与用量；放同一个模块里迟早会有人把检查复制错位置。
+    _register_customer(app, templates=templates, require_auth=require_auth)
     _register_about(app, templates=templates, require_auth=require_auth)
     _register_auth(app, templates=templates, require_auth=require_auth)
     _register_admin(app, templates=templates, require_auth=require_auth)
