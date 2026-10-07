@@ -35,8 +35,18 @@ netstat -ano | findstr ":11434" >nul 2>&1
 if %errorlevel%==0 (
   echo [skip]  ollama already listening on 11434
 ) else (
-  echo [start] ollama  ^(models: D:\models^)
-  start "ollama" cmd /k "set OLLAMA_MODELS=D:\models && set OLLAMA_KEEP_ALIVE=30m && "%OLLAMA%" serve"
+  echo [start] ollama  ^(models: D:\models, no window; see data\logs\^)
+  REM Hidden, not merely minimized. ollama's log is the loudest of the three
+  REM (every translation request adds lines to it) and this is the window the
+  REM user asked to stop seeing. Web and worker keep their windows on purpose.
+  REM
+  REM The env vars set with `set` above are inherited by this PowerShell child,
+  REM so OLLAMA_MODELS / OLLAMA_KEEP_ALIVE still take effect.
+  REM -RedirectStandardOutput and -RedirectStandardError cannot point at the
+  REM same file, hence two logs.
+  if not exist "data\logs" mkdir "data\logs"
+  powershell -NoProfile -WindowStyle Hidden -Command ^
+    "Start-Process -FilePath '%OLLAMA%' -ArgumentList 'serve' -WindowStyle Hidden -RedirectStandardOutput 'data\logs\ollama.out.log' -RedirectStandardError 'data\logs\ollama.err.log'"
 )
 
 REM --- 2) web service ---------------------------------------------------

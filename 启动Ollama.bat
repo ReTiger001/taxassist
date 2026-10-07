@@ -30,6 +30,10 @@ REM Keep the model resident while the user is working. ollama's default
 REM is 5 minutes; reloading a 9 GB model on every question is slow.
 set "OLLAMA_KEEP_ALIVE=30m"
 
+REM This one stays in the foreground, on purpose: if you double-clicked it you
+REM almost certainly want to watch the log. The silent path (no window at all,
+REM log to data\logs\) is the main launcher (the other .bat next to this file),
+REM which starts ollama hidden and also brings up the web service and worker.
 "D:\longvideocrater\Ollama\ollama.exe" serve
 
 endlocal
