@@ -86,16 +86,24 @@ def _probe_available(model: str) -> tuple[bool, str]:
     return True, f"就绪（{model}）"
 
 
-def translate(text: str, *, model: str = DEFAULT_MODEL, timeout: int = 600) -> str:
-    """翻译一段文本。失败抛异常，由调用方决定是记 failed 还是跳过。"""
-    prompt = PROMPT.format(text=text)
+def translate(text: str, *, model: str = DEFAULT_MODEL, timeout: int = 600,
+              prompt: str | None = None, sampling: dict | None = None) -> str:
+    """翻译一段文本。失败抛异常，由调用方决定是记 failed 还是跳过。
+
+    ``prompt`` / ``sampling`` 是留给 A/B 实测的**覆盖口子**，默认仍是官方模板
+    与官方采样参数 —— 生产路径的行为一字不变。留这个口子的理由：法律文本该用
+    多少温度、提示词里要不要塞术语约束，两件事都能讲出道理支持相反的结论，而
+    13946 条的量决定了一旦选错就要整体返工，只能实测，不能凭感觉。
+    """
+    body = (prompt or PROMPT).format(text=text)
     r = httpx.post(
         OLLAMA_API,
         json={
             "model": model,
-            "prompt": prompt,
+            "prompt": body,
             "stream": False,
-            "options": {**SAMPLING, "num_predict": 4096},
+            # num_predict 放前面，让 sampling 能连它也一起覆盖
+            "options": {**SAMPLING, "num_predict": 4096, **(sampling or {})},
         },
         timeout=timeout,
     )
@@ -140,6 +148,20 @@ def split_chunks(text: str, max_chars: int = 1200) -> list[str]:
             for sent in para.replace("。", "。\n").split("\n"):
                 if not sent.strip():
                     continue
+                # **切不动就硬切。** 这是实测挖出来的一个真 bug：中文政策里的
+                # 清单惯用「、」「；」分隔，整段可能一个句号都没有 —— 旧逻辑
+                # 于是把 25571 字原样当成「一个句子」，再原样变成一块。
+                # 后果很具体：26108 字的《西部地区鼓励类产业目录》只被切成
+                # 2 块（25571 + 536），模型收到 25571 字的输入只能「概括」，
+                # 译文里还混进了「由于文本内容较长……请提供全部文本」这类
+                # 自述，而读者完全看不出来少了什么。
+                # 按 max_chars 硬切会切断词句，但**切歪一句**远好过**吞掉全文**。
+                while len(sent) > max_chars:
+                    if buf:
+                        chunks.append(buf.strip())
+                        buf = ""
+                    chunks.append(sent[:max_chars].strip())
+                    sent = sent[max_chars:]
                 if len(buf) + len(sent) > max_chars and buf:
                     chunks.append(buf.strip())
                     buf = ""
@@ -155,12 +177,17 @@ def split_chunks(text: str, max_chars: int = 1200) -> list[str]:
 
 
 def translate_long(text: str, *, model: str = DEFAULT_MODEL,
-                   max_chars: int = 1200) -> str:
-    """长文本分块翻译再拼回。块间用空行分隔，保持可读。"""
+                   max_chars: int = 1200, prompt: str | None = None,
+                   sampling: dict | None = None) -> str:
+    """长文本分块翻译再拼回。块间用空行分隔，保持可读。
+
+    ``prompt`` / ``sampling`` 透传给 :func:`translate`（A/B 实测用），默认不变。
+    """
     parts = split_chunks(text, max_chars)
     if not parts:
         return ""
-    outs = [translate(p, model=model) for p in parts]
+    outs = [translate(p, model=model, prompt=prompt, sampling=sampling)
+            for p in parts]
     return "\n\n".join(outs)
 
 

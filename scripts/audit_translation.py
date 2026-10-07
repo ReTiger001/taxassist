@@ -67,8 +67,15 @@ HAN = re.compile(r"[\u4e00-\u9fff]")
 # 句末标点：英文与全角都算。列表项、引号结尾也算正常收尾。
 TAIL_OK = set(".!?。！？…\"'”’)]}）】:;")
 NUM = re.compile(r"\d[\d,]*(?:\.\d+)?")
+#: HTML 实体在原文里是**字面**存在的（采集后没解码干净）。抽数字前必须剥掉，
+#: 否则 ``&#8203;`` 会被当成数字 8203 —— 实测踩到：一批「数字缺失」报警
+#: 全部来自它，而译文里当然不可能有这个数。（同类：&nbsp; &ldquo; &#39;）
+ENTITY = re.compile(r"&[#A-Za-z0-9]+;")
 # 数字 + 紧跟的中文数量单位。单位是**必须**一起看的，理由见 missing_numbers。
-NUM_UNIT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(万元|亿元|万|亿)?")
+# 「多/余」夹在数字与单位之间是中文的常规写法（"140多万元"），必须一并吃掉 ——
+# 否则单位识别不到，换算变体就生成不出来，规范译文 "1.4 million yuan" 会被
+# 误判成数字缺失（实测踩到过）。
+NUM_UNIT = re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(?:多|余)?\s*(万元|亿元|万|亿)?")
 SCALE_WORD = re.compile(r"\b(million|billion|thousand)\b", re.I)
 
 
@@ -84,7 +91,7 @@ def norm_nums(text: str) -> set[str]:
     再去掉尾部的小数点（"第 41 条." 这种断句残留）。
     """
     out = set()
-    for m in NUM.finditer(text or ""):
+    for m in NUM.finditer(ENTITY.sub(" ", text or "")):
         v = m.group(0).replace(",", "").rstrip(".")
         if not v:
             continue
@@ -130,10 +137,15 @@ def missing_numbers(zh: str, en: str) -> tuple[list[str], list[str]]:
     """
     en_nums = norm_nums(en)
     strong, weak = [], []
-    for m in NUM_UNIT.finditer(zh or ""):
+    for m in NUM_UNIT.finditer(ENTITY.sub(" ", zh or "")):
         n = m.group(1).replace(",", "").rstrip(".")
         if not n:
             continue
+        # 原文里的「2.1987年6月1日」实际是列表序号「2.」+「1987年6月1日」粘在
+        # 一起（抓下来的文本没保留空白）。只检查后半段 —— 否则译文老老实实写了
+        # 1987，也会被判成「1987 缺失」。
+        if re.fullmatch(r"\d{1,2}\.\d{4}", n):
+            n = n.split(".", 1)[1]
         unit = m.group(2) or ""
         cands = _with_unit_variants(n, unit)
         if any(c in en_nums or any(c in e for e in en_nums) for c in cands):
@@ -169,6 +181,68 @@ def lost_items(zh: str, en: str) -> tuple[int, int] | None:
     return None
 
 
+def number_drop(zh: str, en: str, min_nums: int = 8,
+                ratio: float = 0.75) -> tuple[int, int] | None:
+    """原文与译文的数字**个数**对比 —— 抓「成批数字消失」。
+
+    为什么不靠逐项比对（A4 的做法）：中文数量单位换算会让规范译文里根本找不到
+    原文那个数（「6000万元」→ "60 million yuan"），逐项比对必然出假阳性。
+    而**个数**不受换算影响 —— 换算只是换个写法，数还是那些数。个数骤降才真正
+    指向「内容被成段省略或概括」。
+
+    阈值是拍的（少于 8 个数字的文档不判，降幅不到 25% 不判）：样本太少时个数
+    波动本来就大。**宁可漏报不可误报** —— 误报会淹没真问题。
+    """
+    zn, en_n = norm_nums(zh), norm_nums(en)
+    if len(zn) < min_nums:
+        return None
+    if len(en_n) < len(zn) * ratio:
+        return len(zn), len(en_n)
+    return None
+
+
+#: 译文里的「模型自述」—— 它没译完，而是加了一句说明。实测抓到的原话：
+#:   「以下是上述文本的中文翻译：」
+#:   「## 注意：由于文本内容较长，以上翻译仅涵盖了部分内容。如需完整翻译，请提供全部文本。」
+#: 这类污染**比错译更危险**：模型的元评论被当成政策正文交给了读者。
+#:
+#: **第一版写得太宽，报了 320 条（5.09%），抽样发现大半是假阳性**：`I can`、
+#: `I will`、`The entire text` 这些在政策译文里完全正常（原文是第一人称、
+#: 或网页上有 "Read the Entire Text" 按钮）。收紧到只认**明确的元评论句式** ——
+#: 「以下是…翻译」「由于…较长」「如需完整」「仅提供了部分」这类。
+META_TALK = re.compile(
+    r"以下是.{0,16}(翻译|文本|内容)|以下为.{0,12}(翻译|译文)|"
+    r"由于.{0,12}(较长|过长|篇幅)|如需(完整|全文|获取)|"
+    r"仅(提供|涵盖|翻译)了?(部分|章节)|以上(翻译|内容)仅|"
+    r"(?:please|kindly) provide|"
+    r"only (?:part|a portion) of (?:the|this)|"
+    r"(?:full|complete|entire) (?:text|content) (?:is|was) (?:too long|not provided)|"
+    r"未能(提供|完成|翻译)|翻译(如下|结果)[:：]",
+    re.I)
+
+
+def has_meta_talk(en: str) -> str:
+    m = META_TALK.search(en or "")
+    return m.group(0)[:50] if m else ""
+
+
+def looks_truncated(en: str) -> bool:
+    """是不是「话没说完」。**不看结尾有没有句号**。
+
+    第一版按「结尾不是句末标点」判，正文命中 4458 条（70.87%）—— 全错：政策
+    正文的最后一段是落款（发文机关 + 日期），公文惯例本就不带句号，标题更是
+    从来不带。真正该抓的是「话说到一半」：以逗号收尾，或以连词/介词收尾 ——
+    num_predict 用尽时正是这样断的。
+    """
+    t = (en or "").rstrip()
+    if not t:
+        return False
+    if re.search(r"[,;:，、；：]$", t):
+        return True
+    return bool(re.search(
+        r"\b(and|or|the|of|in|to|with|for|by|as|that|which|shall)\s*$", t, re.I))
+
+
 def repeated_sentences(en: str, min_len: int = 40) -> list[str]:
     """**紧邻**重复的句子 —— 模型复读的特征。
 
@@ -197,7 +271,8 @@ def audit(field: str, samples: int, connect=dbmod.connect) -> dict:
         conn.close()
 
     hits: dict[str, list] = {k: [] for k in
-                             ("A1", "A2", "A3", "A4", "A5", "A6", "A7", "B1", "C1")}
+                             ("A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8",
+                              "A9", "B1", "C1")}
     n = len(rows)
     for r in rows:
         en, zh = r["en"] or "", r["zh"] or ""
@@ -228,16 +303,22 @@ def audit(field: str, samples: int, connect=dbmod.connect) -> dict:
             if li:
                 hits["A7"].append({**rec, "zh_items": li[0], "en_items": li[1]})
 
-        # A3 **只对正文有意义**。第一版把标题也扫进来，13945 条命中 9762 条
-        # （70%）—— 全是误报：政策标题本来就不带句号（「…Tax Rates for
-        # Vehicle and Vessel Taxes」是正确的标题）。一个误报 70% 的指标比没有
-        # 指标更糟，它会掩盖真问题。
-        if field == "content" and en.rstrip()[-1] not in TAIL_OK:
+            nd = number_drop(zh, en)
+            if nd:
+                hits["A8"].append({**rec, "zh_nums": nd[0], "en_nums": nd[1]})
+
+        # A3 **只对正文有意义**（标题从来不带句号），且只看「话说到一半」——
+        # 不看结尾有没有句号，落款按公文惯例本就不带。详见 looks_truncated。
+        if field == "content" and looks_truncated(en):
             hits["A3"].append({**rec, "tail": en.rstrip()[-50:]})
 
         rep = repeated_sentences(en)
         if rep:
             hits["A5"].append({**rec, "n": len(rep), "detail": rep[0][:60]})
+
+        meta = has_meta_talk(en)
+        if meta:
+            hits["A9"].append({**rec, "detail": meta})
 
         # B1：修完仍剩下的机构名误拆（规则同 fix_org_names，含中文门槛）
         if fog is not None and fog.ZH_ONE.search(zh) and fog.PAT.search(en):
@@ -258,6 +339,8 @@ LABELS = {
     "A5": "重复片段（复读）",
     "A6": "空 / 极短译文",
     "A7": "结构丢失（条目数远少于原文）",
+    "A8": "数字成批消失（个数骤降）",
+    "A9": "译文混入模型自述（没译完就说明）",
     "B1": "机构名并列误拆（修后仍剩）",
     "C1": "指纹不符（原文已变未重译）",
 }
@@ -289,6 +372,17 @@ def main() -> int:
             for s in lst[:args.samples]:
                 extra = {kk: vv for kk, vv in s.items() if kk not in ("id", "uid")}
                 print(f"       · {s['uid']}  {extra}")
+
+        # **并集**：各检查项会重叠 —— 结构丢失的条目往往同时也「数字成批消失」、
+        # 也「译文过短」。把各类相加会严重高估问题规模，而「到底多少条有问题」
+        # 这个数只能去重后得到。
+        by_uid: dict[str, set] = {}
+        for k, lst in res["hits"].items():
+            for h in lst:
+                by_uid.setdefault(h["uid"], set()).add(k)
+        n_bad = len(by_uid)
+        print(f"\n  去重后：{n_bad} 条至少命中一项"
+              f"（{n_bad / n * 100:.2f}% of {n}）" if n else "  无数据")
 
     out = Path(args.json)
     out.parent.mkdir(parents=True, exist_ok=True)
