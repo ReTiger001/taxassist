@@ -313,9 +313,9 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     # 闭包，templates 是模块级的 Jinja2Templates，require_auth 是 create_app 的入参。
     from .about_routes import register as _register_about
     from .admin_routes import register as _register_admin
+    from .api_routes import register as _register_api
     from .assistant_routes import register as _register_assistant
     from .auth_routes import register as _register_auth
-    from .api_routes import register as _register_api
     from .billing_routes import register as _register_billing
     from .browse_routes import register as _register_browse
     from .middleware import register as _register_middleware

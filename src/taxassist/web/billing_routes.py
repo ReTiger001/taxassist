@@ -11,10 +11,10 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlencode
 
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
-from urllib.parse import urlencode
 
 from .. import billing
 from .. import db as dbmod

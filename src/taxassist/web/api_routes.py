@@ -23,9 +23,8 @@ import logging
 from fastapi import Request
 from fastapi.responses import JSONResponse
 
-from .. import billing
+from .. import billing, kb
 from .. import db as dbmod
-from .. import kb
 
 log = logging.getLogger(__name__)
 
