@@ -45,30 +45,52 @@ LOCAL = (r"((?:[A-Z][\w'-]+\s+){0,3}?"
 PAT = re.compile(rf"(?:the\s+)?{STA}\s*(?:and|,)\s*(?:the\s+)?{LOCAL}", re.I)
 
 
-def build(connect=dbmod.connect):
-    """算出所有该改的条目，返回 [(translation.id, 改前, 改后)]。"""
+# **必须对照中文原文**。同一个英文串可能对应两种情况：
+#   ① 中文「国家税务总局福建省税务局」（连着写，一个机构）→ 译文并列是拆错
+#   ② 中文「国家税务总局 福建省税务局」（分开写，两个机构）→ 译文并列是对的
+# 光看译文分不出来，所以下面用这条中文正则做门槛：只有「国家税务总局」后面
+# **紧跟**地名（无空格/顿号）时才处理。干跑时在样本里见过 ② 那种，动了就是改错。
+ZH_ONE = re.compile(
+    r"国家税务总局(?![\s、,，])[\u4e00-\u9fa5]{2,10}?(?:省|市|自治区|计划单列市)?税务局")
+
+
+def build(field: str = "title", connect=dbmod.connect):
+    """算出所有该改的条目，返回 [(translation.id, 改前, 改后)]。
+
+    ``field`` 取 ``title`` 或 ``content`` —— 两类文本都有这个毛病，规则完全一样。
+    """
     conn = connect()
     try:
+        zh_col = "p.title" if field == "title" else "coalesce(p.content, p.zw_content)"
         rows = conn.execute(
-            "SELECT id, text FROM translation WHERE field='title' AND text IS NOT NULL"
-        ).fetchall()
+            f"SELECT t.id, t.text, {zh_col} AS zh FROM translation t"
+            f" LEFT JOIN policy p ON p.doc_uid = t.doc_uid"
+            f" WHERE t.field=? AND t.text IS NOT NULL", (field,)).fetchall()
     finally:
         conn.close()
     planned = []
     for r in rows:
         en = r["text"]
-        # **用 finditer 处理所有匹配**：一个标题里同一机构可能出现两次
-        # （如「关于《…办法》…的公告」—— 书名号内外各一次）。最初用 search()
-        # 只改第一处，剩下的就漏了 —— 干跑复核时才暴露。
+        if not ZH_ONE.search(r["zh"] or ""):
+            continue                      # 中文里没有合成机构名 → 不动
+        # **用 finditer 处理所有匹配**：同一机构在一条文本里会出现多次 —— 标题里
+        # 可能两处（书名号内外），正文里一处能出现十几遍。最初用 search() 只改
+        # 第一处，剩下的全漏 —— 干跑复核时才暴露。
         matches = list(PAT.finditer(en))
         if not matches:
             continue
         # 从后往前替换，免得前面的替换改动后面匹配的下标
         new = en
+        n_before = len(matches)
         for m in reversed(matches):
             local = m.group(1).strip()
             new = new[:m.start()] + f"the {local}, {STA}" + new[m.end():]
-        if new != en:
+        # **收敛保护**：只有替换后匹配数**真的减少**才算改对了。实测有一条
+        # （"Order No. 41 of the State Taxation Administration and amended by
+        # Orders No. 50 and No. 53" —— 这里的 and 是正当英文）改来改去匹配数
+        # 始终是 2，跑三遍仍在计划里：那种形态在本规则之外，继续改只是原地打转。
+        # 留给重译或人工，不要让脚本不收敛。
+        if new != en and len(list(PAT.finditer(new))) < n_before:
             planned.append((r["id"], en, new))
     return planned
 
@@ -76,10 +98,12 @@ def build(connect=dbmod.connect):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--apply", action="store_true", help="真的写库（默认只干跑）")
+    ap.add_argument("--field", choices=("title", "content"), default="title",
+                    help="处理哪一类文本：标题（默认）或正文")
     args = ap.parse_args()
 
-    planned = build()
-    print(f"找到 {len(planned)} 条需要修复的标题")
+    planned = build(args.field)
+    print(f"[{args.field}] 找到 {len(planned)} 条需要修复")
     for _tid, before, after in planned[:5]:
         print(f"  改前: {before[:88]}")
         print(f"  改后: {after[:88]}")
@@ -89,7 +113,7 @@ def main() -> int:
         print("\n（这是干跑。确认无误后加 --apply 落库。）")
         return 0
 
-    backup = Path("data/logs/title_org_backup.json")
+    backup = Path(f"data/logs/org_fix_{args.field}_backup.json")
     backup.parent.mkdir(parents=True, exist_ok=True)
     backup.write_text(
         json.dumps([{"id": t, "before": b} for t, b, _a in planned],
