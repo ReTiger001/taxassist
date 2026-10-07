@@ -90,6 +90,11 @@ class GuardedClient:
     def _check_outbound(self, url: str, params: dict | None, payload: str | None) -> None:
         blob = url
         if params:
+            # **编码前后都要查。** urlencode 会把中文变成 %E5%AE%A2%E6%88%B7…
+            # 只把编码后的串拿去匹配，等于漏掉"客户名当检索参数"这条最典型的
+            # 泄露路径 —— 补测试时正是这样发现守卫对 params 是失效的：
+            # 禁词是「客户甲」，而 blob 里只有 q=%E5%AE%A2%E6%88%B7%E7%94%B2。
+            blob += " " + " ".join(str(v) for v in params.values())
             blob += " " + urlencode(params, doseq=True)
         if payload:
             blob += " " + payload
