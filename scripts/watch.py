@@ -93,11 +93,23 @@ def step_progress() -> tuple[str, str]:
     return "", ""
 
 
-def draw() -> None:
+def _clear() -> None:
+    """清屏。
+
+    **用 cls，不用 ANSI 转义** —— 实测踩到：传统 cmd 里 ``\\033[2J`` 不生效，
+    画面于是**根本不重绘**，使用者看到的是「看了一分钟都没刷新出来新数据」。
+    当初为了避开 cls 的闪烁才选了 ANSI，那是典型的过度优化：闪一下可以忍，
+    不刷新不能忍。
+    """
     if os.name == "nt":
-        sys.stdout.write("\033[2J\033[H")   # 清屏 + 光标归位（不用 cls，闪得厉害）
+        os.system("cls")
     else:
         sys.stdout.write("\033[2J\033[H")
+        sys.stdout.flush()
+
+
+def draw() -> None:
+    _clear()
 
     now = dt.datetime.now()
     st = _read_json(STATE)
