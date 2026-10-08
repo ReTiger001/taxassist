@@ -12,5 +12,5 @@ rem GBK, so non-ASCII comments turn into garbage and can even be run as
 rem commands. There is a test for this:
 rem tests/test_scripts.py::test_bat_files_are_ascii_only
 cd /d "%~dp0"
-".venv\Scripts\python.exe" scripts\auto_workflow.py --hours 0-24
+".venv\Scripts\python.exe" scripts\auto_workflow.py --hours 0-24 --ai-review-limit 400 --retranslate-limit 50
 pause
