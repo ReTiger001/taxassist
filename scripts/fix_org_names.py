@@ -35,9 +35,13 @@ from taxassist import db as dbmod  # noqa: E402
 
 STA = r"State Taxation Administration"
 # 地方局：可选冠词 + 若干首字母大写词 + 可选 Provincial/Municipal/... + 机构词
+# **末尾的 `\b` 不能省**：没有它，`Tax Bureaus`（复数）会被切成 `Tax Bureau` +
+# 残留的 `s`，而那个 `s` 会粘到替换结果的末尾，造出
+# `the Tax Bureau, State Taxation Administrations of various cities` 这种词。
+# 干跑时抓到的，见 data/logs/org_fix_content_backup.json 之前的报告。
 LOCAL = (r"((?:[A-Z][\w'-]+\s+){0,3}?"
          r"(?:Provincial|Municipal|Autonomous|Regional)?\s*"
-         r"(?:Taxation Bureau|Tax Service|Tax Bureau|Tax Authority|Tax Office))")
+         r"(?:Taxation Bureau|Tax Service|Tax Bureau|Tax Authority|Tax Office)\b)")
 
 # **前导的 `the` 要一起吃进匹配**（它指的是"总局"）。第一版漏了这一步，替换后
 # 变成 "by the the Jiangsu…"；第二版吃进来了却忘了补回，又变成 "by Jiangsu…"。
