@@ -73,24 +73,75 @@ def _bar(done: int, total: int, width: int = 34) -> str:
     return "█" * n + "─" * (width - n)
 
 
-def step_progress() -> tuple[str, str]:
-    """本步进度：优先认翻译，其次认 AI 审核。返回 (描述, 明细行)。"""
-    text = "\n".join(_tail_lines(LOGS / "wf_translate.log", 40))
-    hits = PROG.findall(text)
-    if hits:
-        done, skip, fail, rate, left = hits[-1]
-        line = (f"{done} 条已译 · {skip} 跳过 · {fail} 失败 · "
-                f"{rate} 条/秒 · 预计还需 {left} 分钟")
-        last = _tail_lines(LOGS / "wf_translate.log", 1)
-        return line, (last[0].strip()[:W] if last else "")
+#: 通用进度行：`[12/40] ...` —— ai_review 与 retranslate 都是这个形状。
+RANK = re.compile(r"\[(\d+)/(\d+)\]")
+#: 各步骤的日志与中文名。**顺序即优先级**：先找有详细进度的，再找通用的。
+STEPS = (("ai_review", "AI 审核"), ("retranslate", "重译·机检"),
+         ("retranslate_ai", "重译·AI"), ("fix_org", "机构名修复"),
+         ("fix_terms", "术语修复"), ("audit", "自检"))
 
-    text = "\n".join(_tail_lines(LOGS / "wf_ai_review.log", 60))
-    for ln in reversed(text.splitlines()):
-        m = AI.match(ln.strip())
-        if m:
-            return (f"AI 审核 {m.group(1)} / {m.group(2)} 条",
-                    ln.strip()[:W])
+
+#: 状态文件里的步骤名 → 该步的日志 tag
+STEP_LOG = {"① 翻译": "translate", "② 自检": "audit", "③ AI 审核": "ai_review",
+            "④ 规则修复": "fix_terms", "⑤ 重译·机检": "retranslate",
+            "⑤ 重译·AI": "retranslate_ai"}
+
+
+def step_progress(cur: str = "") -> tuple[str, str]:
+    """本步进度。``cur`` 是状态文件里的当前步骤名，用它**选中对应的日志**。
+
+    **按当前步骤选，不按固定优先级** —— 实测踩到：翻译那一步的日志在它结束
+    之后仍然留在磁盘上，而固定优先读它，于是「⑤ 重译」跑到一半时屏幕上显示
+    的还是翻译的旧进度（「已译 150 条 · 预计还需 0 分钟」）。那**比不显示更
+    糟**：它看起来像是重译卡在 150 条上。
+    """
+    order: list[str] = []
+    for key, tag in STEP_LOG.items():
+        if key in (cur or ""):
+            order.append(tag)
+    order += [t for t in ("translate", "ai_review", "retranslate",
+                          "retranslate_ai", "fix_org", "fix_terms", "audit")
+              if t not in order]
+
+    for tag in order:
+        lines = _tail_lines(LOGS / f"wf_{tag}.log", 40 if tag == "translate" else 10)
+        if not lines:
+            continue
+        if tag == "translate":
+            hits = PROG.findall("\n".join(lines))
+            if hits:
+                done, skip, fail, rate, left = hits[-1]
+                return (f"翻译 {done} 条已译 · {skip} 跳过 · {fail} 失败 · "
+                        f"{rate} 条/秒 · 预计还需 {left} 分钟", lines[-1].strip()[:W])
+        for ln in reversed(lines):
+            m = RANK.search(ln)
+            if m:
+                label = next((v for k, v in STEPS if k == tag), tag)
+                return f"{label} {m.group(1)} / {m.group(2)} 条", ln.strip()[:W]
+        label = next((v for k, v in STEPS if k == tag), tag)
+        return f"{label}（进行中）", lines[-1].strip()[:W]
     return "", ""
+
+
+def last_activity() -> tuple[str, float]:
+    """最近被写过的 wf_*.log 及其空闲分钟数。
+
+    **这一行比进度条更要紧**：有的步骤没有可解析的进度行（重译要跑几十分钟、
+    而且是覆盖写不增条数），那时「它还在动」这件事只能靠日志文件的修改时间
+    来证明。没有它，使用者无法区分「慢」和「死了」。
+    """
+    newest, name = 0.0, ""
+    for p in LOGS.glob("wf_*.log"):
+        try:
+            mt = p.stat().st_mtime
+        except OSError:
+            continue
+        if mt > newest:
+            newest, name = mt, p.name.replace("wf_", "").replace(".log", "")
+    if not newest:
+        return "", 9999.0
+    idle = (dt.datetime.now().timestamp() - newest) / 60
+    return name, idle
 
 
 def _clear() -> None:
@@ -149,13 +200,23 @@ def draw() -> None:
         print("  工作流   未在运行（state 文件为空）")
     print()
 
-    desc, detail = step_progress()
+    desc, detail = step_progress(st.get("step", ""))
     if desc:
         print(f"  本步进度 {desc}")
         if detail:
             print(f"           {detail}")
     else:
         print("  本步进度 （这一步没有进度行，看下面日志尾部）")
+
+    act_name, idle = last_activity()
+    if act_name:
+        if idle < 2:
+            tip = "（刚有更新 · 正在干活）"
+        elif idle < 8:
+            tip = f"（{idle:.0f} 分钟前有更新 · 长文档单条要几分钟，属正常）"
+        else:
+            tip = f"⚠ 已 {idle:.0f} 分钟没有输出 —— 可能在啃超长文档，也可能真卡住了"
+        print(f"  最后活动 {act_name} 的日志 {idle:.1f} 分钟前 {tip}")
     print()
 
     print("─" * W)
