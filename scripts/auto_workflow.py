@@ -42,6 +42,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import os
 import subprocess
 import sys
 import time
@@ -49,7 +50,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 PY = sys.executable
-PROGRESS = ROOT / "data" / "logs" / "auto_workflow.json"
+LOG_DIR = ROOT / "data" / "logs"
+PROGRESS = LOG_DIR / "auto_workflow.json"
+STATE = LOG_DIR / "auto_workflow_state.json"
 
 sys.path.insert(0, str(ROOT / "src"))
 from taxassist import proc as procutil  # noqa: E402
@@ -59,22 +62,58 @@ def log(msg: str) -> None:
     print(f"{dt.datetime.now():%H:%M:%S} {msg}", flush=True)
 
 
-def run(argv: list[str], timeout: int = 7200) -> dict:
-    """跑一个子步骤并记录结果。**失败不抛异常** —— 无人值守时一次失败不该
-    终止整轮，更不该让循环死掉。"""
-    t0 = time.time()
+def _tail(path: Path, n: int) -> list[str]:
+    """读文件最后 n 行（监控台与工作流摘要共用）。"""
     try:
-        p = subprocess.run([PY, *argv], cwd=str(ROOT), capture_output=True,
-                           text=True, encoding="utf-8", errors="replace",
-                           timeout=timeout,
-                           # creationflags 不能省：Windows 下不给它，每起一个
-                           # 子进程就弹一个黑框。项目有一条硬约定和一条测试
-                           # （tests/test_no_window_guard.py）盯着这件事 ——
-                           # 正是它拦下了这个文件的第一版。
-                           creationflags=procutil.hidden_flags())
-        lines = [x for x in (p.stdout or "").strip().splitlines() if x.strip()]
+        lines = [x for x in path.read_text(encoding="utf-8", errors="replace")
+                 .splitlines() if x.strip()]
+        return lines[-n:]
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def set_state(step: str, detail: str = "", **extra) -> None:
+    """把「当前在哪一步」写成文件，供监控台（scripts/watch.py）实时读。
+
+    为什么不只靠 auto_workflow.json：那个文件**每轮结束才写一次**，而一轮要
+    一百分钟 —— 监控台照着它只会显示「第 N 轮进行中」，看不到「正在译第几条」，
+    那正是人最想知道的。
+    """
+    try:
+        STATE.write_text(json.dumps(
+            {"step": step, "detail": detail,
+             "at": dt.datetime.now().isoformat(timespec="seconds"), **extra},
+            ensure_ascii=False), encoding="utf-8")
+    except Exception:  # noqa: BLE001 - 状态写不进去不该影响干活
+        pass
+
+
+def run(tag: str, argv: list[str], timeout: int = 7200) -> dict:
+    """跑一个子步骤。输出**写进单独的文件**，不捕获到内存。
+
+    这样做有两个好处，都是实测逼出来的：
+    1. 监控台能实时读到「正在译第几条」—— 第一版用 capture_output，代价是
+       长达四十分钟的翻译过程对外**完全是黑箱**，只能等它结束才知道发生了什么。
+    2. 每个子步骤留下完整日志（data/logs/wf_<tag>.log），出问题能回溯。
+    """
+    t0 = time.time()
+    logfile = LOG_DIR / f"wf_{tag}.log"
+    try:
+        # **PYTHONUNBUFFERED 不能省**：子进程的 stdout 一旦重定向到文件就是块
+        # 缓冲的，进度行会一直卡在缓冲区里 —— 监控台于是什么都看不到，正是
+        # 「实时看到翻译在做什么」这个需求最直接的反面。实测就是这样：翻译
+        # 明明在推进（库里条数在涨），wf_translate.log 里却只有一行 writelock
+        # 的 stderr，一条进度都没有。
+        env = {**os.environ, "PYTHONUNBUFFERED": "1"}
+        with open(logfile, "w", encoding="utf-8", errors="replace") as fh:
+            p = subprocess.run([PY, *argv], cwd=str(ROOT), stdout=fh,
+                               stderr=subprocess.STDOUT, env=env, timeout=timeout,
+                               # creationflags 不能省：Windows 下不给它，每起一个
+                               # 子进程就弹一个黑框。项目里有一条测试盯着它
+                               # （tests/test_no_window_guard.py）。
+                               creationflags=procutil.hidden_flags())
         return {"rc": p.returncode, "sec": round(time.time() - t0, 1),
-                "tail": lines[-2:]}
+                "tail": _tail(logfile, 2)}
     except subprocess.TimeoutExpired:
         return {"rc": -1, "sec": round(time.time() - t0, 1),
                 "tail": [f"超时（>{timeout}s）"]}
@@ -88,20 +127,24 @@ def show(tag: str, r: dict) -> None:
     log(f"   {tag}: rc={r['rc']} {r['sec']}s  {tail[:110]}")
 
 
-def one_round(args) -> dict:
+def one_round(args, rnd: int = 0) -> dict:
     rep: dict = {}
 
     # ① 翻译一批。**用 translate_batch 而不是 translate_all**：前者不设时间窗，
     #    由本工作流的 --hours 统一管；后者自带 11-19 的窗，会和这里打架。
     log(f"① 翻译（上限 {args.translate_batch} 条）")
-    rep["translate"] = run(["scripts/translate_batch.py", "--what", "content",
-                            "--limit", str(args.translate_batch)])
+    set_state("① 翻译", f"上限 {args.translate_batch} 条", round=rnd)
+    rep["translate"] = run("translate", [
+        "scripts/translate_batch.py", "--what", "content",
+        "--limit", str(args.translate_batch)])
     show("翻译", rep["translate"])
 
-    # ② 自检：全量机检，只读。它给后面两步提供目标清单。
+    # ② 自检：全量机检，只读。它给后面几步提供目标清单。
     log("② 自检（全量机检）")
-    rep["audit"] = run(["scripts/audit_translation.py", "--field", "both",
-                        "--samples", "1"], timeout=3600)
+    set_state("② 自检", "全量机检 10 类", round=rnd)
+    rep["audit"] = run("audit", [
+        "scripts/audit_translation.py", "--field", "both", "--samples", "1"],
+        timeout=3600)
     show("自检", rep["audit"])
 
     # ③ AI 审核：本地模型逐条判断「译文准不准」。**这是机检唯一补不上的一块**
@@ -109,18 +152,20 @@ def one_round(args) -> dict:
     #    三档结果各有去处：OK 记账、问题进重译队列（第 ⑤ 步）、
     #    不确定写进 data/logs/ai_unsure.json 等人工看。
     log(f"③ AI 审核（上限 {args.ai_review_limit} 条）")
-    rep["ai_review"] = run(["scripts/ai_review.py", "--limit",
-                            str(args.ai_review_limit)], timeout=7200)
+    set_state("③ AI 审核", f"上限 {args.ai_review_limit} 条", round=rnd)
+    rep["ai_review"] = run("ai_review", [
+        "scripts/ai_review.py", "--limit", str(args.ai_review_limit)], timeout=7200)
     show("AI审核", rep["ai_review"])
 
     # ④ 自纠错之一：规则明确的（机构名结构 + 已定稿术语）。这两类不需要判断，
     #    改错了会被后面的自检验证出来。
     log("④ 自纠错 · 规则修复")
-    rep["fix_org"] = run(["scripts/fix_org_names.py", "--field", "content",
-                          "--apply"])
+    set_state("④ 规则修复", "机构名 + 术语", round=rnd)
+    rep["fix_org"] = run("fix_org", [
+        "scripts/fix_org_names.py", "--field", "content", "--apply"])
     show("机构名", rep["fix_org"])
-    rep["fix_terms"] = run(["scripts/fix_terms.py", "--field", "content",
-                            "--apply", "--show", "0"])
+    rep["fix_terms"] = run("fix_terms", [
+        "scripts/fix_terms.py", "--field", "content", "--apply", "--show", "0"])
     show("术语", rep["fix_terms"])
 
     # ⑤ 自纠错之二：定点重译（限量）。**限量是刻意的** —— 长文档一条要几分钟，
@@ -128,11 +173,15 @@ def one_round(args) -> dict:
     #    两个来源：机检命中的（数字/条目/结构类），以及 AI 审核说「有问题」的
     #    （语义类）—— 后者是语义问题唯一的自动修复路径。
     log(f"⑤ 自纠错 · 定点重译（各上限 {args.retranslate_limit} 条）")
-    rep["retranslate"] = run(["scripts/retranslate.py", "--limit",
-                              str(args.retranslate_limit)], timeout=5400)
+    set_state("⑤ 重译·机检", f"上限 {args.retranslate_limit} 条", round=rnd)
+    rep["retranslate"] = run("retranslate", [
+        "scripts/retranslate.py", "--limit", str(args.retranslate_limit)],
+        timeout=5400)
     show("重译·机检", rep["retranslate"])
-    rep["retranslate_ai"] = run(["scripts/retranslate.py", "--from-ai", "--limit",
-                                 str(args.retranslate_limit)], timeout=5400)
+    set_state("⑤ 重译·AI", f"上限 {args.retranslate_limit} 条", round=rnd)
+    rep["retranslate_ai"] = run("retranslate_ai", [
+        "scripts/retranslate.py", "--from-ai", "--limit",
+        str(args.retranslate_limit)], timeout=5400)
     show("重译·AI", rep["retranslate_ai"])
 
     return rep
@@ -174,7 +223,8 @@ def main() -> int:
             break
         n += 1
         log(f"===== 第 {n} 轮 =====")
-        rep = one_round(args)
+        set_state("轮次开始", f"第 {n} 轮", round=n)
+        rep = one_round(args, n)
         history.append({"round": n,
                         "at": dt.datetime.now().isoformat(timespec="seconds"),
                         **rep})
