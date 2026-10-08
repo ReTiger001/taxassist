@@ -39,19 +39,24 @@ def main() -> int:
     tl.ensure_table(conn)
 
     field = "title" if args.what == "titles" else "content"
-    where: list[str] = []
-    params: list = []
+    # **只取还没译过的**。原先取「最新的 N 条」再由缓存逐条跳过 —— 后果很具体：
+    # 最新那批一旦译完，之后每一轮都取到同一批、全部跳过、一条也译不出来。
+    # 实测就是无人值守工作流第一轮报「译 0，跳过 150」，循环空转。
+    # cwrq DESC 的顺序保留（优先译新的）。
+    # 注意：这**不会**重译「原文变了、指纹对不上」的条目 —— 那种由 audit 的
+    # C1 报出来、走 retranslate 处理（实测正文 0 条、标题 1 条）。
+    sql = ("SELECT p.doc_uid, p.title, p.content FROM policy p"
+           " LEFT JOIN translation t ON t.doc_uid = p.doc_uid"
+           " AND t.field = ? AND t.lang = 'en'"
+           " WHERE t.id IS NULL")
+    params: list = [field]
     if field == "content":
-        where.append("IFNULL(p.content,'') <> ''")
+        sql += " AND IFNULL(p.content,'') <> ''"
     if args.years:
         since = (datetime.date.today()
                  - datetime.timedelta(days=365 * args.years)).isoformat()
-        where.append("p.cwrq >= ?")
+        sql += " AND p.cwrq >= ?"
         params.append(since)
-
-    sql = "SELECT p.doc_uid, p.title, p.content FROM policy p"
-    if where:
-        sql += " WHERE " + " AND ".join(where)
     sql += " ORDER BY p.cwrq DESC"
     if args.limit:
         sql += f" LIMIT {args.limit}"
