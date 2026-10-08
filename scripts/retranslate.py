@@ -85,8 +85,24 @@ def check(zh: str, en: str, field: str) -> dict:
     return out
 
 
-def pick(field: str, kinds: tuple[str, ...]) -> dict[str, set[str]]:
-    """从机检报告里取目标：doc_uid → 命中的类别集合。"""
+def pick(field: str, kinds: tuple[str, ...], from_ai: bool = False,
+         connect=dbmod.connect) -> dict[str, set[str]]:
+    """取目标：doc_uid → 命中的类别集合。
+
+    ``from_ai=True`` 时改为从**本地模型的审核结果**取（verdict='issue' 那些）——
+    这是「先翻译、然后本地模型审核」那一环的出口：模型明确说有问题的，直接进
+    重译队列。语义类的问题机检看不见，只有这条路能自动修。
+    """
+    if from_ai:
+        conn = connect()
+        try:
+            rows = conn.execute(
+                "SELECT doc_uid FROM translation_ai_review"
+                " WHERE field=? AND verdict='issue'", (field,)).fetchall()
+        finally:
+            conn.close()
+        return {r["doc_uid"]: {"AI:issue"} for r in rows}
+
     rep_path = Path("data/logs/audit_translation.json")
     rep = json.loads(rep_path.read_text(encoding="utf-8")).get(field, {})
     hits = rep.get("hits", {})
@@ -111,10 +127,12 @@ def main() -> int:
                     help="要重译的类别，逗号分隔；all = 全部")
     ap.add_argument("--limit", type=int, default=0, help="0 = 全部")
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--from-ai", action="store_true",
+                    help="从 AI 审核结果取目标（verdict=issue），而不是机检报告")
     args = ap.parse_args()
 
     kinds = tuple(args.kinds.split(",")) if args.kinds != "all" else ("all",)
-    targets = pick(args.field, kinds)
+    targets = pick(args.field, kinds, from_ai=args.from_ai)
     if args.limit:
         targets = dict(list(targets.items())[:args.limit])
     print(f"[{args.field}] 类别 {','.join(kinds)} → {len(targets)} 条待重译")

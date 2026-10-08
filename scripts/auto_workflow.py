@@ -104,9 +104,18 @@ def one_round(args) -> dict:
                         "--samples", "1"], timeout=3600)
     show("自检", rep["audit"])
 
-    # ③ 自纠错之一：规则明确的（机构名结构 + 已定稿术语）。这两类不需要判断，
+    # ③ AI 审核：本地模型逐条判断「译文准不准」。**这是机检唯一补不上的一块**
+    #    —— 义务方向读反、凭空多出一个国家名、年份笔误，机检全都看不见。
+    #    三档结果各有去处：OK 记账、问题进重译队列（第 ⑤ 步）、
+    #    不确定写进 data/logs/ai_unsure.json 等人工看。
+    log(f"③ AI 审核（上限 {args.ai_review_limit} 条）")
+    rep["ai_review"] = run(["scripts/ai_review.py", "--limit",
+                            str(args.ai_review_limit)], timeout=7200)
+    show("AI审核", rep["ai_review"])
+
+    # ④ 自纠错之一：规则明确的（机构名结构 + 已定稿术语）。这两类不需要判断，
     #    改错了会被后面的自检验证出来。
-    log("③ 自纠错 · 规则修复")
+    log("④ 自纠错 · 规则修复")
     rep["fix_org"] = run(["scripts/fix_org_names.py", "--field", "content",
                           "--apply"])
     show("机构名", rep["fix_org"])
@@ -114,12 +123,17 @@ def one_round(args) -> dict:
                             "--apply", "--show", "0"])
     show("术语", rep["fix_terms"])
 
-    # ④ 自纠错之二：定点重译（限量）。**限量是刻意的** —— 长文档一条要几分钟，
+    # ⑤ 自纠错之二：定点重译（限量）。**限量是刻意的** —— 长文档一条要几分钟，
     #    不限量会让一轮永远跑不完，自检和修复就再也轮不到。
-    log(f"④ 自纠错 · 定点重译（上限 {args.retranslate_limit} 条）")
+    #    两个来源：机检命中的（数字/条目/结构类），以及 AI 审核说「有问题」的
+    #    （语义类）—— 后者是语义问题唯一的自动修复路径。
+    log(f"⑤ 自纠错 · 定点重译（各上限 {args.retranslate_limit} 条）")
     rep["retranslate"] = run(["scripts/retranslate.py", "--limit",
                               str(args.retranslate_limit)], timeout=5400)
-    show("重译", rep["retranslate"])
+    show("重译·机检", rep["retranslate"])
+    rep["retranslate_ai"] = run(["scripts/retranslate.py", "--from-ai", "--limit",
+                                 str(args.retranslate_limit)], timeout=5400)
+    show("重译·AI", rep["retranslate_ai"])
 
     return rep
 
@@ -145,6 +159,8 @@ def main() -> int:
                     help="每轮翻译条数上限")
     ap.add_argument("--retranslate-limit", type=int, default=40,
                     help="每轮定点重译条数上限")
+    ap.add_argument("--ai-review-limit", type=int, default=150,
+                    help="每轮 AI 审核条数上限（每条约 12 秒）")
     ap.add_argument("--sleep", type=int, default=30, help="轮间隔秒")
     ap.add_argument("--once", action="store_true", help="只跑一轮")
     ap.add_argument("--rounds", type=int, default=0, help="跑几轮，0=不限")
