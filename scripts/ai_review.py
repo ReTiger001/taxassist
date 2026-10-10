@@ -211,11 +211,25 @@ def main() -> int:
     print(f"  OK {counts['ok']} ／ 有问题 {counts['issue']} ／ "
           f"拿不准 {counts['unsure']}")
     if unsure:
-        UNSURE_OUT.write_text(json.dumps(unsure, ensure_ascii=False, indent=1),
-                              encoding="utf-8")
-        print(f"\n拿不准的 {len(unsure)} 条已写入 {UNSURE_OUT} —— 这些需要人/上层 AI 看")
-        for r in unsure[:12]:
-            print(f"  · {r['uid'][:52]}  {r['reason'][:80]}")
+        # **从库里取全部 unsure，而不是只写这一批** —— 第一版把局部变量
+        # `unsure` 直接覆盖写进文件，于是每次运行都冲掉上一批：库里累计 54 条，
+        # 文件里只剩最后一批的 3 条。而「等人看」要的正是完整清单，
+        # 少的那 51 条等于没交给人。
+        try:
+            c2 = dbmod.connect()
+            try:
+                all_unsure = c2.execute(
+                    "SELECT doc_uid, reason FROM translation_ai_review"
+                    " WHERE field=? AND verdict='unsure'"
+                    " ORDER BY reviewed_at DESC", (args.field,)).fetchall()
+            finally:
+                c2.close()
+            UNSURE_OUT.write_text(json.dumps(
+                [{"uid": r["doc_uid"], "reason": r["reason"]} for r in all_unsure],
+                ensure_ascii=False, indent=1), encoding="utf-8")
+            print(f"\n拿不准的**累计** {len(all_unsure)} 条已写入 {UNSURE_OUT}")
+        except Exception as e:  # noqa: BLE001 - 清单写不出来不该影响主流程
+            print(f"（写 unsure 清单失败：{e}）")
     return 0
 
 
