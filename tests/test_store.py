@@ -57,7 +57,11 @@ def test_content_hash_ignores_volatile_fields():
 
 
 def test_fts_index_synced_by_triggers(conn):
-    store.upsert_policy(conn, _row(title="研发费用税前加计扣除政策指引", content="集成电路和工业母机企业"))
+    # 标题用「公告」形态：store.upsert_policy 现在会拦住「…政策指引」这类
+    # 非正式内容（解读/问答/办事指南）。这条测试验的是 **FTS 索引**，
+    # 与标题是不是正式政策无关 —— 换个正式标题，测试意图不变。
+    store.upsert_policy(conn, _row(title="研发费用税前加计扣除政策公告",
+                                   content="集成电路和工业母机企业"))
     hits = conn.execute(
         "SELECT COUNT(*) FROM policy_fts WHERE policy_fts MATCH ?", ('"加计扣除"',)
     ).fetchone()[0]
@@ -71,7 +75,8 @@ def test_updating_non_indexed_field_keeps_fts_intact(conn):
     ``policy_au`` 触发器加了 WHEN 条件（只在索引字段变化时才重建索引）。
     条件一旦写错，UPDATE 后索引会丢数据 —— 而且搜不到东西时很难联想到触发器。
     """
-    store.upsert_policy(conn, _row(title="研发费用税前加计扣除政策指引"))
+    # 同上：改用正式标题，让 store.upsert_policy 的「非正式内容」闸门放过它。
+    store.upsert_policy(conn, _row(title="研发费用税前加计扣除政策公告"))
     assert conn.execute(
         "SELECT COUNT(*) FROM policy_fts WHERE policy_fts MATCH ?", ('"加计扣除"',)
     ).fetchone()[0] == 1
