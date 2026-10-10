@@ -12,6 +12,16 @@
       <span class="mt-note" style="display:inline;margin-left:10px;padding-left:9px;border-left:2px solid var(--line)">
         <span data-zh="机器翻译（" data-en="Machine translation ("></span>{{ tr_title.model }}<span data-zh="），以中文原文为准" data-en=") — the Chinese original governs"></span></span></p>
     {% endif %}
+    {% if not p.is_official %}
+    {# **参考层标记** —— 与「机器翻译」那条标注同一个理由：不让人误把它当成
+       可引用的依据。这一层是解读／问答／办事指南，帮人理解，但没有文号、
+       不具政策效力、不能单独引用。 #}
+    <p class="mt-note" style="margin:6px 0 0;padding:7px 10px;border-left:3px solid #b45309;background:#fffbeb;display:block">
+      <b data-zh="非政策依据" data-en="Not a policy instrument">非政策依据</b>
+      <span data-zh="：本文属解读／问答／办事指南类，仅供理解参考，不可单独引用。"
+            data-en=" — this is an explainer, Q&amp;A or procedural guide: for comprehension only, not citable on its own.">：本文属解读／问答／办事指南类，仅供理解参考，不可单独引用。</span>
+    </p>
+    {% endif %}
     <div class="meta">
       <span><b data-zh="文号" data-en="Doc. no.">文号</b>
         {% if p.p_doc_no_full %}<span class="docno">{{ p.p_doc_no_full }}</span>

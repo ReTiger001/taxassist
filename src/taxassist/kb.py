@@ -107,8 +107,9 @@ def _fts_phrase(term: str) -> str:
 
 
 def _build_search(query: str, tax: str, region: str, effect: str, year: str,
-                  column: str, sort: str,
-                  has_fts: bool) -> tuple[str, str, list, list[str], list[str], str]:
+                  column: str, sort: str, has_fts: bool,
+                  include_reference: bool = False
+                  ) -> tuple[str, str, list, list[str], list[str], str]:
     """组装检索条件。
 
     返回 ``(from_where, order, params, terms, term_hits, mode)``。
@@ -127,6 +128,13 @@ def _build_search(query: str, tax: str, region: str, effect: str, year: str,
     where: list[str] = []
     params: list = []
     mode = "filter"
+
+    # **默认只看政策层**（is_official=1）。参考层（解读/问答/办事指南）是帮人
+    # 理解的，不该混进「我该适用哪条政策」的检索结果里 —— 使用者要的「纯政策」
+    # 正是这个意思：可引用的一层保持干净，另一层显式去查。
+    # IFNULL 兜底：老库可能没有这一列（或值为 NULL），一律按政策层处理。
+    if not include_reference:
+        where.append("IFNULL(p.is_official, 1) = 1")
 
     if terms and all(len(t) >= 3 for t in terms) and has_fts:
         base = "FROM policy_fts f JOIN policy p ON p.id = f.rowid"
@@ -267,8 +275,13 @@ _NO_HIT_HINT = (
 def search(query: str = "", *, tax: str = "", region: str = "", effect: str = "",
            year: str = "", column: str = "", sort: str = "relevance",
            limit: int = DEFAULT_LIMIT, offset: int = 0,
+           include_reference: bool = False,
            path: str | Path | None = None) -> dict:
-    """全文检索政策。空查询 + 筛选条件 = 按条件浏览（这是真实用法，要允许）。"""
+    """全文检索政策。空查询 + 筛选条件 = 按条件浏览（这是真实用法，要允许）。
+
+    ``include_reference`` 默认 False —— **检索默认只看政策层**。参考层
+    （解读/问答/办事指南）要显式开启才出现，理由见 _build_search 里的注释。
+    """
     limit = max(1, min(int(limit or DEFAULT_LIMIT), MAX_LIMIT))
     offset = max(0, int(offset or 0))
 
@@ -293,7 +306,8 @@ def search(query: str = "", *, tax: str = "", region: str = "", effect: str = ""
         try:
             (from_where, order, params, order_params, terms, term_hits,
              mode) = _build_search(query, tax, region, effect, year, column,
-                                   sort, has_fts)
+                                   sort, has_fts,
+                                   include_reference=include_reference)
         except Exception as e:  # noqa: BLE001
             log.warning("检索参数组装失败 q=%r: %s", query, e)
             result["error"] = "检索失败，请调整关键词后重试。"

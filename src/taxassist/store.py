@@ -124,11 +124,13 @@ def upsert_policy(conn, row: dict) -> str:
     设计：先按 doc_uid 查已有记录的 content_hash；一致则只刷新
     last_seen_at / fetch_count（说明只是又被抓到一次），不一致才视为更新。
 
-    ``skipped`` = **非正式内容**（解读、问答、答记者问、办事指南……），见
-    ``NONOFFICIAL_TITLE``。使用者定的口径是「我们只要正式政策的内容」。
+    ``is_official`` = 0 表示**参考层**（解读、问答、答记者问、办事指南……）。
+    使用者要的是「政策层干净可引用 + 参考层可查」的**分层**，不是删掉 ——
+    所以这里**标记而不是丢弃**：丢掉会让参考层永远建不起来，而且下一次采集
+    又把同样的内容抓回来，白跑一遍。
     """
     if NONOFFICIAL_TITLE.search(row.get("title") or ""):
-        return "skipped"
+        row = {**row, "is_official": 0}
     h = content_hash(row)
     row = {**row, "content_hash": h}
     # 兜底：调用方可能只关心业务字段，时间戳由存储层补齐，

@@ -108,6 +108,44 @@ def test_about_page_stays_open_to_anonymous_with_nav(client):
     assert "<nav>" in r.text
 
 
+def test_pricing_page_stays_open_to_anonymous(client):
+    """价格页也必须对未登录访客开放 —— 客户决定买之前要先看价目。
+
+    这个页面曾漏在 PUBLIC_PATHS 之外：顶栏一直挂着「服务与价格」入口，
+    未登录点进去却被弹回登录页，潜在客户连价目表都看不到。它与政策数据
+    无关（只有能力说明与价格），放行不泄露任何库内容。
+    """
+    r = client.get("/pricing")
+    assert r.status_code == 200
+    assert "服务与价格" in r.text
+    assert "<nav>" in r.text
+
+
+def test_pricing_page_states_the_limitations(client):
+    """页面上必须留着那几条局限与免责。
+
+    它们是给客户的正式说明，不是装饰：删掉之后这一页就变成"只讲能力的
+    广告"，而客户真正需要事先知道的是边界（未发现废止≠确认有效、译文无
+    法律效力、不构成专业意见）。
+    """
+    r = client.get("/pricing")
+    for must in ("未发现废止", "机器翻译", "不构成", "私有化部署", "数据边界"):
+        assert must in r.text, f"定价页缺少必须保留的说明：{must}"
+
+
+def test_pricing_page_does_not_advertise_an_api_that_does_not_exist(client):
+    """页面上写的能力必须在系统里找得到对应物。
+
+    这一页曾经把助手的「¥8 / 次」与检索并列为对外 API 价目，而
+    api_routes.py 里开放的只有检索类端点（billing.KIND_SEARCH）——
+    助手是网页功能。价目表出现了卖不出去的东西，就是虚假宣传。
+    将来若真的开放助手 API，改这条测试的同时记得接上计费。
+    """
+    r = client.get("/pricing")
+    assert "¥0.5 / 次" in r.text      # 检索 API：真实存在，保留
+    assert "¥8 / 次" not in r.text    # 助手：网页席位内含，不按次卖
+
+
 # ---------------------------------------------------------------- 闸门
 
 def test_anonymous_is_redirected_to_login(client):

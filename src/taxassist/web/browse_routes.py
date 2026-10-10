@@ -53,20 +53,20 @@ def register(app, *, ctx, templates) -> None:
             conn.close()
 
         stats = {
-            "total": _one("SELECT COUNT(*) c FROM policy")["c"],
-            "valid": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='现行有效'")["c"],
+            "total": _one("SELECT COUNT(*) c FROM policy_official")["c"],
+            "valid": _one("SELECT COUNT(*) c FROM policy_official WHERE p_effect_status='现行有效'")["c"],
             # 现行有效的**依据分布** —— 图例里要写明"多少条有官方标注、多少条
             # 只是未发现废止证据"。客户不该只看到一个笼统的"现行有效 4423"：
             # 这两个数字的可靠性差一个量级，混在一起看就是误导。
             "valid_official": _one(
-                "SELECT COUNT(*) c FROM policy WHERE p_effect_status='现行有效'"
+                "SELECT COUNT(*) c FROM policy_official WHERE p_effect_status='现行有效'"
                 " AND p_effect_source='official'")["c"],
             "valid_default": _one(
-                "SELECT COUNT(*) c FROM policy WHERE p_effect_status='现行有效'"
+                "SELECT COUNT(*) c FROM policy_official WHERE p_effect_status='现行有效'"
                 " AND p_effect_source='default'")["c"],
-            "pending": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='尚未生效'")["c"],
-            "repealed": _one("SELECT COUNT(*) c FROM policy WHERE p_effect_status='已废止'")["c"],
-            "review": _one("SELECT COUNT(*) c FROM policy WHERE p_review_state='needs_review'")["c"],
+            "pending": _one("SELECT COUNT(*) c FROM policy_official WHERE p_effect_status='尚未生效'")["c"],
+            "repealed": _one("SELECT COUNT(*) c FROM policy_official WHERE p_effect_status='已废止'")["c"],
+            "review": _one("SELECT COUNT(*) c FROM policy_official WHERE p_review_state='needs_review'")["c"],
             # **只算真正解析成功的**。原来这里是 COUNT(*) 全表 —— 而页面上
             # 那个数字的标签写的是「已解析附件」，于是 4275 里混进了
             # BadZipFile 388、download_failed 372、no_text_layer 243 等等，
@@ -82,12 +82,12 @@ def register(app, *, ctx, templates) -> None:
         recent = _rows(
             "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.p_doc_no_confidence,"
             " p.o_column, p.p_region, p.p_effect_status, p.p_effect_source, p.url"
-            f" FROM policy p ORDER BY {_SUBSTANTIVE_FIRST}, p.cwrq DESC LIMIT 25")
+            f" FROM policy_official p ORDER BY {_SUBSTANTIVE_FIRST}, p.cwrq DESC LIMIT 25")
         by_column = _rows(
-            "SELECT COALESCE(o_column,'(未知)') v, COUNT(*) c FROM policy"
+            "SELECT COALESCE(o_column,'(未知)') v, COUNT(*) c FROM policy_official"
             " GROUP BY v ORDER BY c DESC")
         by_effect = _rows(
-            "SELECT COALESCE(p_effect_status,'未判定') v, COUNT(*) c FROM policy"
+            "SELECT COALESCE(p_effect_status,'未判定') v, COUNT(*) c FROM policy_official"
             " GROUP BY v ORDER BY c DESC")
         return templates.TemplateResponse(
             request=request, name="index.html",
@@ -122,6 +122,10 @@ def register(app, *, ctx, templates) -> None:
                     " p.o_column, p.p_region, p.p_effect_status, p.p_effect_source, p.url"
                     " FROM policy_fts f JOIN policy p ON p.id = f.rowid"
                     " WHERE policy_fts MATCH ?"
+                    # 分层：FTS 是主检索路径，这条**不能漏**。
+                    # `FROM policy_fts` 里 policy 后面紧跟下划线，所以上面那轮
+                    # 按词边界做的批量替换正好放过了它 —— 在这里单独补上。
+                    " AND IFNULL(p.is_official, 1) = 1"
                 )
                 # 多词用 AND 连接。整体加引号会变成**短语查询**，
                 # "增值税 优惠" 必然 0 条 —— 独立验证代理发现的问题。
@@ -135,7 +139,7 @@ def register(app, *, ctx, templates) -> None:
                     "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.p_doc_no_confidence,"
                     " p.pub_name,"
                     " p.o_column, p.p_region, p.p_effect_status, p.p_effect_source, p.url"
-                    f" FROM policy p WHERE ({like_clause})"
+                    f" FROM policy_official p WHERE ({like_clause})"
                 )
                 params = []
                 for t in terms:
@@ -144,7 +148,7 @@ def register(app, *, ctx, templates) -> None:
                 sql = (
                     "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.pub_name,"
                     " p.o_column, p.p_region, p.p_effect_status, p.p_effect_source, p.url"
-                    " FROM policy p WHERE 1=1"
+                    " FROM policy_official p WHERE 1=1"
                 )
                 params = []
             if column:
@@ -212,19 +216,19 @@ def register(app, *, ctx, templates) -> None:
                 error = "检索失败，请调整关键词后重试。"
 
         columns = [r["v"] for r in _rows(
-            "SELECT DISTINCT o_column v FROM policy WHERE o_column IS NOT NULL")]
+            "SELECT DISTINCT o_column v FROM policy_official WHERE o_column IS NOT NULL")]
         conn = dbmod.connect()
         try:
             tax_counts = filters.tax_type_counts(conn)
             regions = filters.region_counts(conn)
             effect_counts = [
                 ((r["p_effect_status"] or "未判定"), r["c"])
-                for r in _rows("SELECT p_effect_status, COUNT(*) c FROM policy"
+                for r in _rows("SELECT p_effect_status, COUNT(*) c FROM policy_official"
                                " GROUP BY 1 ORDER BY c DESC")
             ]
             years = [
                 r["y"] for r in _rows(
-                    "SELECT DISTINCT SUBSTR(cwrq,1,4) y FROM policy"
+                    "SELECT DISTINCT SUBSTR(cwrq,1,4) y FROM policy_official"
                     " WHERE cwrq IS NOT NULL AND LENGTH(cwrq) >= 4"
                     " ORDER BY y DESC")
                 if r["y"] and str(r["y"]).isdigit()
@@ -245,6 +249,8 @@ def register(app, *, ctx, templates) -> None:
 
     @app.get("/policy/{doc_uid:path}", response_class=HTMLResponse)
     def policy_detail(request: Request, doc_uid: str):
+        # 详情页查**原表**：参考层的条目也要能通过链接打开看（只是不出现在
+        # 列表与检索结果里）。页面上会标注它是「非政策依据」。
         policy = _one("SELECT * FROM policy WHERE doc_uid = ?", (doc_uid,))
         if policy is None:
             return HTMLResponse("<h1>404</h1><p>没有这条政策。</p>", status_code=404)
@@ -298,7 +304,7 @@ def register(app, *, ctx, templates) -> None:
             " p.p_doc_no_confidence, p.pub_name,"
             " p.o_column, p.p_effect_status, p.p_effect_source, p.url,"
             " (SELECT COUNT(*) FROM attachment a WHERE a.doc_uid=p.doc_uid) AS n_attach"
-            " FROM policy p"
+            " FROM policy_official p"
             " WHERE p.cwrq >= date('now', ?)"
             f" ORDER BY {_SUBSTANTIVE_FIRST}, p.cwrq DESC",
             (f"-{days} days",))

@@ -46,6 +46,10 @@ CREATE TABLE IF NOT EXISTS policy (
     second_title       TEXT,
     o_column           TEXT,                   -- 栏目：政策法规/政策解读/政策指引
     o_label            TEXT,                   -- 标签：法律/行政法规/税务规范性文件/财税文件…
+    -- 分层标记。**1 = 政策层**（有文号的规范性文件，可引用）；
+    -- **0 = 参考层**（解读/问答/办事指南 —— 帮助理解，但不得单独引用，
+    -- 页面要明示）。检索默认只出政策层，参考层要显式选择才看得到。
+    is_official        INTEGER NOT NULL DEFAULT 1,
     o_typename         TEXT,
     o_site_name        TEXT,
 
@@ -327,6 +331,13 @@ def init_db(conn: sqlite3.Connection) -> str:
         try:
             conn.executescript(SCHEMA)
             migrate(conn)
+            # **政策层视图**：参考层（解读/问答/办事指南）不出现在这里。
+            # web 端所有计数/列表/检索都查它 —— 一处定义胜过在十几处 SQL 里
+            # 逐个手写条件（漏一处就等于没隔离，而且以后每加一个查询都要记得）。
+            # 详情页仍查原表：参考层的条目通过链接也要能打开看。
+            conn.execute(
+                "CREATE VIEW IF NOT EXISTS policy_official AS"
+                " SELECT * FROM policy WHERE IFNULL(is_official, 1) = 1")
             fts = "trigram" if _supports_trigram(conn) else "unicode61"
             conn.executescript(
                 FTS_SCHEMA_TRIGRAM if fts == "trigram" else FTS_SCHEMA_FALLBACK)

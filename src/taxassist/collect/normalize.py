@@ -385,3 +385,31 @@ def build_policy_row(item: dict) -> dict | None:
         "last_seen_at": now_iso(),
     }
     return row
+
+
+#: 网页模板混进正文的 chrome。实测来源：省级站点把「字号选择器／打印／下载／
+#: 扫一扫／分享」当正文抓了下来（全库 25 条）。它有两个害处：污染检索命中
+#: （正文里凭空多出「打印本页」），以及被翻译成英文（"字号：[大][中][小]"
+#: 翻出来毫无意义，还占翻译时间）。
+_WEB_CHROME_RE = re.compile(
+    r"字号\s*[：:]\s*\[大\]\s*\[中\]\s*\[小\]"
+    r"|扫一扫在手机打开当前页"
+    r"|【?打印本页】?|【?关闭本页】?|【?下载本页】?"
+    r"|Download the Main Text|\[Print This Page\]"
+    r"|分享：\s*微信扫一扫|分享扫一扫"
+)
+
+
+def strip_web_chrome(text: str) -> str:
+    """去掉网页模板带进正文的 chrome。
+
+    **只删命中的片段，不做整体裁剪** —— 这是政策库，正文要尽量原样保留；
+    「多留一段噪音」的代价远小于「误删一段正文」。清完顺手收一下残留的
+    行尾空白与连续空行。
+    """
+    if not text:
+        return text
+    out = _WEB_CHROME_RE.sub("", text)
+    out = re.sub(r"[ \t]+\n", "\n", out)
+    out = re.sub(r"\n{3,}", "\n\n", out)
+    return out.strip()
