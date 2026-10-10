@@ -134,6 +134,44 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://jiangsu.chinatax.gov.cn",
     ),
+    # 江苏另外四个**静态可解析**的栏目（批量探站发现）。
+    # 注意：先前单点抽样探江苏时随机挑的 3 个栏目**恰好都是 JS 异步的**，
+    # 差点得出「江苏要上 headless」的错误结论 —— 批量探完才看到这四个
+    # 直连就能抓（详情链接 45/45/21/11 个，最新日期 2026-10-09/10）。
+    # site_name 暂用栏目编号：批量探站只输出了链接没输出锚文本，编号是
+    # 实测值，比猜一个名字诚实。
+    ListPageAdapter(
+        source_id="js_col16044",
+        region="江苏",
+        site_name="国家税务总局江苏省税务局（栏目 col16044）",
+        list_url="http://jiangsu.chinatax.gov.cn/col/col16044/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://jiangsu.chinatax.gov.cn",
+    ),
+    ListPageAdapter(
+        source_id="js_col8353",
+        region="江苏",
+        site_name="国家税务总局江苏省税务局（栏目 col8353）",
+        list_url="http://jiangsu.chinatax.gov.cn/col/col8353/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://jiangsu.chinatax.gov.cn",
+    ),
+    ListPageAdapter(
+        source_id="js_col24016",
+        region="江苏",
+        site_name="国家税务总局江苏省税务局（栏目 col24016）",
+        list_url="http://jiangsu.chinatax.gov.cn/col/col24016/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://jiangsu.chinatax.gov.cn",
+    ),
+    ListPageAdapter(
+        source_id="js_col22176",
+        region="江苏",
+        site_name="国家税务总局江苏省税务局（栏目 col22176）",
+        list_url="http://jiangsu.chinatax.gov.cn/col/col22176/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://jiangsu.chinatax.gov.cn",
+    ),
     # ---------------------------------------------------------------
     # 以下五省受**加速乐 WAF 的 JS 挑战**保护：普通 HTTP 请求一律 412，
     # 响应体是挑战脚本（特征 $_ss / $_ts / nsd）。换请求头无效（实测三种
