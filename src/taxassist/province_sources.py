@@ -172,6 +172,114 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://jiangsu.chinatax.gov.cn",
     ),
+    # 浙江：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="zj_col26346",
+        region="浙江",
+        site_name="国家税务总局浙江省税务局（栏目 col26346）",
+        list_url="http://zhejiang.chinatax.gov.cn/col/col26346/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://zhejiang.chinatax.gov.cn",
+    ),
+    # 浙江：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="zj_col25754",
+        region="浙江",
+        site_name="国家税务总局浙江省税务局（栏目 col25754）",
+        list_url="http://zhejiang.chinatax.gov.cn/col/col25754/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://zhejiang.chinatax.gov.cn",
+    ),
+    # 浙江：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="zj_col26018",
+        region="浙江",
+        site_name="国家税务总局浙江省税务局（栏目 col26018）",
+        list_url="http://zhejiang.chinatax.gov.cn/col/col26018/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://zhejiang.chinatax.gov.cn",
+    ),
+    # 浙江：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="zj_col22113",
+        region="浙江",
+        site_name="国家税务总局浙江省税务局（栏目 col22113）",
+        list_url="http://zhejiang.chinatax.gov.cn/col/col22113/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://zhejiang.chinatax.gov.cn",
+    ),
+    # 安徽：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="ah_col22278",
+        region="安徽",
+        site_name="国家税务总局安徽省税务局（栏目 col22278）",
+        list_url="http://anhui.chinatax.gov.cn/col/col22278/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://anhui.chinatax.gov.cn",
+    ),
+    # 安徽：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="ah_col18403",
+        region="安徽",
+        site_name="国家税务总局安徽省税务局（栏目 col18403）",
+        list_url="http://anhui.chinatax.gov.cn/col/col18403/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://anhui.chinatax.gov.cn",
+    ),
+    # 安徽：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="ah_col22668",
+        region="安徽",
+        site_name="国家税务总局安徽省税务局（栏目 col22668）",
+        list_url="http://anhui.chinatax.gov.cn/col/col22668/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://anhui.chinatax.gov.cn",
+    ),
+    # 安徽：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="ah_col18836",
+        region="安徽",
+        site_name="国家税务总局安徽省税务局（栏目 col18836）",
+        list_url="http://anhui.chinatax.gov.cn/col/col18836/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://anhui.chinatax.gov.cn",
+    ),
+    # 云南：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="yn_col3862",
+        region="云南",
+        site_name="国家税务总局云南省税务局（栏目 col3862）",
+        list_url="http://yunnan.chinatax.gov.cn/col/col3862/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://yunnan.chinatax.gov.cn",
+    ),
+    # 云南：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="yn_col3916",
+        region="云南",
+        site_name="国家税务总局云南省税务局（栏目 col3916）",
+        list_url="http://yunnan.chinatax.gov.cn/col/col3916/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://yunnan.chinatax.gov.cn",
+    ),
+    # 云南：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="yn_col3836",
+        region="云南",
+        site_name="国家税务总局云南省税务局（栏目 col3836）",
+        list_url="http://yunnan.chinatax.gov.cn/col/col3836/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://yunnan.chinatax.gov.cn",
+    ),
+    # 云南：批量探站发现的静态栏目（详情链接见 findings）
+    ListPageAdapter(
+        source_id="yn_col3857",
+        region="云南",
+        site_name="国家税务总局云南省税务局（栏目 col3857）",
+        list_url="http://yunnan.chinatax.gov.cn/col/col3857/index.html",
+        detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
+        base_url="http://yunnan.chinatax.gov.cn",
+    ),
     # ---------------------------------------------------------------
     # 以下五省受**加速乐 WAF 的 JS 挑战**保护：普通 HTTP 请求一律 412，
     # 响应体是挑战脚本（特征 $_ss / $_ts / nsd）。换请求头无效（实测三种
