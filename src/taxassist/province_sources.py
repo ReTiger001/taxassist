@@ -93,6 +93,36 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         # 为 False（普通栏目页是静态的），fetch_list_pages 给每个子栏目套用
         # 同一个 needs_js，两者无法共存，故不配该检索页。
     ),
+    # 广东另外三个政策栏目。原先只接了 zcwj 一个，实测这三个都能直连、
+    # 都是静态列表、详情链接与 zcwj **同一形态**（/gdsw/栏目/年-月/日/content_hex.shtml），
+    # 所以 detail_href_re 可直接复用。用 probe_source.py 逐个验过：
+    #   zxwj   200/32KB/16 条详情   最新 2026-10-09（栏目活跃）
+    #   sfyhzc 200/26KB/35 条详情
+    #   qysdszc 200/29KB/34 条详情
+    ListPageAdapter(
+        source_id="gd_zxwj",
+        region="广东",
+        site_name="国家税务总局广东省税务局（最新文件）",
+        list_url="http://guangdong.chinatax.gov.cn/gdsw/zxwj/zxwj.shtml",
+        detail_href_re=r"/gdsw/[a-z]+/\d{4}-\d{2}/\d{2}/content_[0-9a-f]+\.shtml",
+        base_url="http://guangdong.chinatax.gov.cn",
+    ),
+    ListPageAdapter(
+        source_id="gd_sfyhzc",
+        region="广东",
+        site_name="国家税务总局广东省税务局（税费优惠政策）",
+        list_url="http://guangdong.chinatax.gov.cn/gdsw/sfyhzc/ztzl_2023sfyh.shtml",
+        detail_href_re=r"/gdsw/[a-z]+/\d{4}-\d{2}/\d{2}/content_[0-9a-f]+\.shtml",
+        base_url="http://guangdong.chinatax.gov.cn",
+    ),
+    ListPageAdapter(
+        source_id="gd_qysdszc",
+        region="广东",
+        site_name="国家税务总局广东省税务局（企业税收政策）",
+        list_url="http://guangdong.chinatax.gov.cn/gdsw/qysdszc/ztzl_qysdshsqj.shtml",
+        detail_href_re=r"/gdsw/[a-z]+/\d{4}-\d{2}/\d{2}/content_[0-9a-f]+\.shtml",
+        base_url="http://guangdong.chinatax.gov.cn",
+    ),
     # 江苏：实测为静态列表页，详情 URL 形如 /art/2026/9/4/art_23636_13344.html，
     # 日期直接带在条目里。注意这个栏目是「本省文件 + 转载总局文件」混排 ——
     # 与广东同样的问题，跨源去重靠标题，见 pipeline.collect_provincial。
