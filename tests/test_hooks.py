@@ -43,10 +43,13 @@ def test_hook_runs_both_gates_and_has_an_escape_hatch():
     text = HOOK_SRC.read_text(encoding="utf-8")
     assert "ruff check" in text, "钩子没跑 ruff"
     assert "pytest" in text, "钩子没跑测试"
-    assert "src/ scripts/ tests/" in text, "钩子的检查范围没写清"
+    # **逐目录断言，不要钉死整串**：范围是会长大的（2026-10-11 就从
+    # src/ scripts/ tests/ 扩到了含 tools/）。钉死整串的后果是——把范围扩大
+    # 这种改进反而弄红测试，而它本不该失败。（这个测试第一版就是这么写的，
+    # 扩范围时当场自己撞上了。）
+    for scope in ("src/", "scripts/", "tests/"):
+        assert scope in text, f"钩子的检查范围漏了 {scope}"
     assert "TAXASSIST_SKIP_HOOKS" in text, "缺少脚本化场景的逃生舱"
-    # 范围说明也要在：以后有人想扩到 tools/，得先知道为什么现在不含它
-    assert "tools/" in text, "没说明为什么范围不含 tools/"
 
 
 def test_installer_normalizes_crlf_to_lf(tmp_path):

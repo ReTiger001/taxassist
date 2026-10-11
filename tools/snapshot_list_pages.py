@@ -39,9 +39,8 @@ from pathlib import Path
 ROOT = Path(r"D:\EY-project")
 sys.path.insert(0, str(ROOT / "src"))
 
-from taxassist.collect.http import GuardedClient      # noqa: E402
-from taxassist.province import (ADAPTERS_BY_ID,       # noqa: E402
-                                fetch_list_page, parse_list_page)
+from taxassist.collect.http import GuardedClient  # noqa: E402
+from taxassist.province import ADAPTERS_BY_ID, parse_list_page  # noqa: E402
 
 GOLDEN = ROOT / "tests" / "golden"
 MANIFEST = GOLDEN / "manifest.json"

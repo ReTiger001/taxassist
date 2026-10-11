@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import re
 import sys
-from collections import Counter
 
 sys.path.insert(0, r"D:\EY-project\src")
 from taxassist.collect.browser import fetch_html  # noqa: E402

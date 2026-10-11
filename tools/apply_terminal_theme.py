@@ -24,7 +24,6 @@ base.html 的 <style> 里有几十个类名（.card/.pad/.bar/.badge/.b-ok/
 ③ **不加扫描线/闪烁特效**：正文是公文，一读几千字。终端感靠黑底、绿字、
    直角、等宽字体已经足够；再叠特效就是拿可读性换气氛。
 """
-import re
 from pathlib import Path
 
 ROOT = Path(r"D:\EY-project\src\taxassist\web\templates")

@@ -179,18 +179,20 @@ def start_translate() -> int | None:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     # 子进程要能写日志，所以句柄不能在 Popen 之后立刻关掉自己的副本前失效；
     # Popen 会持有它自己的副本，父进程 close 掉自己这份即可。
-    handle = open(TRANSLATE_LOG, "ab", buffering=0)
-    try:
-        proc = subprocess.Popen(
-            [str(PY), str(batch), "--anytime"],
-            cwd=str(ROOT), stdin=subprocess.DEVNULL,
-            stdout=handle, stderr=subprocess.STDOUT,
-            creationflags=NO_WINDOW)
-    except Exception as e:  # noqa: BLE001
-        log.error("拉起翻译失败：%s", e)
-        handle.close()
-        return None
-    handle.close()
+    # **句柄要在 Popen 期间有效**：Popen 会复制一份给子进程，父进程这份
+    # 用完即关（不关的话守护每拉一次翻译就漏一个句柄）。
+    # 用 with 而不是 try/finally：两者关闭时机完全一致，但 with 不留"忘了关"
+    # 或"关两次"的余地。
+    with open(TRANSLATE_LOG, "ab", buffering=0) as handle:
+        try:
+            proc = subprocess.Popen(
+                [str(PY), str(batch), "--anytime"],
+                cwd=str(ROOT), stdin=subprocess.DEVNULL,
+                stdout=handle, stderr=subprocess.STDOUT,
+                creationflags=NO_WINDOW)
+        except Exception as e:  # noqa: BLE001
+            log.error("拉起翻译失败：%s", e)
+            return None
     return proc.pid
 
 
@@ -263,14 +265,12 @@ def start_background() -> int:
     # pythonw 没有控制台，未捕获的异常默认会消失在虚空里。上一版就是
     # DEVNULL，结果守护静默消失过一次，什么线索都没留下、只能靠猜。
     err_path = LOG_DIR / "translate_daemon.err.log"
-    err_handle = open(err_path, "ab", buffering=0)
-    try:
+    with open(err_path, "ab", buffering=0) as err_handle:
         subprocess.Popen([str(PYW), str(Path(__file__).resolve()), "--run"],
                          cwd=str(ROOT), stdin=subprocess.DEVNULL,
                          stdout=err_handle, stderr=subprocess.STDOUT,
                          creationflags=NO_WINDOW, close_fds=True)
-    finally:
-        err_handle.close()          # 子进程持有自己那份副本
+    # 出 with 时父进程那份已关；子进程持有自己的副本（上面注释说的就是这件事）
 
     # 等它把 PID 文件写出来，好确认真的起来了（而不是静默失败）
     for _ in range(25):
@@ -279,7 +279,7 @@ def start_background() -> int:
         if pid:
             print(f"守护已启动（PID {pid}，无窗口，关终端不受影响）。")
             print(f"  日志：{DAEMON_LOG}")
-            print(f"  查看：python tools/translate_daemon.py --status")
+            print("  查看：python tools/translate_daemon.py --status")
             return 0
     print(f"守护似乎没起来，请查看日志：{DAEMON_LOG} 与 {err_path}")
     return 1
@@ -309,9 +309,12 @@ def show_status() -> int:
     pids = find_translate_pids()
     pending = pending_content()
     latest = latest_translation_at()
+    # 拼好再放进 f-string：原来写成 f"...{'…%s' % dpid if dpid else '…'}" ——
+    # 同一个字符串里混两种格式化，难读也难改。
+    daemon_state = f"运行中（PID {dpid}）" if dpid else "未运行"
 
     print("=" * 62)
-    print(f"守护进程   {'运行中（PID %s）' % dpid if dpid else '未运行'}")
+    print(f"守护进程   {daemon_state}")
     print(f"翻译进程   {', '.join(str(p) for p in pids) if pids else '没有在跑'}")
     print(f"正文待译   {pending} 条" if pending is not None else "正文待译   查询失败")
     print(f"最近译文   {latest or '（无记录）'}")

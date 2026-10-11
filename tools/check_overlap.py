@@ -39,8 +39,8 @@ import sys
 from urllib.parse import urljoin
 
 sys.path.insert(0, r"D:\EY-project\src")
-from taxassist import db as dbmod                  # noqa: E402
-from taxassist.collect.browser import fetch_html   # noqa: E402
+from taxassist import db as dbmod  # noqa: E402
+from taxassist.collect.browser import fetch_html  # noqa: E402
 
 # 与 check_all_provinces.py 用同一套宽松正则：宁可多报也不要漏报
 ART = re.compile(

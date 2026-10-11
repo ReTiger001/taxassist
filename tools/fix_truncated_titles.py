@@ -7,7 +7,6 @@
 """
 import gzip
 import sys
-from pathlib import Path
 
 sys.path.insert(0, r"D:\EY-project\src")
 from taxassist import db as dbmod  # noqa: E402

@@ -6,8 +6,9 @@
 # （edit_file 的 old_string 尾部带换行、new_string 不带），三次都是靠"碰巧又
 # 跑了一遍测试"发现的 —— 没有一次是被自动拦下来的。
 #
-# **范围只到 src/ scripts/ tests/**：tools/ 下有一批一次性脚本还带着历史 lint
-# 债（10 个 ruff 报错），纳入闸门会挡住所有提交。等那批债还完再扩到全树。
+# **范围已覆盖全树（src/ scripts/ tools/ tests/）**：tools/ 那批一次性脚本的
+# 历史 lint 债（10 个）于 2026-10-11 还完，所以闸门扩到了它。此前不含 tools/
+# 是因为纳入会挡住所有提交。
 #
 # 逃生舱：
 #   git commit --no-verify             临时跳过（git 原生）
@@ -23,8 +24,8 @@ cd "$(git rev-parse --show-toplevel)" || exit 1
 PY=".venv/Scripts/python.exe"
 [ -f "$PY" ] || PY="python"
 
-echo "pre-commit: ruff（src/ scripts/ tests/）"
-if ! "$PY" -m ruff check src/ scripts/ tests/; then
+echo "pre-commit: ruff（src/ scripts/ tools/ tests/）"
+if ! "$PY" -m ruff check src/ scripts/ tools/ tests/; then
     echo ""
     echo "pre-commit: ruff 没过 —— 修好再提交。临时跳过：git commit --no-verify"
     exit 1
