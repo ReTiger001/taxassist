@@ -489,8 +489,10 @@ def _fetch_source(adapter) -> tuple[list[dict] | None, str | None, bool]:
 
     with _host_lock(urlsplit(adapter.list_url).netloc), GuardedClient() as client:
         try:
-            items, truncated = fetch_list_pages(client, adapter)
-            return items, None, truncated
+            items, truncated, errors = fetch_list_pages(client, adapter)
+            # 部分子栏目失败 → 把警告串交出去（items 非空，所以调用方不会把
+            # 它当整源失败；见 collect_provincial 里的判断）。
+            return items, ("；".join(errors) or None), truncated
         except Exception as exc:  # noqa: BLE001 - 单源失败不阻断其它源
             return None, f"{type(exc).__name__}: {exc}", False
 
@@ -528,10 +530,12 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
         items, err, truncated = fetched.get(adapter.source_id,
                                             (None, "未执行", False))
         log_id = store.log_fetch_start(conn, adapter.source_id, "list_page")
-        if err:
+        # **判"整源失败"要看 items，不能只看 err**：err 非空也可能是"部分子栏目
+        # 失败"（out 非空、异常路径没走到）。按 err 判会把已经抓到的那部分也丢掉。
+        if items is None:
             store.log_fetch_finish(
                 conn, log_id, reported_total=None, fetched_count=0,
-                status="failed", error=err)
+                status="failed", error=err or "未执行")
             log.warning("省级源抓取失败 %s: %s", adapter.source_id, err)
             out.append({"source_id": adapter.source_id, "region": adapter.region,
                         "status": "failed", "fetched": 0, "error": err})
@@ -578,9 +582,12 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
                 error=f"总时长超限（{adapter.max_seconds} 秒），"
                       f"已抓 {len(items)} 条后停止翻页")
         else:
+            # 部分子栏目失败时把警告写进 fetch_log：status 仍是 ok（确实抓到了
+            # 东西），但读日志的人能看出"这个源没抓全、缺哪几个页面"。
             status = store.log_fetch_finish(
                 conn, log_id, reported_total=None, fetched_count=len(items),
-                new_count=new, updated_count=updated, status="ok")
+                new_count=new, updated_count=updated, status="ok",
+                error=(f"部分子栏目未解析出条目：{err}" if err else None))
         out.append({"source_id": adapter.source_id, "region": adapter.region,
                     "status": status, "fetched": len(items),
                     "new": new, "updated": updated,

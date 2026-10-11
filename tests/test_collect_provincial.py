@@ -187,3 +187,37 @@ def test_every_source_reports_its_counts(conn, monkeypatch):
     assert r["fetched"] == 3
     assert r["new"] == 2          # 丁 + 戊
     assert r["skipped_duplicates"] == 1   # 丁的第二份
+
+
+def test_partial_failure_keeps_items_and_records_warning(conn, monkeypatch):
+    """部分子栏目失败：**抓到的那部分要留下，缺的页面要写进 fetch_log**。
+
+    这是 2026-10-11 审计发现的静默缺口：``province.fetch_list_pages`` 一直
+    在收集 ``errors``，却只返回 ``(out, truncated)`` —— 部分失败时（out 非空）
+    异常路径走不到，那串错误**被丢弃**，调用方拿到"成功"、fetch_log 记 ok。
+    实测后果：12 个省、32 个深栏目 URL 静默失败，日志里看不出任何异常。
+
+    这条钉住新契约的两个方向（两边都容易做错）：
+      · 有 items 就不能判整源失败 —— 否则把已经抓到的那部分也丢了
+      · 但缺了什么必须留下来 —— 否则"没抓全"永远不可见
+    """
+    a = _adapter("part_src")
+    _patch_sources(monkeypatch, [a], {
+        "part_src": ([_item("part_src", 1, title="关于己事项的公告")],
+                     "http://example.test/part_src/col2/index.html（ListPageError）",
+                     False),
+    })
+
+    out = pipeline.collect_provincial(conn)
+
+    assert out[0]["status"] == "ok", "有 items 不该判成整源失败"
+    assert out[0]["fetched"] == 1
+    n = conn.execute("SELECT COUNT(*) FROM policy WHERE title = ?",
+                     ("关于己事项的公告",)).fetchone()[0]
+    assert n == 1, "抓到的那部分被丢掉了"
+
+    row = conn.execute("SELECT status, error FROM fetch_log WHERE source_id = ?",
+                       ("part_src",)).fetchone()
+    assert row["status"] == "ok"
+    assert "col2" in (row["error"] or ""), \
+        "缺了哪个页面必须写进 fetch_log —— 否则这个源没抓全永远不可见"

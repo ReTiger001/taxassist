@@ -453,7 +453,7 @@ def _fetch_json_api(client: GuardedClient, adapter: ListPageAdapter) -> list[dic
 
 
 def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter,
-                     ) -> tuple[list[dict], bool]:
+                     ) -> tuple[list[dict], bool, list[str]]:
     """抓取适配器配置的**所有**列表页并合并去重。
 
     为什么要支持多个：省级站的「最新文件」是**固定展示最近一二十条的单页列表**
@@ -521,7 +521,12 @@ def fetch_list_pages(client: GuardedClient, adapter: ListPageAdapter,
             f"[{adapter.source_id}] 配置的 {len(urls)} 个列表页都没有解析出条目："
             + "；".join(errors or list(urls))
             + "。页面可能已改版，或该栏目实际是 JS 异步加载。")
-    return out, truncated
+    # **必须把 errors 一起返回**：部分子栏目失败时 out 非空，异常路径走不到，
+    # 于是这串错误原本被**静默丢弃** —— 调用方拿到"成功"，fetch_log 记 ok。
+    # 实测后果：12 个省、32 个深栏目 URL 在最新一轮静默失败，日志与 fetch_log
+    # 里看不出任何异常（2026-10-11 审计发现）。
+    # 抓不全可以接受，**不知道自己没抓全才致命** —— 与 truncated 同一条理由。
+    return out, truncated, errors
 
 
 def fetch_list_page(client: GuardedClient, adapter: ListPageAdapter) -> list[dict]:
