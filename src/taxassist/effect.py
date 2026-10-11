@@ -727,6 +727,12 @@ def judge_effects(conn, *, fuzzy_threshold: int = 88) -> dict:
             # o_aging 是官方详情页的结构化字段，它本身就是原始凭据；
             # 把字段名一起写进去，核对的人才知道去哪找。
             judgements.append(EffectJudgement(
+                # **为什么 official 只有约 20%**：它来自 FGK 法规库的
+                # 「官方时效标注」（o_aging）。2026-10-11 验证过：按年全量回填
+                # 抓回 2519 条国家层面政策（36 个年窗口全 ok），而 o_aging
+                # **一条没涨** —— 说明接口对「政策法规」栏目返回的条目不带时效
+                # 字段，2676 条是它的真实规模，**不是待补的缺口**。
+                # 要提升只能换数据源，继续跑补全或回填都是白跑。
                 doc_uid, aging, "official", f"官方时效标注：{aging}", "high",
                 evidence=f"官方详情页时效字段 xxgk_aging = {aging}",
             ))
