@@ -34,6 +34,11 @@ def register(app, *, require_auth: bool, auth_mode: str) -> None:
         """
         request.state.user = None
         request.state.is_owner = False
+        # 路由自己也要能判断"现在是不是对外模式"。助手的两条 API 需要它：
+        # `/api/` 前缀在下面被**整体放行**（理由是"它们自己有 Bearer 鉴权"），
+        # 但助手是**页面功能**、没有 Key 机制 —— 不给它这条信息，它就没法
+        # 决定该不该要求登录。
+        request.state.require_auth = require_auth
         if not require_auth:
             # 只监听本机时，坐在这台电脑前的就是本人 —— 后台对他开放
             request.state.is_owner = True
@@ -64,7 +69,9 @@ def register(app, *, require_auth: bool, auth_mode: str) -> None:
                 # "掉登录"）。公开页对未登录访客开放，不代表它该对已登录的
                 # 人装不认识。
                 # 静态资源不解析：每个字体请求都连一次库纯属浪费。
-                if path in PUBLIC_PATHS and auth_mode != "basic":
+                if (path in PUBLIC_PATHS
+                        or path.startswith("/api/assistant/")) \
+                        and auth_mode != "basic":
                     conn = dbmod.connect()
                     try:
                         user = auth.read_token(

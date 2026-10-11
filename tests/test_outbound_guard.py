@@ -60,6 +60,45 @@ def test_outbound_guard_blocks_client_name_everywhere(where):
     assert "客户甲" in str(ei.value)
 
 
+def test_form_values_are_checked_before_encoding():
+    """表单值必须**在编码前**就被检查 —— 2026-10 全量安全审计发现的缺口。
+
+    **为什么原来的 payload 用例没抓住它**：那条用例直接调 ``_check_outbound``
+    并传**未编码**的 JSON（中文还是中文），所以禁词匹配得上、测试全绿。
+    而 ``post_form`` 走的是 ``urlencode`` —— 中文变成 ``%E5%AE%A2%E6%88%B7…``，
+    禁词（存的是中文）再也匹配不上。这与当年 ``params`` 那条路是**同一个
+    bug**：修 params 时漏了 payload。
+
+    **这个用例的作用**：它模拟 ``post_form`` 的真实调用形态 —— 编码后的 body
+    配上原文 ``payload_raw``。少了 ``payload_raw``，它就会失败。
+    """
+    from urllib.parse import urlencode
+
+    c = _guarded(["客户甲"])
+    form = {"keywords": "客户甲", "cx_title": "合同条款"}
+    body = urlencode(form)                      # 中文已被百分号编码
+    assert "客户甲" not in body                  # 前提：编码后确实看不到禁词
+
+    with pytest.raises(httpmod.OutboundGuardError) as ei:
+        c._check_outbound("https://example.invalid/search", None, body,
+                          payload_raw=form)
+    assert "客户甲" in str(ei.value)
+
+
+def test_form_values_are_not_falsely_blocked():
+    """不误拦：表单里没有禁词时必须放行。
+
+    只加拦截、不测放行，会让守卫在有人把 payload_raw 传错内容时静默失效 ——
+    "从没拦过"和"从不误拦"是两件事，都要钉住。
+    """
+    from urllib.parse import urlencode
+
+    c = _guarded(["客户甲"])
+    form = {"keywords": "研发费用加计扣除"}
+    c._check_outbound("https://example.invalid/search", None,
+                      urlencode(form), payload_raw=form)   # 不抛异常即通过
+
+
 def test_outbound_guard_allows_clean_requests():
     """干净请求不得被误拦 —— 拦得太严会让抓取整体失效，同样是故障。"""
     c = _guarded(["客户甲"])

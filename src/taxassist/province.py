@@ -36,7 +36,6 @@ import hashlib
 import logging
 import re
 from dataclasses import replace
-from datetime import date  # 吉林列表页只给「月-日」，补年份要用
 from urllib.parse import urljoin
 
 from lxml import html as LH
@@ -302,9 +301,15 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
             if m2:                                    # 只有年月（甘肃）
                 cwrq = f"{m2.group(1)}-{int(m2.group(2)):02d}-01"
             else:
-                # 只有月日（吉林 [09-04]、山西 <span>09-28</span>），
-                # 年份补当年 —— 这些都是补出来的，只用于排序展示，
-                # 不参与效力判断。
+                # 只有月日（吉林 [09-04]、山西 <span>09-28</span>）。
+                # **年份认不出来就不填。**
+                # 这里曾经补 `date.today().year`，理由是"只用于排序展示，不参与
+                # 效力判断"—— 但那个理由站不住：① 排错了序同样是错；② 入库后它
+                # 就是一个**看起来完全正常的成文日期**，下游（页面、导出、按日期
+                # 判断时效）一律当真。实测后果：广东 28 条、山西 8 条、四川 10 条、
+                # 吉林 16 条因此全被标成 2026 年，使用者按日期判断时效性时会直接
+                # 得出错误结论。
+                # 与项目其它地方一致：**宁可留空，也不填一个看起来像真的的假日期**。
                 m3 = _DATE_MD_RE.search(haystack)
                 if m3 is None:
                     # 认「某个格子的文本**整个**就是月-日」（山西的
@@ -322,8 +327,9 @@ def parse_list_page(html_text: str, adapter: ListPageAdapter) -> list[dict]:
                 if m3 and not (1 <= int(m3.group(1)) <= 12
                                and 1 <= int(m3.group(2)) <= 31):
                     m3 = None
-                cwrq = (f"{date.today().year}-{int(m3.group(1)):02d}-{int(m3.group(2)):02d}"
-                        if m3 else None)
+                # 缺年份 → 不填（理由见上方注释）。月份与日虽是真的，但缺了年份
+                # 就没有意义，一并留空 —— 留空只是少一个排序键，填错会误导引用。
+                cwrq = None
 
         items.append({
             "url": url,

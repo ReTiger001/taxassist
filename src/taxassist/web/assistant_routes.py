@@ -41,6 +41,26 @@ log = logging.getLogger(__name__)
 def register(app, *, ctx, templates) -> None:
     """把 /health 与 /assistant 系列挂到 app 上。"""
 
+    def _need_login(request: Request) -> JSONResponse | None:
+        """对外模式下未登录 → 401；本机模式（require_auth=False）直接放行。
+
+        **为什么助手要自己一道闸**：`/api/` 前缀在中间件里被**整体放行**，
+        理由是"它们自己有 Bearer Key 鉴权"—— 但助手是**页面功能**，没有
+        Key 机制。2026-10 全量安全审计实测：对外模式下匿名 `curl` 就能调
+        `/api/assistant/ask`（耗本机 14B 模型）和 `/api/assistant/upload`
+        （往 data/uploads 灌 60MB）。
+
+        **为什么 `_origin_ok` 挡不住**：它是 CSRF 防护，且在无 Origin 时
+        **按设计放行**（脚本、curl 本来就不发 Origin）—— 见 helpers.py 里
+        它自己的说明。防跨站不等于防匿名调用。
+        """
+        if getattr(request.state, "require_auth", False) and not getattr(
+                request.state, "user", None):
+            return JSONResponse(
+                {"error": "请先登录后再使用助手", "how": "本机使用不受影响"},
+                status_code=401)
+        return None
+
     # ------------------------------------------------------------ 健康自检
 
     @app.get("/health")
@@ -140,6 +160,9 @@ def register(app, *, ctx, templates) -> None:
         import threading
 
         from .. import assistant as am
+        gate = _need_login(request)
+        if gate:
+            return gate
         if not _origin_ok(request):
             return JSONResponse({"error": "请求来源异常，请回本站重新提交"},
                                 status_code=403)
@@ -238,6 +261,9 @@ def register(app, *, ctx, templates) -> None:
         import binascii
 
         from ..collect import attachments as att
+        gate = _need_login(request)
+        if gate:
+            return gate
         if not _origin_ok(request):
             return JSONResponse({"error": "请求来源异常"}, status_code=403)
 

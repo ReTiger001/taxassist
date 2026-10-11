@@ -87,7 +87,8 @@ class GuardedClient:
 
     # ------------------------------------------------------------ 守卫
 
-    def _check_outbound(self, url: str, params: dict | None, payload: str | None) -> None:
+    def _check_outbound(self, url: str, params: dict | None, payload: str | None,
+                        payload_raw: dict | None = None) -> None:
         blob = url
         if params:
             # **编码前后都要查。** urlencode 会把中文变成 %E5%AE%A2%E6%88%B7…
@@ -98,6 +99,12 @@ class GuardedClient:
             blob += " " + urlencode(params, doseq=True)
         if payload:
             blob += " " + payload
+        if payload_raw:
+            # **编码前的内容也要查。** 2026-10 全量安全审计发现：``post_form``
+            # 传进来的 payload 是 ``urlencode`` 之后的结果 —— 中文已经变成
+            # %E5%AE%A2…，禁词永远匹配不上。这与上面 params 那条路是**同一个
+            # bug**：当时修了 params，漏了 payload。所以这里要单独收原文。
+            blob += " " + " ".join(str(v) for v in payload_raw.values())
         for word in self.denylist:
             if word and word in blob:
                 raise OutboundGuardError(
@@ -214,7 +221,10 @@ class GuardedClient:
         必须走出网守卫，因为表单内容同样可能夹带客户信息。
         """
         body = urlencode(form)
-        self._check_outbound(url, None, body)
+        # **原文必须一起传**：body 是 urlencode 的结果，中文已被百分号编码
+        # （客户甲 → %E5%AE%A2%E6%88%B7%E7%94%B2），只查它等于没查 —— 禁词
+        # 表里存的是中文。这是 2026-10 审计在 payload 这条路上发现的缺口。
+        self._check_outbound(url, None, body, payload_raw=form)
         retries = self.retries if max_retries is None else max_retries
         last_err: Exception | None = None
         for attempt in range(retries + 1):

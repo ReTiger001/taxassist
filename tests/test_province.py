@@ -6,8 +6,6 @@
 """
 from __future__ import annotations
 
-from datetime import date
-
 import pytest
 
 from taxassist import province
@@ -152,8 +150,16 @@ def test_date_in_sibling_node():
     assert items[0]["cwrq"] == "2026-09-04"
 
 
-def test_bare_month_day_falls_back_to_current_year():
-    """山西：``<li><p><a>标题</a></p><span>09-28</span></li>``，URL 里没有年月日。"""
+def test_bare_month_day_without_year_is_left_empty():
+    """山西：``<li><p><a>标题</a></p><span>09-28</span></li>``，URL 里没有年月日。
+
+    **年份认不出来就不填。**
+    这里原来叫 ``..._falls_back_to_current_year``，断言补 ``date.today().year``，
+    理由是「只用于排序展示，不参与效力判断」。那个理由站不住：入库之后它就是
+    一个**看起来完全正常的成文日期**，页面、导出、按日期判断时效的路径全都当真。
+    实测后果：山西 8 条因此被标成 2026 年。
+    留空只是少一个排序键，填错会误导引用。
+    """
     html = """
     <ul><li><p>
       <a href="http://example.test/web/detail/sx-11400-545-1824976" title="国家税务总局关于某某事项的公告">国家税务总局关于某某事项的公告</a>
@@ -161,7 +167,7 @@ def test_bare_month_day_falls_back_to_current_year():
     """
     items = province.parse_list_page(
         html, _date_adapter(r"/web/detail/sx-\d+-\d+-\d+"))
-    assert items[0]["cwrq"] == f"{date.today().year}-09-28"
+    assert items[0]["cwrq"] is None
 
 
 def test_sibling_text_that_is_not_a_date_is_ignored():
@@ -191,7 +197,7 @@ def test_date_not_taken_from_neighbouring_entry():
         html, _date_adapter(r"/cqtax/\d{6}/t\d+_\d+\.html"))
     assert len(items) == 2
     assert items[0]["cwrq"] is None          # 这条自己的格子里没有日期
-    assert items[1]["cwrq"] == f"{date.today().year}-08-01"
+    assert items[1]["cwrq"] is None          # 只有月日、没有年份 → 留空（见上一条测试的说明）
 
 
 # ---------------------------------------------------------------------------

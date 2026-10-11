@@ -321,6 +321,18 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
             pass
     if _ensure_column(conn, "policy", "p_translated_at", "p_translated_at TEXT"):
         applied.append("policy.p_translated_at")
+    # **is_official 必须有迁移** —— 这是真实踩过的坑：
+    # 这一列当初是在会话里手工 ALTER 加上去的，没进 migrate()。后果是新库有它
+    # （CREATE TABLE 里写着）、老库没有，而 init_db 建的 policy_official 视图
+    # **依赖这一列** —— 于是恢复备份或换机刷 init_db 时会直接报
+    # "no such column: is_official"。那个错误不匹配 init_db 的 locked/busy 重试
+    # 条件，会直接抛出去，全站检索/列表/详情同时挂掉。
+    # 教训：**凡是 schema 变更都要在 migrate() 里留一条**，手工 ALTER 不算数。
+    # 副作用（已知且可接受）：老库补上这列后所有行默认为 1（政策层），
+    # 手工标过的参考层标记会丢 —— 但系统能起来，比整站不可用好得多。
+    if _ensure_column(conn, "policy", "is_official",
+                      "is_official INTEGER NOT NULL DEFAULT 1"):
+        applied.append("policy.is_official")
     conn.commit()
     return applied
 
