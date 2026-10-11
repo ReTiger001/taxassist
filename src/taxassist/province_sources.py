@@ -656,7 +656,8 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
             "?websiteid=360000000000000&tpl=23&q=%E5%A2%9E%E5%80%BC%E7%A8%8E",  # 增值税
             "http://jiangxi.chinatax.gov.cn/jsearchfront/search.do"
             "?websiteid=360000000000000&tpl=23&q=%E4%BC%81%E4%B8%9A%E6%89%80%E5%BE%97%E7%A8%8E",  # 企业所得税
-        ),
+        "http://jiangxi.chinatax.gov.cn/col/col31884/index.html",
+                    ),
     ),
     ListPageAdapter(
         source_id="shaanxi_zcwj",
@@ -816,7 +817,8 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         extra_urls=(
             "http://heilongjiang.chinatax.gov.cn/jsearchfront/search.do"
             "?websiteid=230000000000000&pg=&p=&tpl=&category=&q=%E5%8F%91%E7%A5%A8&submit=",
-        ),
+        "http://heilongjiang.chinatax.gov.cn/col/col16798/index.html",
+                    ),
         needs_js=True,
     ),
     ListPageAdapter(
@@ -871,55 +873,22 @@ ADAPTERS: tuple[ListPageAdapter, ...] = (
         needs_js=True,
     ),
     ListPageAdapter(
-        source_id="hlj_zcwj",
-        region="黑龙江",
-        site_name="国家税务总局黑龙江省税务局",
-        # **不要用「政策法规库」**：那是个 jsearchfront 检索壳页，
-        # q= 只返回固定 22 条，且实测 p / page / pageNo / pageNum /
-        # currentPage / pn / start 七种分页参数**全部无效**（返回同一批）。
-        # 真正的政策列表在首页 →「政策文件」这个 col 栏目里，页内直接给文章。
-        list_url="http://heilongjiang.chinatax.gov.cn/col/col7573/index.html",
-        detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
-        base_url="http://heilongjiang.chinatax.gov.cn",
-        needs_js=True,
-        # 「最新文件」是同一站里更接近政策本体的栏目（实测政策文件栏只有
-        # 几十条单页，而最新文件是持续更新的入口）
-        extra_urls=("http://heilongjiang.chinatax.gov.cn/col/col16798/index.html",),
-    ),
-    ListPageAdapter(
         source_id="gs_zcwj",
         region="甘肃",
         site_name="国家税务总局甘肃省税务局",
         # 同黑龙江：走「政策文件」栏，不用那个 jsearchfront 壳页
         list_url="http://gansu.chinatax.gov.cn/col/col4/index.html",
-        detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
-        base_url="http://gansu.chinatax.gov.cn",
-        needs_js=True,
-        # 「税收规范性文件」是甘肃省局发布规范性文件的**正式栏目** ——
-        # 这才是省级政策本体的所在，比泛泛的"政策文件"栏准确得多
-        extra_urls=("http://gansu.chinatax.gov.cn/col/col9689/index.html",
-                    "http://gansu.chinatax.gov.cn/col/col36/index.html"),
-    ),
-    ListPageAdapter(
-        source_id="jx_zcwj",
-        region="江西",
-        site_name="国家税务总局江西省税务局",
-        # 同黑龙江/甘肃（江西的「政策法规库」也是 jsearchfront 壳页，
-        # websiteid=360000000000000 但那套只给固定 10 条）
-        list_url="http://jiangxi.chinatax.gov.cn/col/col31015/index.html",
-        detail_href_re=r"/art/\d+/\d+/\d+/art_\d+_\d+\.html",
-        base_url="http://jiangxi.chinatax.gov.cn",
-        needs_js=True,
-        extra_urls=("http://jiangxi.chinatax.gov.cn/col/col31884/index.html",),
-    ),
-    ListPageAdapter(
-        source_id="gs_zcwj",
-        region="甘肃",
-        site_name="国家税务总局甘肃省税务局",
-        list_url="http://gansu.chinatax.gov.cn/col/col4/index.html",
         detail_href_re=r"/art/\d{4}/\d{1,2}/\d{1,2}/art_\d+_\d+\.html",
         base_url="http://gansu.chinatax.gov.cn",
         needs_js=True,
+        # 「税收规范性文件」是甘肃省局发布规范性文件的**正式栏目** ——
+        # 这才是省级政策本体的所在，比泛泛的"政策文件"栏准确得多。
+        # col70 来自另一份重复定义（同一个 source_id 被定义过两次，已合并）——
+        # 此前 ADAPTERS_BY_ID 取后一份，而那份恰好没有 extra_urls，等于一直在丢源。
+        extra_urls=("http://gansu.chinatax.gov.cn/col/col9689/index.html",
+                    "http://gansu.chinatax.gov.cn/col/col36/index.html",
+                    "http://gansu.chinatax.gov.cn/col/col70/index.html",
+                    ),
     ),
     # 以下三省（河北 sszc、重庆 zcwj、海南 zcwj）实测**栏目能打开但列表取不到条目**，
     # 推测列表本身是二次异步加载（浏览器拿到的是壳）。适配器已撤下 ——

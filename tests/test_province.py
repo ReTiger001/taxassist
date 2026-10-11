@@ -260,3 +260,29 @@ def test_js_array_ignored_when_too_few():
     items = province.parse_list_page(_js_page(3), JS_ADAPTER)
     assert len(items) == 1, "应回退到 DOM 解析"
     assert "DOM" in items[0]["title"]
+
+
+def test_adapter_source_ids_are_unique():
+    """source_id 必须唯一 —— 2026-10 全量审计发现的**真实缺陷**。
+
+    同一个 source_id 被定义两次时两条路的行为不一致：
+      · ``ADAPTERS``（tuple）里两份都在，遍历时**两份都跑**（重复抓同一个栏目）
+      · ``ADAPTERS_BY_ID``（dict）只保留**后**一份，于是"按 id 取配置"拿到的
+        可能恰好是配置更少的那份
+
+    实测后果：``gs_zcwj`` 被定义两次，后一份没有 ``extra_urls`` —— 按 id 取
+    配置的那条路一直在丢 col9689 / col36 三个源，且**不报错**。
+
+    实测三组（jx_zcwj / hlj_zcwj / gs_zcwj），合并后适配器 81 → 78。
+    这条断言防止它再发生。
+    """
+    from taxassist import province_sources as psmod
+
+    ids = [a.source_id for a in psmod.ADAPTERS]
+    dup = sorted({i for i in ids if ids.count(i) > 1})
+    assert not dup, (
+        f"source_id 重复：{dup} —— ADAPTERS_BY_ID 会静默丢弃前一份配置，"
+        "而两份的 extra_urls 往往互补（见本测试的 docstring）")
+    assert len(psmod.ADAPTERS_BY_ID) == len(psmod.ADAPTERS), (
+        f"ADAPTERS {len(psmod.ADAPTERS)} 个，但 ADAPTERS_BY_ID 只有 "
+        f"{len(psmod.ADAPTERS_BY_ID)} 个")
