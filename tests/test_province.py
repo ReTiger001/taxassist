@@ -286,3 +286,30 @@ def test_adapter_source_ids_are_unique():
     assert len(psmod.ADAPTERS_BY_ID) == len(psmod.ADAPTERS), (
         f"ADAPTERS {len(psmod.ADAPTERS)} 个，但 ADAPTERS_BY_ID 只有 "
         f"{len(psmod.ADAPTERS_BY_ID)} 个")
+
+
+def test_search_can_include_reference_layer():
+    """勾「含参考层」时检索查原表 —— 2026-10 审计 P1：再加一个开关。
+
+    **审计指出的问题**：``kb.search`` 有 ``include_reference`` 参数，但**全仓
+    零调用** —— web /search、MCP、/api/search、助手全都没有入口，"参考层可查"
+    只是一句写在注释里的愿望。
+
+    **这里钉住 web 端**：/search 加 ``ref`` 参数，勾上时查原表 policy（含
+    is_official=0 的解读/问答）。用「税法小课堂」这个词 —— 实测它在政策层
+    5 条、参考层 13 条，所以两边都该有结果，而含参考层的页面更长。
+    """
+    import sys as _sys
+    _sys.path.insert(0, 'D:/EY-project')
+
+    from fastapi.testclient import TestClient
+
+    from taxassist.web.app import create_app
+
+    c = TestClient(create_app(require_auth=False))
+    a = c.get("/search", params={"q": "税法小课堂"})
+    b = c.get("/search", params={"q": "税法小课堂", "ref": "1"})
+    assert a.status_code == 200, f"默认检索失败：{a.status_code}"
+    assert b.status_code == 200, f"含参考层检索失败：{b.status_code}"
+    assert len(b.text) > len(a.text), (
+        "含参考层的结果应当多于不含时 —— 少了说明 ref 开关没接到 SQL 上")

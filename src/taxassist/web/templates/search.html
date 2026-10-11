@@ -148,6 +148,10 @@
         <option value="docno_asc" {% if sort == 'docno_asc' %}selected{% endif %} data-zh="文号 旧→新" data-en="Doc. no., oldest first">文号 旧→新</option>
       </select>
     </label>
+    <label class="f-ref">
+      <input type="checkbox" name="ref" value="1" {% if ref %}checked{% endif %}>
+      <span data-zh="含参考层" data-en="Include reference layer">含参考层</span>
+    </label>
     <button type="submit" class="f-go" data-zh="应用筛选" data-en="Apply filters">应用筛选</button>
     <a class="f-clear" href="/search" data-zh="清空" data-en="Clear">清空</a>
   </div>

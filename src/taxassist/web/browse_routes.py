@@ -102,11 +102,17 @@ def register(app, *, ctx, templates) -> None:
     def search(request: Request, q: str = Query("", max_length=120),
                column: str = "", tax: str = "", region: str = "",
                effect: str = "", year: str = "", sort: str = "relevance",
+               ref: str = "",
                limit: int = Query(50, ge=1, le=200)):
         rows, error = [], None
         # 命中总数：模板要显示「共 N 条」，N 必须是**命中总数**而非返回条数。
         # 无条件浏览时保持 None，模板据此不显示这一行。
         matched_total = None
+        # **是否含参考层**：默认只看政策层（可引用的依据）；勾上「含参考层」时
+        # 查原表 policy —— 解读／问答类（is_official=0）会一起检索出来。
+        # 为什么默认不含：这个库可能进正式工作底稿，"默认给出的都可引用"
+        # 比"默认给全、由人自己筛"安全。
+        ptable = "policy" if ref else "policy_official"
         # 英文查询先过术语反向映射：搜 "value-added tax" 等同于搜 "增值税"。
         # 这样不必先把 5090 条标题全译一遍，英文词也能命中中文政策。
         q_cn, term_hits = to_chinese_query(q)
@@ -139,7 +145,7 @@ def register(app, *, ctx, templates) -> None:
                     "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.p_doc_no_confidence,"
                     " p.pub_name,"
                     " p.o_column, p.p_region, p.p_effect_status, p.p_effect_source, p.url"
-                    f" FROM policy_official p WHERE ({like_clause})"
+                    f" FROM {ptable} p WHERE ({like_clause})"
                 )
                 params = []
                 for t in terms:
@@ -148,7 +154,7 @@ def register(app, *, ctx, templates) -> None:
                 sql = (
                     "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.pub_name,"
                     " p.o_column, p.p_region, p.p_effect_status, p.p_effect_source, p.url"
-                    " FROM policy_official p WHERE 1=1"
+                    f" FROM {ptable} p WHERE 1=1"
                 )
                 params = []
             if column:
@@ -251,7 +257,7 @@ def register(app, *, ctx, templates) -> None:
                         column=column, limit=limit, tax=tax, tax_counts=tax_counts,
                         region=region, regions=regions,
                         effect=effect, effect_counts=effect_counts,
-                        year=year, years=years, sort=sort,
+                        year=year, years=years, sort=sort, ref=ref,
                         matched_total=matched_total,
                         hl_terms=terms, term_hits=term_hits, q_original=q))
 
