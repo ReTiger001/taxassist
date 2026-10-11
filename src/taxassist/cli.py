@@ -338,9 +338,30 @@ def cmd_search(args) -> int:
 
 
 def cmd_enrich(args) -> int:
-    conn = dbmod.connect()
-    dbmod.init_db(conn)
-    stats = pipeline.enrich_details(conn, limit=args.limit, only_missing=not args.all)
+    # **写库前先排队** —— 与 attach / worker 同样的模式（拿不到就让路，不硬碰）。
+    #
+    # 这里原来**没排队**：connect 之后直接抓详情页并写库。后果与附件重试那次
+    # 一模一样（它的注释里记着"崩于 database is locked，根因就是它压根没排队"）
+    # —— 而 enrich 写的数据更多（逐条 UPDATE 正文、文号、施行日期、官方时效），
+    # 撞上翻译的攒批提交窗口时，要么它等满 busy_timeout（120 秒），要么对方
+    # 那次提交失败重试。
+    #
+    # 审计把 fix_terms 的绕锁点名为"无人值守流程里唯一违反锁约定的地方"，
+    # 那时还没看到这里。**同一类问题本会话共修了三处**：fix_terms、enrich，
+    # 以及 writelock 自己的「先查再写」竞态。
+    from . import writelock
+
+    if not writelock.acquire("enrich", timeout=120):
+        print(f"写库锁被 {writelock.holder()} 占用，稍后再试"
+              "（翻译每批之间会让锁，通常几秒内可进）。")
+        return 1
+    try:
+        conn = dbmod.connect()
+        dbmod.init_db(conn)
+        stats = pipeline.enrich_details(conn, limit=args.limit,
+                                        only_missing=not args.all)
+    finally:
+        writelock.release()
     print(
         f"详情页：尝试 {stats['requested']} 条，成功 {stats['ok']}，失败 {stats['failed']}，"
         f"更新 {stats['updated']}，附件 {stats['attachments']}"
