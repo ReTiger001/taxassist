@@ -206,6 +206,13 @@ def _build_search(query: str, tax: str, region: str, effect: str, year: str,
         order = " ORDER BY p.cwrq ASC, p.id ASC"
     elif sort == "date_desc":
         order = " ORDER BY p.cwrq DESC, p.id DESC"
+    elif sort == "docno_asc":
+        # 与 web 端同一套口径：先年份、再序号，**没有文号的排最后**。
+        order = (" ORDER BY (p.p_doc_no_year IS NULL) ASC,"
+                 " p.p_doc_no_year ASC, p.p_doc_no_seq ASC, p.id ASC")
+    elif sort == "docno_desc":
+        order = (" ORDER BY (p.p_doc_no_year IS NULL) ASC,"
+                 " p.p_doc_no_year DESC, p.p_doc_no_seq DESC, p.id DESC")
     else:
         # 默认档：相关性 → 实质政策 → 日期。
         # 保留实质性作为次级键是刻意的：不这样排，解读、答记者问、新闻会

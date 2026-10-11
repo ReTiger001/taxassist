@@ -174,6 +174,42 @@ def doc_no_year(doc_no: str | None) -> int | None:
 _DOCNO_BODY_RE = re.compile(r"[〔\[（(]|\d{4}\s*年\s*第\s*\d+\s*号")
 
 
+#: 文号排序用的序号：**最后一个**「N号」里的 N。
+#: 为什么取最后一个而不是第一个：「国税函〔2004〕101号」里 2004 在括号里、
+#: 101 才是序号；「公告2015年第4号」里 2015 被"第…年"结构吃掉、4 才是序号。
+#: 凡是末尾带「号」字的写法，最后一个数字一定是序号。
+_DOCNO_SEQ_RE = re.compile(r"(\d{1,5})\s*号")
+
+#: 1980–1990 年代的两位数年份写法：（85）财改字第103号 / [84]财政65号。
+#: 只认**两位数且首位为 8 或 9**的括号形态 —— 这样 〔2004〕 这种四位年份
+#: 不会误入，也不会把 〔04〕 之外的东西当成年份。
+_DOCNO_SHORT_YEAR_RE = re.compile(r"[〔\[（(]\s*((?:8|9)\d)\s*[〕\]）)]")
+
+
+def doc_no_sort_key(doc_no: str | None) -> tuple[int, int] | None:
+    """文号排序键：``(年份, 序号)``；取不到年份返回 None。
+
+    使用者要的排序是「先排年份（如 2026），同年的再排文号序号」。年份复用
+    :func:`doc_no_year`（只看结构化位置、不取裸 4 位数），1980–1990 年代的
+    两位数写法（``（85）财改字第103号``）在这里单独补认。序号取**最后一个**
+    「N号」里的 N —— 这一条对〔年〕式、公告年第N号式、两位数年份式都成立。
+
+    年份认不出来时返回 None，**不猜**：宁可不参与排序，也不排到错的年份组里。
+    """
+    if not doc_no:
+        return None
+    year = doc_no_year(doc_no)
+    if year is None:
+        m = _DOCNO_SHORT_YEAR_RE.search(doc_no)
+        if m:
+            two = int(m.group(1))
+            year = 1900 + two if two >= 50 else 2000 + two
+    if year is None:
+        return None
+    seqs = [int(x) for x in _DOCNO_SEQ_RE.findall(doc_no)]
+    return (year, seqs[-1] if seqs else 0)
+
+
 def looks_contaminated(doc_no: str | None) -> bool:
     """文号里的机关前缀是否混进了正文用词。
 

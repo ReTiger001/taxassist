@@ -201,6 +201,16 @@ def register(app, *, ctx, templates) -> None:
                 sql += " ORDER BY p.cwrq ASC, p.id ASC LIMIT ?"
             elif sort == "date_desc":
                 sql += " ORDER BY p.cwrq DESC, p.id DESC LIMIT ?"
+            elif sort == "docno_asc":
+                # 文号排序：先年份、同年的再排序号。**没有文号的排最后** ——
+                # 不能靠 SQLite 的 NULL 默认行为：ASC 时 NULL 本来就在前，
+                # 库里现在有 3299 条无文号（含刚清掉错文号的 575 条），
+                # 那样第一屏会被空文号占满。(IS NULL) 单独作首要键解决这件事。
+                sql += (" ORDER BY (p.p_doc_no_year IS NULL) ASC,"
+                        " p.p_doc_no_year ASC, p.p_doc_no_seq ASC, p.id ASC LIMIT ?")
+            elif sort == "docno_desc":
+                sql += (" ORDER BY (p.p_doc_no_year IS NULL) ASC,"
+                        " p.p_doc_no_year DESC, p.p_doc_no_seq DESC, p.id DESC LIMIT ?")
             else:
                 sql += (f" ORDER BY {rank_expr}{_SUBSTANTIVE_FIRST},"
                         " p.cwrq DESC LIMIT ?")

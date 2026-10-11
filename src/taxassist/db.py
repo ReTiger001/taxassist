@@ -287,6 +287,14 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
         applied.append("policy.p_detail_fetched_at")
     if _ensure_column(conn, "policy", "p_region", "p_region TEXT"):
         applied.append("policy.p_region")
+    # 文号排序键（使用者要「先排年份，同年的再排文号序号」）。
+    # 为什么不每次 ORDER BY 现算：文号形态五花八门（〔年〕式 / 公告年第N号式 /
+    # 1980 年代两位数年份式），提取要用正则；对 13946 条排序时在 SQL 里跑字符串
+    # 函数既慢又用不上索引。存成两列整数，排序退化为普通索引扫描。
+    if _ensure_column(conn, "policy", "p_doc_no_year", "p_doc_no_year INTEGER"):
+        applied.append("policy.p_doc_no_year")
+    if _ensure_column(conn, "policy", "p_doc_no_seq", "p_doc_no_seq INTEGER"):
+        applied.append("policy.p_doc_no_seq")
         # 回填存量数据：按站点名识别地区。
         # 只回填 NULL 值，不覆盖已有结果 —— 人工修过的地区不该被自动逻辑改回去。
         from .config import region_from_site_name

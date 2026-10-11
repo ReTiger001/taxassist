@@ -144,6 +144,8 @@
         <option value="relevance" {% if sort == 'relevance' %}selected{% endif %} data-zh="相关度优先" data-en="Relevance">相关度优先</option>
         <option value="date_desc" {% if sort == 'date_desc' %}selected{% endif %} data-zh="日期 新→旧" data-en="Newest first">日期 新→旧</option>
         <option value="date_asc" {% if sort == 'date_asc' %}selected{% endif %} data-zh="日期 旧→新" data-en="Oldest first">日期 旧→新</option>
+        <option value="docno_desc" {% if sort == 'docno_desc' %}selected{% endif %} data-zh="文号 新→旧" data-en="Doc. no., newest first">文号 新→旧</option>
+        <option value="docno_asc" {% if sort == 'docno_asc' %}selected{% endif %} data-zh="文号 旧→新" data-en="Doc. no., oldest first">文号 旧→新</option>
       </select>
     </label>
     <button type="submit" class="f-go" data-zh="应用筛选" data-en="Apply filters">应用筛选</button>
