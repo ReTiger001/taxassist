@@ -229,6 +229,121 @@ def tax_filter_sql(tax: str, alias: str = "p") -> tuple[str, list]:
     return "(" + " OR ".join(clauses) + ")", params
 
 
+# ---------------------------------------------------------------- 适用主体 / 优惠类型 / 文种
+
+# 这三个维度（加上已有的税种）就是使用者要的「更细的标签分类」。
+#
+# **为什么不落库**：与 classify 同一个理由（见本模块头部）—— 规则一定会改，
+# 落库意味着"改了规则、库里还是旧标签"，而两种状态混在一起后没人分得清。
+# 全部在查询时算：规则改完立即可见，不需要重算全库。
+#
+# **只从标题 + 官方字段匹配，不查正文**：与税种一致。查 content 会让每次筛选
+# 变成对 300MB 正文的全表扫描（实测单次 84–176ms，乘上关键词数量要几秒）。
+# 标题漏掉的，用检索框能搜到 —— 两个入口各司其职。
+SUBJECT_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "小微企业": ("小微企业", "小型微利企业", "小微"),
+    "个体工商户": ("个体工商户", "个体户"),
+    "小规模纳税人": ("小规模纳税人",),
+    "高新技术企业": ("高新技术企业", "高新企业"),
+    "科技型中小企业": ("科技型中小企业",),
+    "制造业": ("制造业", "制造企业"),
+    "软件与集成电路": ("软件企业", "集成电路"),
+    "涉农": ("农业", "农产品", "涉农", "农民", "农村"),
+    "重点群体": ("重点群体", "退役军人", "残疾", "失业人员", "建档立卡",
+                 "高校毕业生", "退役士兵"),
+    "小型微利与创业投资": ("创业投资", "天使投资", "创投"),
+}
+
+PREFERENCE_KEYWORDS: dict[str, tuple[str, ...]] = {
+    "减免税": ("减免", "免征", "减征", "免税"),
+    "留抵退税": ("留抵退税", "留抵税额"),
+    "出口退税": ("出口退税", "出口退（免）税"),
+    "加计扣除与抵减": ("加计扣除", "加计抵减"),
+    "税收抵免": ("抵免",),
+    "核定征收": ("核定征收",),
+    "延期与缓缴": ("延期缴纳", "缓缴", "延缓缴纳", "延期申报", "延期缴纳税款"),
+    "并购重组": ("并购", "重组", "改制", "合并", "分立"),
+    "跨境与税收协定": ("税收协定", "非居民", "常设机构", "跨境"),
+    "税前扣除": ("税前扣除", "扣除标准"),
+    "优惠资格与管理": ("优惠目录", "优惠资格", "备案", "留存备查"),
+}
+
+
+def _dim_filter_sql(table: dict[str, tuple[str, ...]], value: str,
+                    alias: str = "p") -> tuple[str, list]:
+    """关键词表的通用筛选片段（税种之外的三维共用）。"""
+    keywords = table.get(value)
+    if not keywords:
+        return "", []
+    clauses, params = [], []
+    for kw in keywords:
+        clauses.append(
+            f"({alias}.title LIKE ? OR IFNULL({alias}.o_keywords,'') LIKE ?"
+            f" OR IFNULL({alias}.o_label,'') LIKE ?)")
+        params += [f"%{kw}%", f"%{kw}%", f"%{kw}%"]
+    return "(" + " OR ".join(clauses) + ")", params
+
+
+def subject_filter_sql(subject: str, alias: str = "p") -> tuple[str, list]:
+    """适用主体筛选（小微企业 / 个体工商户 / 制造业…）。"""
+    return _dim_filter_sql(SUBJECT_KEYWORDS, subject, alias)
+
+
+def preference_filter_sql(pref: str, alias: str = "p") -> tuple[str, list]:
+    """优惠类型与业务场景筛选（减免税 / 留抵退税 / 加计扣除…）。"""
+    return _dim_filter_sql(PREFERENCE_KEYWORDS, pref, alias)
+
+
+def subject_counts(conn) -> dict[str, int]:
+    """各适用主体在政策层里的条数（供界面显示"小微企业（812）"）。"""
+    rows = conn.execute(
+        "SELECT title, o_keywords, o_label FROM policy"
+        " WHERE IFNULL(is_official,1)=1").fetchall()
+    return _count_by_keywords(rows, SUBJECT_KEYWORDS)
+
+
+def preference_counts(conn) -> dict[str, int]:
+    """各优惠类型在政策层里的条数。"""
+    rows = conn.execute(
+        "SELECT title, o_keywords, o_label FROM policy"
+        " WHERE IFNULL(is_official,1)=1").fetchall()
+    return _count_by_keywords(rows, PREFERENCE_KEYWORDS)
+
+
+def _count_by_keywords(rows, table: dict[str, tuple[str, ...]]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for name, keywords in table.items():
+        n = 0
+        for r in rows:
+            text = " ".join(x for x in (r["title"] or "", r["o_keywords"] or "",
+                                        r["o_label"] or "") if x)
+            if any(kw in text for kw in keywords):
+                n += 1
+        out[name] = n
+    return out
+
+
+# ---------------------------------------------------------------- 文种与层级
+
+# 文种直接来自官方字段 ``o_label``（覆盖 100%，取值天然就是文种）：
+#   税务规范性文件 / 财税文件 / 工作通知 / 税务部门规章 / 法律 / 行政法规 /
+#   国务院文件 / 地方文件 / 其他文件 …
+# 层级则用 ``p_region``：``全国`` = 国家级，其余 = 地方（省级站抓来的）。
+# 两者都不需要关键词表 —— 别自己造一套平行分类。
+def label_counts(conn) -> list[tuple[str, int]]:
+    """文种分布（政策层）。"""
+    return [(r["v"], r["n"]) for r in conn.execute(
+        "SELECT COALESCE(o_label,'(未知)') v, COUNT(*) n FROM policy"
+        " WHERE IFNULL(is_official,1)=1 GROUP BY 1 ORDER BY n DESC")]
+
+
+def label_filter_sql(label: str, alias: str = "p") -> tuple[str, list]:
+    """文种筛选。"""
+    if not label:
+        return "", []
+    return f"{alias}.o_label = ?", [label]
+
+
 def tax_type_counts(conn) -> dict[str, int]:
     """全库按税种统计条数（供界面筛选下拉显示数量）。"""
     counts: dict[str, int] = {}

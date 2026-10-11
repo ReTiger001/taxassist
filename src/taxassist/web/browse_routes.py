@@ -103,6 +103,7 @@ def register(app, *, ctx, templates) -> None:
                column: str = "", tax: str = "", region: str = "",
                effect: str = "", year: str = "", sort: str = "relevance",
                ref: str = "",
+               subject: str = "", pref: str = "", doctype: str = "",
                limit: int = Query(50, ge=1, le=200)):
         rows, error = [], None
         # 命中总数：模板要显示「共 N 条」，N 必须是**命中总数**而非返回条数。
@@ -120,7 +121,8 @@ def register(app, *, ctx, templates) -> None:
         # 允许"不输关键词、只按条件浏览" —— 筛选本身就是真实用法。
         # effect / year 也必须算作筛选条件：否则"只看已废止"这种纯筛选会走进
         # 空分支返回 0 条（实测：选「已废止」得 0 条，而库里有 1042 条）。
-        if terms or column or tax or region or effect or year:
+        if (terms or column or tax or region or effect or year
+                or subject or pref or doctype):
             if terms and all(len(t) >= 3 for t in terms):
                 sql = (
                     "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.p_doc_no_confidence,"
@@ -165,6 +167,24 @@ def register(app, *, ctx, templates) -> None:
                 if clause:
                     sql += f" AND {clause}"
                     params += tax_params
+            # 三个新维度（适用主体 / 优惠类型 / 文种）与税种同构：
+            # 关键词表在 filters.py，查询时算、不落库（规则改了立即生效）。
+            # 文种直接来自官方字段 o_label，不需要关键词表。
+            if subject:
+                clause, sub_params = filters.subject_filter_sql(subject, "p")
+                if clause:
+                    sql += f" AND {clause}"
+                    params += sub_params
+            if pref:
+                clause, pref_params = filters.preference_filter_sql(pref, "p")
+                if clause:
+                    sql += f" AND {clause}"
+                    params += pref_params
+            if doctype:
+                clause, dt_params = filters.label_filter_sql(doctype, "p")
+                if clause:
+                    sql += f" AND {clause}"
+                    params += dt_params
             if region:
                 clause, region_params = filters.region_filter_sql(region, "p")
                 if clause:
@@ -236,6 +256,9 @@ def register(app, *, ctx, templates) -> None:
         conn = dbmod.connect()
         try:
             tax_counts = filters.tax_type_counts(conn)
+            subject_counts = filters.subject_counts(conn)
+            preference_counts = filters.preference_counts(conn)
+            label_counts = filters.label_counts(conn)
             regions = filters.region_counts(conn)
             effect_counts = [
                 ((r["p_effect_status"] or "未判定"), r["c"])
@@ -255,6 +278,9 @@ def register(app, *, ctx, templates) -> None:
             request=request, name="search.html",
             context=ctx(request, results=rows, error=error, columns=columns,
                         column=column, limit=limit, tax=tax, tax_counts=tax_counts,
+                        subject=subject, subject_counts=subject_counts,
+                        pref=pref, preference_counts=preference_counts,
+                        doctype=doctype, label_counts=label_counts,
                         region=region, regions=regions,
                         effect=effect, effect_counts=effect_counts,
                         year=year, years=years, sort=sort, ref=ref,

@@ -111,6 +111,36 @@
         {% endfor %}
       </select>
     </label>
+    <label><span data-zh="适用主体" data-en="Subject">适用主体</span>
+      <select name="subject">
+        <option value="" data-zh="全部" data-en="All">全部</option>
+        {% for s, n in subject_counts.items() %}
+          <option value="{{ s }}" {% if s == subject %}selected{% endif %}
+                  data-zh="{{ s }}（{{ n }}）"
+                  data-en="{{ s }} ({{ n }})">{{ s }}（{{ n }}）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label><span data-zh="优惠类型" data-en="Preference">优惠类型</span>
+      <select name="pref">
+        <option value="" data-zh="全部" data-en="All">全部</option>
+        {% for p, n in preference_counts.items() %}
+          <option value="{{ p }}" {% if p == pref %}selected{% endif %}
+                  data-zh="{{ p }}（{{ n }}）"
+                  data-en="{{ p }} ({{ n }})">{{ p }}（{{ n }}）</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label><span data-zh="文种" data-en="Document type">文种</span>
+      <select name="doctype">
+        <option value="" data-zh="全部" data-en="All">全部</option>
+        {% for t, n in label_counts %}
+          <option value="{{ t }}" {% if t == doctype %}selected{% endif %}
+                  data-zh="{{ t }}（{{ n }}）"
+                  data-en="{{ en(t) }} ({{ n }})">{{ t }}（{{ n }}）</option>
+        {% endfor %}
+      </select>
+    </label>
     <label><span data-zh="地区" data-en="Region">地区</span>
       <select name="region">
         <option value="" data-zh="全部" data-en="All">全部</option>
@@ -159,7 +189,7 @@
 
 {% if error %}<div class="err" style="margin-top:14px">{{ error }}</div>{% endif %}
 
-{% if q or column or tax or region or effect or year %}
+{% if q or column or tax or region or effect or year or subject or pref or doctype %}
   <p class="sub" style="margin:16px 0 8px">
     {# 这里必须显示**命中总数**而不是返回条数。原来写的是 results|length，
        于是搜「关税」页面显示「共 50 条」，而实际命中 2348 —— 措辞把人

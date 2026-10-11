@@ -213,3 +213,52 @@ def test_news_title_re_does_not_swallow_real_policies():
         "个人所得税综合所得汇算清缴提示案例",
     ):
         assert _NEWS_TITLE_RE.search(t), f"真科普漏判了：{t}"
+
+
+def test_new_dimension_filters_and_counts(tmp_path):
+    """三个新维度（适用主体 / 优惠类型 / 文种）的筛选契约。
+
+    使用者要的「更细的标签分类」就是这四个维度（税种 + 主体 + 优惠类型 + 文种）。
+    它们**都不落库、查询时算** —— 与 classify 同一个理由：规则一定会改，落库
+    意味着"改了规则、库里还是旧标签"，两种状态混在一起后没人分得清。
+    """
+    from taxassist import db as dbmod
+    from taxassist import filters
+
+    conn = dbmod.connect(tmp_path / "t.db")
+    dbmod.init_db(conn)
+    for uid, title in (
+        ("u1", "关于小微企业减免企业所得税政策的公告"),
+        ("u2", "关于涉农贷款利息收入免征增值税的通知"),
+        ("u3", "关于设备器具税前扣除有关企业所得税政策的通知"),
+    ):
+        conn.execute(
+            "INSERT INTO policy (doc_uid,title,first_seen_at,last_seen_at,o_label)"
+            " VALUES (?,?,?,?,?)",
+            (uid, title, "2026-01-01T00:00:00+08:00",
+             "2026-01-01T00:00:00+08:00", "税务规范性文件"))
+    conn.commit()
+
+    def ids(spec):
+        clause, params = spec
+        assert clause, "已知维度不该生成空片段"
+        return {r[0] for r in conn.execute(
+            f"SELECT doc_uid FROM policy p WHERE IFNULL(p.is_official,1)=1"
+            f" AND {clause}", params)}
+
+    assert ids(filters.subject_filter_sql("小微企业")) == {"u1"}
+    assert ids(filters.subject_filter_sql("涉农")) == {"u2"}
+    assert ids(filters.preference_filter_sql("减免税")) == {"u1", "u2"}
+    assert ids(filters.preference_filter_sql("税前扣除")) == {"u3"}
+    assert ids(filters.label_filter_sql("税务规范性文件")) == {"u1", "u2", "u3"}
+
+    # **未知值必须返回空片段**：否则会拼出 "AND ()" 这种坏 SQL，
+    # 而"_filter_sql 返回空"是调用方（browse_routes）跳过的信号。
+    assert filters.subject_filter_sql("不存在的维度") == ("", [])
+    assert filters.preference_filter_sql("") == ("", [])
+    assert filters.label_filter_sql("") == ("", [])
+
+    assert filters.subject_counts(conn)["小微企业"] == 1
+    assert filters.preference_counts(conn)["减免税"] == 2
+    assert dict(filters.label_counts(conn))["税务规范性文件"] == 3
+    conn.close()
