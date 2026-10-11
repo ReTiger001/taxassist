@@ -59,3 +59,73 @@ def test_release_does_not_remove_others_lock():
     # 999998 大概率不存在，所以 holder() 会清理它 —— 这里只断言 release 本身
     # 没有把文件当自己的删掉（用存在的 PID 更稳，但那个 PID 未必可造）。
     _clean()
+
+
+# ---------------------------------------------------------------------------
+# 并发竞态：多进程同时抢锁
+# ---------------------------------------------------------------------------
+
+#: 子进程脚本 —— 等到约定时刻再抢锁，持有一小会儿，把结果打在 stdout。
+#:
+#: 用**独立子进程**而不是线程或 ProcessPool：这把锁的归属判据是 PID，
+#: 同一进程里的两个线程看到的是"自己"的 PID，压根走不到竞态那条路。
+_RACER = '''\
+import sys, time
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from taxassist import writelock
+writelock.LOCK_FILE = Path(sys.argv[2])
+start_at = float(sys.argv[3])
+while time.time() < start_at:      # 忙等到同一时刻，尽量让抢锁同时发生
+    pass
+ok = writelock.acquire("race", timeout=0)
+if ok:
+    time.sleep(0.6)                # 持有片刻：旧实现下别人会在这段里挤进来
+    writelock.release()
+print("won" if ok else "lost")
+'''
+
+
+def test_concurrent_acquire_has_exactly_one_winner(tmp_path):
+    """多个进程同时抢锁 → **有且只有一个**拿到。
+
+    这是 2026-10 全量审计指出的竞态：原实现是「``holder()`` 返回 None →
+    ``_write()``」。两个进程同时抢时，**两边都可能看到 None**，然后都写、
+    都返回 True —— 于是两个写库任务并行跑，而这正是这把锁唯一要防的事。
+    窗口只有毫秒级，但 acquire 每天被调用几十次，迟早会撞上。
+
+    修法是把"先查再写"换成 ``O_CREAT|O_EXCL`` 独占创建（见 ``_claim``），
+    由内核裁决 —— 这条测试就是钉住它：6 个进程一起抢，赢家必须恰好 1 个。
+    """
+    import subprocess
+    import sys
+    import time
+    from pathlib import Path
+
+    from taxassist import proc
+
+    src_dir = Path(writelock.__file__).resolve().parents[1]
+    script = tmp_path / "racer.py"
+    script.write_text(_RACER, encoding="utf-8")
+    lock_file = tmp_path / "race.lock"
+
+    n = 6
+    start_at = time.time() + 3.0        # 留够子进程 import taxassist 的时间
+    procs = [
+        subprocess.Popen(
+            [sys.executable, str(script), str(src_dir), str(lock_file), str(start_at)],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+            creationflags=proc.hidden_flags(),
+        )
+        for _ in range(n)
+    ]
+    outs = []
+    for p in procs:
+        out, err = p.communicate(timeout=90)
+        outs.append(out)
+        assert p.returncode == 0, f"子进程异常退出：{err[-300:]}"
+
+    winners = sum(1 for o in outs if "won" in o)
+    assert winners == 1, (
+        f"{n} 个进程同时抢锁，赢家应当是 1 个，实际 {winners} 个 —— "
+        "说明 acquire 又退回了「先查再写」，两个写库任务可能并行")

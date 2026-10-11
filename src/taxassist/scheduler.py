@@ -28,6 +28,10 @@ from . import effect, pipeline, writelock
 log = logging.getLogger(__name__)
 
 DAILY_JOB_ID = "taxassist_daily"
+
+#: 日更等写库锁的上限（秒）。见 run_daily 里那段说明 —— 取 30 分钟是为了
+#: 覆盖 auto_workflow 单个步骤的长度，能在步骤之间的空隙里拿到锁。
+DAILY_LOCK_WAIT_SEC = 1800.0
 META_LAST_RUN = "last_daily_run"
 META_LAST_STATUS = "last_daily_status"
 
@@ -84,11 +88,25 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
     # ``sqlite3.OperationalError: database is locked`` 必然出现。更糟的是它发生在
     # publish 阶段：同一次日更前面 fetch 抓的 150 个源全白跑。
     #
-    # timeout 取 0（拿不到就跳过本轮、不排队）：日更天天有，今天被 worker 占着
-    # 就等明天，没必要让两个长任务串成一条链互相等。
-    if not writelock.acquire("scheduler:daily"):
+    # **等一会儿再放弃，不再"立刻跳过"。**
+    #
+    # 这里原先 ``timeout=0``，理由是"日更天天有，今天被 worker 占着就等明天，
+    # 没必要让两个长任务串成一条链互相等"。那个理由在**全天不停的工作流**
+    # 上线之后失效了：auto_workflow 9–20 点连续跑，一轮 90 分钟里翻译持锁约
+    # 50 分钟、重译约 38 分钟 —— 于是"明天照常"变成"明天照样被占"。
+    # 实测 2026-10-08 04:11 → 10-11 07:09 连续三天没有省级采集（见 fetch_log）。
+    #
+    # **为什么这次不能"等明天"**：省级采集错过就是永久丢失 —— 广东/河南/辽宁
+    # 等省的列表页是"固定展示最近一二十条、无翻页"（见 province_sources 里那
+    # 几处注释），跳过一轮，那几天的政策就不会再出现在列表里了。
+    #
+    # **30 分钟的依据**：覆盖 auto_workflow 单个步骤的长度（翻译一轮 ≈50 分钟、
+    # 重译一轮 ≈38 分钟），能在步骤之间的空隙里拿到锁。等不到仍然跳过 ——
+    # 那时是真的有人一直占着，让日更无限排队没有意义。
+    if not writelock.acquire("scheduler:daily", timeout=DAILY_LOCK_WAIT_SEC):
         busy = writelock.holder() or "未知任务"
-        log.info("写库锁被 %s 占用，跳过本次日更（明天照常）", busy)
+        log.info("写库锁被 %s 占用超过 %.0f 分钟，跳过本次日更",
+                 busy, DAILY_LOCK_WAIT_SEC / 60)
         return {"started_at": dbmod.now_iso(), "steps": {}, "ok": False,
                 "skipped_by": busy}
 

@@ -187,6 +187,33 @@ def holder() -> str | None:
     return f"{info['pid']}:{info['who']}"
 
 
+def _claim(info: dict) -> bool:
+    """**独占创建**锁文件 —— 抢锁只能有一个赢家。
+
+    为什么不能"先查再写"：原实现是「``holder()`` 返回 None → ``_write()``」。
+    两个进程同时抢锁时，**两边都可能看到 None**，然后都写、都返回 True ——
+    于是两个写库任务并行跑，而这正是这把锁唯一要防的事。窗口只有毫秒级，
+    但 acquire 每天被调用几十次（工作流每步 + 人工命令 + 调度），迟早会撞上。
+
+    独占创建把裁决权交给内核：``O_CREAT|O_EXCL`` 在文件已存在时必然失败，
+    所以"谁先创建成功谁持有"是原子的。拿不到就回到调用方的循环里重新判断 ——
+    那时 ``holder()`` 会看到对方写的那个持有者，该等就等。
+    """
+    LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        return False
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(info, ensure_ascii=False))
+    except OSError:
+        # 写失败要撤掉自己的占位，否则那把锁变成一个谁都读不出的空文件
+        LOCK_FILE.unlink(missing_ok=True)
+        raise
+    return True
+
+
 def acquire(who: str, *, timeout: float = 0) -> bool:
     """尝试取得写锁。``timeout`` 秒内没拿到就放弃返回 False。
 
@@ -195,14 +222,17 @@ def acquire(who: str, *, timeout: float = 0) -> bool:
     """
     deadline = time.time() + max(0.0, timeout)
     while True:
+        # holder() 顺带清理过期锁（进程没了 / 心跳超时），返回 None 表示
+        # "眼下没有有效持有者"；随后用**独占创建**去抢。这两步之间可能被
+        # 别人抢先 —— 那时 _claim 返回 False，循环回去就会看到对方。
         if holder() is None:
             try:
-                _write({"pid": os.getpid(), "who": who, "beat": time.time()})
+                if _claim({"pid": os.getpid(), "who": who, "beat": time.time()}):
+                    _start_beat()      # 自动续租，调用方不必记得刷心跳
+                    return True
             except OSError as exc:
                 log.warning("写锁落盘失败（%s），本轮放弃", exc)
                 return False
-            _start_beat()          # 自动续租，调用方不必记得刷心跳
-            return True
         if time.time() >= deadline:
             return False
         time.sleep(min(2.0, max(0.2, deadline - time.time())))

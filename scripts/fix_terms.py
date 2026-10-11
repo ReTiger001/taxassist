@@ -229,14 +229,22 @@ def main() -> int:
 
     from taxassist import writelock
 
-    # **探一次锁，拿不到就直接写。** 这是实测调出来的：worker 的 run_forever
-    # 是「每一轮」拿锁，一轮含采集/校对/上架，可能十几分钟；而本脚本的改动是
-    # 毫秒级的事 —— 为它去等，代价远大于撞一次 SQLite 引擎锁的概率（第一次
-    # 带 600 秒超时的写法真的卡住了，前台两分钟零输出）。SQLite 自己的锁 +
-    # busy_timeout 仍然保护一致性，不会写坏数据。
-    got = writelock.acquire("fix_terms", timeout=5)
-    if not got:
-        print(f"（写库锁正被 {writelock.holder()} 占用，改动量小，直接写库）")
+    # **必须拿到锁才写 —— 不再"探一下、拿不到就直接写"。**
+    #
+    # 原来的写法绕过写库锁直接 UPDATE，理由（改动是毫秒级、为它等不划算、
+    # SQLite 自己的锁保护一致性）在**手工跑**时说得通。但它现在由无人值守的
+    # auto_workflow 每轮自动调用 —— 那时它是整条流水线上**唯一不遵守锁约定
+    # 的写入者**，而锁约定的全部意义就是"任何时刻只有一个写库者"。绕过它，
+    # 串行保证就没了：撞上翻译的攒批提交窗口时，要么它等满 busy_timeout
+    # （120 秒），要么对方那次提交失败重试。
+    #
+    # 改成等 120 秒（覆盖一次攒批提交窗口），仍拿不到就**本轮不改、直接退出**。
+    # 宁可少改一轮，也不在无人值守时破坏串行约定 —— auto_workflow 只记录
+    # rc 不据此中断，所以退出码 1 是安全的，且比静默跳过诚实。
+    if not writelock.acquire("fix_terms", timeout=120):
+        print(f"写库锁被 {writelock.holder()} 占用超过 120 秒，本轮不改"
+              f"（auto_workflow 下一轮会再来）。")
+        return 1
 
     conn = dbmod.connect()
     try:
@@ -245,8 +253,7 @@ def main() -> int:
         conn.commit()
     finally:
         conn.close()
-        if got:
-            writelock.release()
+        writelock.release()
     print(f"\n已改 {len(planned)} 条、{n_places} 处；改前内容备份在 {backup}")
     return 0
 
