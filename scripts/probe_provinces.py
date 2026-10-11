@@ -23,6 +23,7 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -45,9 +46,20 @@ def fetch(url: str, timeout: int = 20) -> str:
 
 
 def scan_site(base: str, max_cols: int = 14) -> list[tuple[str, str, int, str]]:
-    """抓首页→提取候选栏目→逐个试解析。返回 [(栏目URL, 状态, 详情链接数, 最新日期)]。"""
+    """抓首页→提取候选栏目→逐个试解析。返回 [(栏目URL, 状态, 详情链接数, 最新日期)]。
+
+    **状态里必须带 HTTP 状态码**。2026-10 的教训：这里原来只写
+    ``type(e).__name__``，于是 412 与 404 都显示成"HTTPError" —— 我据此得出
+    "20 省入口失效"的结论，而真相是那些省在**加速乐 WAF 后面**（412），
+    站点好好活着，只是普通 HTTP 请求过不去。判断方向被完全带偏。
+
+    现在 412 / 403 / 404 各是各的：404 才是"这个地址没有了"，
+    412 是"要过 WAF 挑战"（该走 needs_js，不是该换地址）。
+    """
     try:
         home = fetch(base)
+    except urllib.error.HTTPError as e:
+        return [(base, f"首页 HTTP {e.code}", -1, "")]
     except Exception as e:  # noqa: BLE001
         return [(base, f"首页失败:{type(e).__name__}", -1, "")]
 
@@ -61,7 +73,11 @@ def scan_site(base: str, max_cols: int = 14) -> list[tuple[str, str, int, str]]:
         url = base.rstrip("/") + href
         try:
             html = fetch(url)
-        except Exception:  # noqa: BLE001
+        except urllib.error.HTTPError as e:
+            out.append((url, f"HTTP {e.code}", -1, ""))
+            continue
+        except Exception as e:  # noqa: BLE001
+            out.append((url, f"失败:{type(e).__name__}", -1, ""))
             continue
         # 数「像详情页的链接」：既有 detail 关键词，又带日期或数字路径
         hits = [h for h in re.findall(r'href="([^"]+\.s?html?)"', html, re.I)

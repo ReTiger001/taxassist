@@ -542,7 +542,7 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
             continue
         items = items or []
 
-        new = updated = skipped = 0
+        new = updated = skipped = unchanged = 0
         for item in items:
             row = build_provincial_row(item, adapter)
 
@@ -569,6 +569,12 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
                 new += 1
             elif result == "updated":
                 updated += 1
+            else:
+                # **unchanged 必须计数**：它是第四种归宿，此前被静默丢弃 ——
+                # 于是「抓取数 = new + updated + skipped + unchanged」这个等式
+                # 在对不上时无从解释。实测山东抓 30 条：判重 17、**unchanged 11**，
+                # 而日志里只看到"新增 2"，剩下的 28 条去向不明（审计 2026-10-11）。
+                unchanged += 1
         conn.commit()
 
         # **不再硬编码 "ok"**：超时截断时必须记 incomplete 并写明原因。
@@ -591,12 +597,13 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
         out.append({"source_id": adapter.source_id, "region": adapter.region,
                     "status": status, "fetched": len(items),
                     "new": new, "updated": updated,
-                    "skipped_duplicates": skipped, "truncated": truncated})
+                    "skipped_duplicates": skipped, "unchanged": unchanged,
+                    "truncated": truncated})
         # 把三个计数一起打出来。**`skipped` 此前只进了 out、没进日志也没进
         # fetch_log**，于是"抓 4932 条、新增 0"这种情形看不出是被判重挡下的
         # 还是入库失败 —— 实测排查贵州的抓取/入库差异时，为此绕了很久。
-        log.info("[%s] 抓取 %d 条：新增 %d、更新 %d、跨源判重跳过 %d",
-                 adapter.source_id, len(items), new, updated, skipped)
+        log.info("[%s] 抓取 %d 条：新增 %d、更新 %d、跨源判重跳过 %d、内容无变化 %d",
+                 adapter.source_id, len(items), new, updated, skipped, unchanged)
 
     # 抓完立即判定：否则新入库条目的效力状态会一直停在 'unknown'，
     # 界面上显示"未判定"，看起来像系统坏了（实测发生过）。
