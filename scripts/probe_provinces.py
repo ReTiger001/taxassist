@@ -39,13 +39,46 @@ DETAIL_RE = re.compile(r"(content|detail|info|art|doc|show|c)\w*/\d|/\d{4}-\d{2}
                        re.I)
 DATE_RE = re.compile(r"20\d{2}\s*[-/年.]\s*\d{1,2}\s*[-/月.]\s*\d{1,2}")
 
+#: 政策标题的形态：文号（〔2026〕/ 公告2026年第N号 / 令第N号）或公文体裁后缀。
+_POLICY_RE = re.compile(
+    r"[〔\[]\d{4}[〕\]]|公告\s*\d{4}\s*年|令第\s*\d+\s*号"
+    r"|(的通知|的公告|的办法|的规定|的批复|的决定|的意见|的指引|实施细则)$")
+
+#: 新闻/科普标题的形态。
+#: **这一条是必需的**：新闻栏的详情链接数与政策栏**一样多** —— 不看标题就分不
+#: 出来。2026-10 我正是因此挑中了一批新闻栏（176 条产物里只有 31 条真政策，
+#: 含"中共中央政治局召开会议"这类与税收无关的），而新闻类标题**不会**被
+#: NONOFFICIAL_TITLE 闸门拦住，会直接进政策层。
+_NEWS_RE = re.compile(
+    r"会议|出席|调研|活动|曝光|数据显示|课堂|小贴士|漫画|图解|一图|问答|"
+    r"一览|读懂|提醒|温馨|要闻|动态|掠影|侧记|纪实|访谈|直播|"
+    r"税收宣传|便民办税|税宣")
+
+
+def _judge_column(titles: list[str]) -> str:
+    """按**标题形态**判断栏目性质：政策栏 / 新闻栏 / 混杂 / 未知。
+
+    取"占比"而不是"命中即判定"：真实栏目常有少量混杂（政策栏里偶尔夹一条
+    解读）。阈值 1/3 且至少 2 条 —— 对一页十几条的量足够稳。
+    """
+    if not titles:
+        return "未知"
+    n = len(titles)
+    pol = sum(1 for t in titles if _POLICY_RE.search(t))
+    news = sum(1 for t in titles if _NEWS_RE.search(t))
+    if pol >= max(2, n // 3):
+        return "政策栏"
+    if news >= max(2, n // 3):
+        return "新闻栏"
+    return "混杂"
+
 
 def fetch(url: str, timeout: int = 20) -> str:
     req = urllib.request.Request(url, headers={"User-Agent": UA})
     return urllib.request.urlopen(req, timeout=timeout).read().decode("utf-8", "replace")
 
 
-def scan_site(base: str, max_cols: int = 14) -> list[tuple[str, str, int, str]]:
+def scan_site(base: str, max_cols: int = 14) -> list[tuple[str, str, int, str, str]]:
     """抓首页→提取候选栏目→逐个试解析。返回 [(栏目URL, 状态, 详情链接数, 最新日期)]。
 
     **状态里必须带 HTTP 状态码**。2026-10 的教训：这里原来只写
@@ -59,9 +92,9 @@ def scan_site(base: str, max_cols: int = 14) -> list[tuple[str, str, int, str]]:
     try:
         home = fetch(base)
     except urllib.error.HTTPError as e:
-        return [(base, f"首页 HTTP {e.code}", -1, "")]
+        return [(base, f"首页 HTTP {e.code}", -1, "", "")]
     except Exception as e:  # noqa: BLE001
-        return [(base, f"首页失败:{type(e).__name__}", -1, "")]
+        return [(base, f"首页失败:{type(e).__name__}", -1, "", "")]
 
     cols: list[str] = []
     for href in COL_RE.findall(home):
@@ -74,17 +107,22 @@ def scan_site(base: str, max_cols: int = 14) -> list[tuple[str, str, int, str]]:
         try:
             html = fetch(url)
         except urllib.error.HTTPError as e:
-            out.append((url, f"HTTP {e.code}", -1, ""))
+            out.append((url, f"HTTP {e.code}", -1, "", ""))
             continue
         except Exception as e:  # noqa: BLE001
-            out.append((url, f"失败:{type(e).__name__}", -1, ""))
+            out.append((url, f"失败:{type(e).__name__}", -1, "", ""))
             continue
         # 数「像详情页的链接」：既有 detail 关键词，又带日期或数字路径
-        hits = [h for h in re.findall(r'href="([^"]+\.s?html?)"', html, re.I)
-                if DETAIL_RE.search(h)]
+        # 数「像详情页的链接」，**并把锚文本一起取出来** —— 光看链接数不够：
+        # 新闻栏的详情链接数与政策栏一样多，性质只能靠标题形态判。
+        pairs = [(h, t) for h, t in re.findall(
+            r'href="([^"]+\.s?html?)"[^>]*>([^<]{4,60})<', html, re.I)
+            if DETAIL_RE.search(h)]
+        hits = [h for h, _ in pairs]
         dates = DATE_RE.findall(html)
         out.append((url, "静态" if hits else "JS异步", len(hits),
-                    dates[0] if dates else ""))
+                    dates[0] if dates else "",
+                    _judge_column([t for _, t in pairs])))
     return out
 
 
@@ -116,9 +154,9 @@ def main() -> int:
         js = [r for r in rows if r[1] == "JS异步"]
         print(f"【{region}】{base}")
         print(f"   候选栏目 {len(rows)} 个：静态可解析 {len(good)} ／ JS异步 {len(js)}")
-        for url, st, n, d in rows[:8]:
+        for url, st, n, d, kind in rows[:8]:
             mark = "✓" if n > 0 else "·"
-            print(f"     {mark} [{st}] 详情{n:>3}  {d:<12} {url[len(base):][:44]}")
+            print(f"     {mark} [{st}] 详情{n:>3}  {d:<12} {kind:<6} {url[len(base):][:46]}")
         print()
     return 0
 
