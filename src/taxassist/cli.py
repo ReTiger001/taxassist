@@ -351,7 +351,12 @@ def cmd_enrich(args) -> int:
     # 以及 writelock 自己的「先查再写」竞态。
     from . import writelock
 
-    if not writelock.acquire("enrich", timeout=120):
+    # **等锁要够久**：原来只等 120 秒，而 auto_workflow 的 retranslate 一轮
+    # 持锁约 38 分钟 —— 于是补全几乎每轮都白等（实测日志里连续多轮"写库锁被
+    # retranslate 占用，稍后再试"），施行日期与官方效力依据的覆盖率因此三天
+    # 没动过（25% / 20%）。等待时间必须覆盖一个 workflow 步骤，才能在步骤之间
+    # 的间隙拿到锁。补全不是可跳过的任务：它决定"这条政策从哪天开始按哪版执行"。
+    if not writelock.acquire("enrich", timeout=2400):
         print(f"写库锁被 {writelock.holder()} 占用，稍后再试"
               "（翻译每批之间会让锁，通常几秒内可进）。")
         return 1
