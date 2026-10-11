@@ -11,6 +11,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import sqlite3
 import time
 from datetime import datetime
@@ -63,6 +64,11 @@ CREATE TABLE IF NOT EXISTS policy (
     o_doc_year         TEXT,
     p_doc_no_full      TEXT,                   -- 本系统拼接的完整文号
     p_doc_no_confidence TEXT,                  -- high/medium/low
+    -- 文号排序键（先年份、同年的再排序号），由 normalize.doc_no_sort_key 提取。
+    -- **必须与 migrate() 里的补列同时存在**：只在一边，另一条建库路径就会缺列
+    -- （is_official 那次真因此整站不可用，见 migrate 里的说明）。
+    p_doc_no_year      INTEGER,
+    p_doc_no_seq       INTEGER,
 
     pub_name           TEXT,                   -- 发文机关
     o_file_type        TEXT,                   -- 官方 xxgk_effectLevel（实测是文件类型）
@@ -98,6 +104,11 @@ CREATE TABLE IF NOT EXISTS policy (
     -- 详情页补充字段
     p_effective_date    TEXT,                  -- 施行日期（从详情页正文抽取）
     p_detail_fetched_at TEXT,                  -- 详情页最近抓取时间
+    -- 最近一次翻译的时间戳（译文在独立的 translation 表，按 doc_uid 关联；
+    -- 这里只作"这条已经翻过"的标记）。
+    -- 与 is_official / p_doc_no_year 同理：**必须同时出现在 SCHEMA 与 migrate()**，
+    -- 少了哪一边，另一条建库路径就会缺列。
+    p_translated_at    TEXT,
 
     -- 地区维度：全国 / 省名。用于按地区筛选与统计
     p_region            TEXT
@@ -337,6 +348,28 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     return applied
 
 
+#: SCHEMA 里的建索引语句。运行时被拆出来、放到 ``migrate()`` **之后**执行，
+#: 理由见 :func:`_split_schema`。
+_INDEX_STMT_RE = re.compile(r"CREATE\s+(?:UNIQUE\s+)?INDEX[^;]*;", re.IGNORECASE)
+
+
+def _split_schema(sql: str) -> tuple[str, str]:
+    """把 SCHEMA 拆成「建表段」与「索引段」。
+
+    **为什么要拆**：索引可能引用**迁移补出来的列**。``idx_policy_region`` 建在
+    ``p_region`` 上，而 ``p_region`` 是 ``migrate()`` 用 ``ALTER TABLE`` 加的 ——
+    索引语句原本排在 ``migrate()`` 之前，于是**老库（没有那列）在建索引这一步就
+    ``no such column: p_region``**，而那个错误不匹配 init_db 的 locked/busy 重试
+    条件，直接抛出去：迁移根本没机会跑，库永远升不上来。
+
+    这与 ``is_official`` 那次是同一类事故的两个面：那次是**列没进迁移**，
+    这次是**索引跑在迁移前面**。两边都堵上，``init_db`` 才真的能满足
+    "任何由它产出的库都能被它自己升级"。
+    """
+    indexes = _INDEX_STMT_RE.findall(sql)
+    return _INDEX_STMT_RE.sub("", sql), "\n".join(indexes)
+
+
 def init_db(conn: sqlite3.Connection) -> str:
     """建表 + 迁移 + 建 FTS。返回使用的分词器名，便于日志记录。
 
@@ -347,10 +380,18 @@ def init_db(conn: sqlite3.Connection) -> str:
     busy_timeout 只覆盖单条语句的等待，挡不住这种长窗口。
     """
     last: Exception | None = None
+    # 拆一次即可：SCHEMA 是常量，索引与建表的位置在运行时不会变。
+    tables_sql, indexes_sql = _split_schema(SCHEMA)
     for attempt in range(6):
         try:
-            conn.executescript(SCHEMA)
+            conn.executescript(tables_sql)
             migrate(conn)
+            # **索引放在 migrate 之后**：索引可能引用迁移补出来的列
+            # （idx_policy_region → p_region）。按原顺序把索引与建表一起跑，
+            # 老库会在建索引那一句上 no such column: p_region —— 而该错误不匹配
+            # 下面的 locked/busy 重试条件，直接抛出去，迁移根本没机会跑，
+            # 库永远升不上来。
+            conn.executescript(indexes_sql)
             # **政策层视图**：参考层（解读/问答/办事指南）不出现在这里。
             # web 端所有计数/列表/检索都查它 —— 一处定义胜过在十几处 SQL 里
             # 逐个手写条件（漏一处就等于没隔离，而且以后每加一个查询都要记得）。
