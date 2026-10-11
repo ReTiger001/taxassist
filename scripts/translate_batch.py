@@ -39,16 +39,32 @@ def main() -> int:
     tl.ensure_table(conn)
 
     field = "title" if args.what == "titles" else "content"
-    # **只取还没译过的**。原先取「最新的 N 条」再由缓存逐条跳过 —— 后果很具体：
+    # **只取还没译过的，加上「原文变过、指纹对不上」的**。
+    #
+    # 前半段的由来：原先取「最新的 N 条」再由缓存逐条跳过 —— 后果很具体：
     # 最新那批一旦译完，之后每一轮都取到同一批、全部跳过、一条也译不出来。
     # 实测就是无人值守工作流第一轮报「译 0，跳过 150」，循环空转。
+    #
+    # 后半段（指纹过期）是 2026-10 全量审计发现的缺口：原来只判 t.id IS NULL，
+    # 于是「原文更新过、译文还是旧的」那批**两条路都不管** —— 批量翻译跳过它们
+    # （translation 行还在），retranslate 的默认类别里也没有 C1。
+    # 实测已积到 **正文 1040 条 + 标题 277 条**：译文与中文正文对不上，
+    # 而使用者可能拿它去对外。补上 src_hash 比对后，它们随每轮自动消化。
+    # （本条注释原写「实测正文 0 条、标题 1 条」—— 那是刚分层时的瞬时值，
+    #  之后采集更新了大量正文，数量涨到了四位数。）
+    #
     # cwrq DESC 的顺序保留（优先译新的）。
-    # 注意：这**不会**重译「原文变了、指纹对不上」的条目 —— 那种由 audit 的
-    # C1 报出来、走 retranslate 处理（实测正文 0 条、标题 1 条）。
+    conn.create_function("doc_hash", 1, lambda s: tl._hash(s or ""),
+                         deterministic=True)
+    src_col = "IFNULL(p.content,'')" if field == "content" else "IFNULL(p.title,'')"
+    # **这对括号不能省**：下面还会接 ` AND ...`（正文非空、--years 限定），
+    # 而 SQL 里 AND 的优先级高于 OR —— 不括起来就成了
+    # 「未译过的 或（指纹过期 且 非空 且 年份内）」，于是"未译过但正文为空"
+    # 的行会绕过那几道过滤被选中，白跑一趟还可能写入空译文。
     sql = ("SELECT p.doc_uid, p.title, p.content FROM policy p"
            " LEFT JOIN translation t ON t.doc_uid = p.doc_uid"
            " AND t.field = ? AND t.lang = 'en'"
-           " WHERE t.id IS NULL")
+           f" WHERE (t.id IS NULL OR t.src_hash <> doc_hash({src_col}))")
     params: list = [field]
     if field == "content":
         sql += " AND IFNULL(p.content,'') <> ''"
