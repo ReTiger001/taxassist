@@ -1,0 +1,38 @@
+#!/bin/sh
+# 提交前闸门：ruff + 全量测试 —— 把"记得跑"变成"跑不过就提交不了"。
+#
+# **为什么加它**：2026-10 全量审计（6 视角专家团）把"471 项测试靠人记得手动
+# 跑"点为机制性缺失。同一时期我在一个会话里三次把两行代码粘成一行
+# （edit_file 的 old_string 尾部带换行、new_string 不带），三次都是靠"碰巧又
+# 跑了一遍测试"发现的 —— 没有一次是被自动拦下来的。
+#
+# **范围只到 src/ scripts/ tests/**：tools/ 下有一批一次性脚本还带着历史 lint
+# 债（10 个 ruff 报错），纳入闸门会挡住所有提交。等那批债还完再扩到全树。
+#
+# 逃生舱：
+#   git commit --no-verify             临时跳过（git 原生）
+#   TAXASSIST_SKIP_HOOKS=1 git commit  脚本化场景
+
+if [ -n "$TAXASSIST_SKIP_HOOKS" ]; then
+    echo "pre-commit: 已设 TAXASSIST_SKIP_HOOKS，跳过检查"
+    exit 0
+fi
+
+cd "$(git rev-parse --show-toplevel)" || exit 1
+
+PY=".venv/Scripts/python.exe"
+[ -f "$PY" ] || PY="python"
+
+echo "pre-commit: ruff（src/ scripts/ tests/）"
+if ! "$PY" -m ruff check src/ scripts/ tests/; then
+    echo ""
+    echo "pre-commit: ruff 没过 —— 修好再提交。临时跳过：git commit --no-verify"
+    exit 1
+fi
+
+echo "pre-commit: pytest（约 1-2 分钟）"
+if ! "$PY" -m pytest tests/ -q; then
+    echo ""
+    echo "pre-commit: 测试没过 —— 修好再提交。临时跳过：git commit --no-verify"
+    exit 1
+fi

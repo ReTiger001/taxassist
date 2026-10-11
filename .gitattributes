@@ -1,0 +1,4 @@
+# shell 钩子必须保持 LF。
+# CRLF 的 shell 脚本会让 git 调用时报 `\r: command not found` —— 钩子**静默失效**
+# （不报错，只是不再检查），而这正是"靠人记得跑测试"那类问题的翻版。
+tools/hooks/* text eol=lf
