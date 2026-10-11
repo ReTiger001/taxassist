@@ -296,6 +296,11 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
         applied.append("policy.p_effective_date")
     if _ensure_column(conn, "policy", "p_detail_fetched_at", "p_detail_fetched_at TEXT"):
         applied.append("policy.p_detail_fetched_at")
+    # fetch_log 记 skipped/unchanged —— 否则「抓取数 = new + updated + skipped
+    # + unchanged」这个等式在库里对不上账：fetched - new - updated 得到的是
+    # 后两者之和，分不开（审计 2026-10-11 指出）。
+    _ensure_column(conn, "fetch_log", "skipped_count", "skipped_count INTEGER")
+    _ensure_column(conn, "fetch_log", "unchanged_count", "unchanged_count INTEGER")
     if _ensure_column(conn, "policy", "p_region", "p_region TEXT"):
         applied.append("policy.p_region")
     # 文号排序键（使用者要「先排年份，同年的再排文号序号」）。

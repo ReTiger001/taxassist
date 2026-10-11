@@ -232,6 +232,8 @@ def log_fetch_finish(
     fetched_count: int,
     new_count: int = 0,
     updated_count: int = 0,
+    skipped_count: int = 0,
+    unchanged_count: int = 0,
     status: str | None = None,
     error: str | None = None,
 ) -> str:
@@ -245,8 +247,10 @@ def log_fetch_finish(
             status = "ok"
     conn.execute(
         "UPDATE fetch_log SET finished_at=?, reported_total=?, fetched_count=?,"
-        " new_count=?, updated_count=?, status=?, error=? WHERE id=?",
-        (now_iso(), reported_total, fetched_count, new_count, updated_count, status, error, log_id),
+        " new_count=?, updated_count=?, skipped_count=?, unchanged_count=?,"
+        " status=?, error=? WHERE id=?",
+        (now_iso(), reported_total, fetched_count, new_count, updated_count,
+         skipped_count, unchanged_count, status, error, log_id),
     )
     conn.commit()
     if status != "ok":
@@ -258,7 +262,8 @@ def log_fetch_finish(
 def recent_fetch_summary(conn, limit: int = 20) -> list[dict]:
     rows = conn.execute(
         "SELECT source_id, mode, started_at, window_start, window_end,"
-        " reported_total, fetched_count, new_count, updated_count, status, error"
+        " reported_total, fetched_count, new_count, updated_count,"
+        " skipped_count, unchanged_count, status, error"
         " FROM fetch_log ORDER BY id DESC LIMIT ?",
         (limit,),
     ).fetchall()

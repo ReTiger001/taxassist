@@ -592,7 +592,8 @@ def collect_provincial(conn, *, source_ids: list[str] | None = None) -> list[dic
             # 东西），但读日志的人能看出"这个源没抓全、缺哪几个页面"。
             status = store.log_fetch_finish(
                 conn, log_id, reported_total=None, fetched_count=len(items),
-                new_count=new, updated_count=updated, status="ok",
+                new_count=new, updated_count=updated,
+                skipped_count=skipped, unchanged_count=unchanged, status="ok",
                 error=(f"部分子栏目未解析出条目：{err}" if err else None))
         out.append({"source_id": adapter.source_id, "region": adapter.region,
                     "status": status, "fetched": len(items),
