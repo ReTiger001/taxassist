@@ -241,7 +241,7 @@ def main() -> int:
     # 改成等 120 秒（覆盖一次攒批提交窗口），仍拿不到就**本轮不改、直接退出**。
     # 宁可少改一轮，也不在无人值守时破坏串行约定 —— auto_workflow 只记录
     # rc 不据此中断，所以退出码 1 是安全的，且比静默跳过诚实。
-    if not writelock.acquire("fix_terms", timeout=120):
+    if not writelock.acquire("fix_terms", timeout=2400):
         print(f"写库锁被 {writelock.holder()} 占用超过 120 秒，本轮不改"
               f"（auto_workflow 下一轮会再来）。")
         return 1

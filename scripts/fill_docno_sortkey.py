@@ -17,7 +17,7 @@ conn = db.connect()
 
 got = False
 for i in range(24):
-    if writelock.acquire("docno_sort_fill", timeout=25):
+    if writelock.acquire("docno_sort_fill", timeout=2400):
         got = True
         break
     print(f"  等锁第 {i+1} 次（{writelock.holder()}）", flush=True)

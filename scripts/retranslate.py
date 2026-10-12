@@ -159,7 +159,7 @@ def main() -> int:
     # 早就这么处理了（拿不到锁就退出本轮，不硬撞引擎锁）。
     from taxassist import writelock
 
-    if not writelock.acquire("retranslate", timeout=30):
+    if not writelock.acquire("retranslate", timeout=2400):
         print(f"写库锁被 {writelock.holder()} 占用 —— 重译要持续写库，"
               f"先停 worker 再跑：python -m taxassist worker --stop")
         return 1
