@@ -236,7 +236,9 @@ def cmd_provincial(args) -> int:
     """
     from . import writelock
 
-    if not writelock.acquire("provincial", timeout=30):
+    # **30 秒太短**：写库锁大部分时间被工作流占着（retranslate 一轮约 38 分钟），
+    # 而这里管的是日更采集 —— 30 秒拿不到就退出，等于采集长期被挤掉。
+    if not writelock.acquire("provincial", timeout=2400):
         print(f"另一个写库任务正在跑（{writelock.holder()}），本次退出。\n"
               f"  两个写库任务一起跑只会在 SQLite 写锁上互撞，不会更快 ——\n"
               f"  等它结束后再跑，或确认那个进程是不是已经不响应了"
@@ -383,9 +385,11 @@ def cmd_attach(args) -> int:
     # 等一会儿就能进；等不到就干净退出，把失败原因说清楚。
     from . import writelock
 
-    if not writelock.acquire("attach", timeout=120):
-        print(f"写库锁被 {writelock.holder()} 占用，稍后再试"
-              "（翻译每批之间会让锁，通常几秒内可进）。")
+    # 等待窗口必须覆盖工作流的一个步骤（retranslate 约 38 分钟）：原来只等
+    # 120 秒，实测补全日志里连续 7 轮都是"写库锁被 retranslate 占用，稍后再试"
+    # 然后收工 —— 附件重试就这么一直饿着（与 enrich 那次同型，见 cmd_enrich）。
+    if not writelock.acquire("attach", timeout=2400):
+        print(f"写库锁被 {writelock.holder()} 占用超过 40 分钟，本次退出。")
         return 1
     try:
         conn = dbmod.connect()
