@@ -236,7 +236,14 @@ def enrich_details(
            # 白花了一半时间，真正的补抓量只有 3019 条。
            " AND url NOT LIKE 'kb:%'")
     if only_missing:
-        sql += " AND (content IS NULL OR p_detail_fetched_at IS NULL)"
+        # **只看 p_detail_fetched_at，不能带 `content IS NULL` 这个 OR**：
+        # 原来写成 `(content IS NULL OR p_detail_fetched_at IS NULL)`，于是
+        # "抓过详情页、但页面本身没有正文"的条目（图片/视频/空页类）**永久留在
+        # 队列里** —— 每轮被取到、抓一次、内容无变化，而真正没抓过的排不上队。
+        # 实测症状：enrich 连续 60 轮都是"尝试 50 条、成功 49、**更新 1**"，
+        # 而"缺详情页 4870 / 缺正文 707"两个数凝固不动（2026-10-14）。
+        # 抓过就不再抓 —— 抓不到正文是页面本身的属性，重复抓不会改变它。
+        sql += " AND p_detail_fetched_at IS NULL"
     sql += " ORDER BY cwrq DESC LIMIT ?"
     rows = conn.execute(sql, (limit,)).fetchall()
 
