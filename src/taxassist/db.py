@@ -177,6 +177,13 @@ CREATE TABLE IF NOT EXISTS attachment (
     parse_status  TEXT DEFAULT 'pending',  -- pending/ok/failed
     parse_error   TEXT,
     created_at    TEXT NOT NULL,
+    -- 领取租约（**PostgreSQL 侧启用**）：worker 领走一批附件时打上时间戳，
+    -- 别的 worker 用 FOR UPDATE SKIP LOCKED 跳过已领的，崩溃的任务超时后
+    -- 自动可重领。为什么用时间戳而不是新增一个"处理中"状态：
+    -- 下载本身是幂等的，宁可偶尔重复处理，也不要让某个进程崩在中间
+    -- 就把一条记录永久卡死（那正是"扫描件永远卡在 pending"的成因）。
+    -- SQLite 侧这一列照样写入，但不参与领取判定（继续靠 writelock 串行）。
+    claimed_at    TEXT,
     UNIQUE(doc_uid, url)
 );
 
@@ -254,8 +261,22 @@ def now_iso() -> str:
     return datetime.now().astimezone().replace(microsecond=0).isoformat()
 
 
-def connect(path: str | Path | None = None) -> sqlite3.Connection:
-    """建立连接（自动建目录）。"""
+def connect(path: str | Path | None = None):
+    """建立连接（自动建目录）。
+
+    默认仍是 SQLite —— 生产正在它上面跑，改造期间行为不能变。
+    设 ``TAXASSIST_BACKEND=pg`` 则返回 PostgreSQL 的**兼容包装**：占位符 ``?``
+    与 ``IFNULL`` 由连接层自动翻译，行对象同时支持 ``row[0]`` 与
+    ``row["列名"]``，所以既有的三百多处 SQL 原样就能跑在两个引擎上。
+
+    为什么用兼容层而不是逐处改写 SQL：300+ 处调用逐处改写既不可能也不必要，
+    差异由一层吸收，改动的风险面小得多（仓储层照旧存在、继续收拢，那是目标
+    架构；但迁移不再依赖它先完工，两者解耦各自推进）。
+    """
+    from .repo import conn as _rc
+
+    if _rc.BACKEND == "pg":
+        return _rc.connect_compat()
     ensure_dirs()
     target = Path(path) if path else DB_PATH
     # busy_timeout：默认只等 5 秒，多个任务同时写库时经常不够 ——
@@ -301,6 +322,8 @@ def migrate(conn: sqlite3.Connection) -> list[str]:
     # 后两者之和，分不开（审计 2026-10-11 指出）。
     _ensure_column(conn, "fetch_log", "skipped_count", "skipped_count INTEGER")
     _ensure_column(conn, "fetch_log", "unchanged_count", "unchanged_count INTEGER")
+    # attachment 的领取租约（PostgreSQL 侧并发抓附件用；SQLite 侧照写但不参与判定）
+    _ensure_column(conn, "attachment", "claimed_at", "claimed_at TEXT")
     if _ensure_column(conn, "policy", "p_region", "p_region TEXT"):
         applied.append("policy.p_region")
     # 文号排序键（使用者要「先排年份，同年的再排文号序号」）。

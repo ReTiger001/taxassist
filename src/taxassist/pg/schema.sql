@@ -28,6 +28,7 @@ CREATE TABLE attachment (
     parse_status  TEXT DEFAULT 'pending',  -- pending/ok/failed
     parse_error   TEXT,
     created_at    TEXT NOT NULL,
+    claimed_at    TEXT,
     UNIQUE(doc_uid, url)
 );
 CREATE TABLE customer (

@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+{% block title %}翻译质量与审校 · 税务智能知识助手{% endblock %}
+{% block body %}
+{#
+  审校台。设计取向：**先看分布，再看明细**。
+
+  为什么不做成"直接列 481 条问题"：先看到"ok 11658 / issue 481 / unsure 151"
+  这个比例，才知道 481 条意味着什么（是普遍现象还是个例）；上来就给一张长表，
+  读的人没有办法判断该花多少力气。
+
+  两张表语义不同，页面上也分开写：AI 判定可重跑可覆盖，人工结论不可被覆盖。
+
+  **颜色一律用 base.html 的 CSS 变量**（--card / --ink-2 / --bad-bg …）：
+  站点有两套主题（浅色与终端风，见 base.html 的两处 :root），写死颜色会在
+  其中一套下变成白块黑字 —— 第一版就是这么错的，靠视觉确认才发现
+  （TestClient 的断言全绿，因为它看不见颜色）。
+#}
+<style>
+  .rv-wrap { max-width: 1100px; margin: 0 auto; padding: 24px 18px 60px; }
+  .rv-wrap h1 { font-size: 22px; margin: 0 0 6px; color: var(--ink); }
+  .rv-sub { color: var(--ink-3); font-size: 13px; margin-bottom: 20px; line-height: 1.7; }
+  .rv-cards { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 22px; }
+  .rv-card { flex: 1 1 150px; background: var(--card); border: 1px solid var(--line);
+             border-radius: 8px; padding: 14px 16px; }
+  .rv-card .n { font-size: 24px; font-weight: 600; color: var(--ink); }
+  .rv-card .k { font-size: 12px; color: var(--ink-3); margin-top: 4px; }
+  .rv-bar { display: flex; gap: 8px; margin-bottom: 18px; flex-wrap: wrap; align-items: center; }
+  .rv-bar a { padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px;
+              font-size: 13px; text-decoration: none; color: var(--ink-2); }
+  .rv-bar a:hover { background: var(--sunken); }
+  .rv-bar a.on { background: var(--brand-2); border-color: var(--brand-2); color: #fff; }
+  .rv-bar .sep { color: var(--line); margin: 0 4px; }
+  .rv-bar .lbl { font-size: 13px; color: var(--ink-3); }
+  table.rv { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.rv th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--line);
+                color: var(--ink-2); font-weight: 600; }
+  table.rv td { padding: 9px 10px; border-bottom: 1px solid var(--line-2);
+                vertical-align: top; color: var(--ink-2); }
+  table.rv tr:hover td { background: var(--sunken); }
+  .rv-v { font-weight: 600; padding: 1px 7px; border-radius: 4px; font-size: 12px; }
+  .rv-v.issue { background: var(--bad-bg); color: var(--bad-fg); }
+  .rv-v.unsure { background: var(--warn-bg); color: var(--warn-fg); }
+  .rv-v.ok { background: var(--ok-bg); color: var(--ok-fg); }
+  .rv-uid { font-family: ui-monospace, Consolas, monospace; font-size: 11px;
+            color: var(--ink-3); text-decoration: none; }
+  .rv-uid:hover { text-decoration: underline; }
+  .rv-txt { color: var(--ink-2); line-height: 1.6; max-width: 560px; }
+  .rv-why { color: var(--ink-3); line-height: 1.6; max-width: 380px; font-size: 12.5px; }
+  .rv-empty { padding: 40px 0; text-align: center; color: var(--ink-3); font-size: 14px; }
+  .rv-miss { color: var(--ink-3); font-style: italic; }
+</style>
+
+<div class="rv-wrap">
+  <h1>翻译质量与审校</h1>
+  <div class="rv-sub">
+    数据来自两张<strong>语义不同</strong>的表：<code>translation_ai_review</code>
+    是<strong>机器判定</strong>（可重跑、可覆盖，只用于筛选与排序）；
+    <code>translation_review</code> 是<strong>人工结论</strong>（机器结果永不覆盖它）。
+    当前语种字段：<strong>{{ field }}</strong>。
+  </div>
+
+  <div class="rv-cards">
+    {% for k, n in ai_stats.items() %}
+      <div class="rv-card">
+        <div class="n">{{ n }}</div>
+        <div class="k">机器判定 · {{ k }}</div>
+      </div>
+    {% endfor %}
+    <div class="rv-card">
+      <div class="n">{{ human_total }}</div>
+      <div class="k">人工已核（机器不可覆盖）</div>
+    </div>
+    <div class="rv-card">
+      <div class="n">{{ pending }}</div>
+      <div class="k">机器说有问题、人还没核</div>
+    </div>
+  </div>
+
+  <div class="rv-bar">
+    <span class="lbl">字段：</span>
+    <a href="/review?field=content&verdict={{ verdict }}" class="{{ 'on' if field == 'content' else '' }}">正文</a>
+    <a href="/review?field=title&verdict={{ verdict }}" class="{{ 'on' if field == 'title' else '' }}">标题</a>
+    <span class="sep">|</span>
+    <span class="lbl">判定：</span>
+    {% for v in ['issue', 'unsure', 'ok'] %}
+      <a href="/review?field={{ field }}&verdict={{ v }}" class="{{ 'on' if verdict == v else '' }}">{{ v }}</a>
+    {% endfor %}
+  </div>
+
+  {% if items %}
+    <table class="rv">
+      <thead>
+        <tr>
+          <th style="width:26%">文档</th>
+          <th style="width:9%">判定</th>
+          <th style="width:30%">机器给的理由</th>
+          <th>译文</th>
+        </tr>
+      </thead>
+      <tbody>
+      {% for it in items %}
+        <tr>
+          <td>
+            <a href="/policy/{{ it.doc_uid }}" class="rv-uid">{{ it.doc_uid }}</a>
+            <div class="rv-uid" style="margin-top:3px">{{ it.reviewed_at or '' }}</div>
+          </td>
+          <td><span class="rv-v {{ it.verdict }}">{{ it.verdict }}</span></td>
+          <td class="rv-why">{{ it.reason or '—' }}</td>
+          <td class="rv-txt">
+            {% if it.text %}{{ it.text[:400] }}{% if it.text|length > 400 %}…{% endif %}
+            {% else %}<span class="rv-miss">（这条没有译文）</span>{% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+    <div class="rv-sub" style="margin-top:14px">
+      显示前 {{ items|length }} 条（上限 {{ limit }}）。人工判定的录入走
+      <code>scripts/import_review.py</code> —— 页面上只读不写，
+      避免"谁改的、什么时候改的"变成一个答不上来的问题。
+    </div>
+  {% else %}
+    <div class="rv-empty">这个筛选下没有记录。</div>
+  {% endif %}
+</div>
+{% endblock %}

@@ -17,6 +17,46 @@ _AI = "translation_ai_review"
 _HUMAN = "translation_review"
 
 
+def ensure_table(conn) -> None:
+    """建两张审核表（幂等，**仅 SQLite 侧**）。
+
+    此前这两张表的 DDL 分别写在 `scripts/ai_review.py` 与
+    `scripts/import_review.py` 里 —— 定义权在脚本手上，于是「新库不跑那个脚本
+    就没有表」（`browse_routes` 为此写过降级）。收进仓储层，让表与它的读写
+    代码住在一起，测试也能直接建。
+
+    PostgreSQL 侧的表由 `src/taxassist/pg/schema.sql` 建（那份是转换来的
+    真实 DDL），所以这里只在 sqlite 后端执行 —— `AUTOINCREMENT` 是 SQLite
+    专有语法，原样发给 PG 会报错。
+    """
+    if c.BACKEND == "pg":
+        return
+    c.execute(
+        conn,
+        "CREATE TABLE IF NOT EXISTS translation_ai_review ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " doc_uid TEXT NOT NULL,"
+        " field TEXT NOT NULL,"
+        " verdict TEXT NOT NULL,"          # ok / issue / unsure
+        " reason TEXT,"
+        " model TEXT,"
+        " zh_len INTEGER,"                 # 原文长度：指纹比对之外的第二个线索
+        " reviewed_at TEXT NOT NULL,"
+        " UNIQUE(doc_uid, field))")
+    c.execute(
+        conn,
+        "CREATE TABLE IF NOT EXISTS translation_review ("
+        " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        " doc_uid TEXT NOT NULL,"
+        " field TEXT NOT NULL,"
+        " verdict TEXT NOT NULL,"          # ok（通过）/ bad（有问题）
+        " note TEXT,"
+        " reviewer TEXT,"
+        " kind TEXT,"                      # 机器当时挑它的类别
+        " reviewed_at TEXT NOT NULL,"
+        " UNIQUE(doc_uid, field))")
+
+
 # ------------------------------------------------------------------ 机器判定
 
 

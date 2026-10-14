@@ -56,10 +56,18 @@ class KBError(RuntimeError):
 def connect_readonly(path: str | Path | None = None) -> sqlite3.Connection:
     """只读连接。
 
-    用 URI 的 ``mode=ro`` 而不是「连上后不写」：前者由 SQLite 在文件层拒绝
-    写入，后者靠自觉。再加 ``query_only`` 作为第二道保险（挡住同一连接上的
-    临时表写入等边缘情况）。
+    SQLite 侧用 URI 的 ``mode=ro`` 而不是「连上后不写」：前者由 SQLite 在文件
+    层拒绝写入，后者靠自觉。再加 ``query_only`` 作为第二道保险（挡住同一连接
+    上的临时表写入等边缘情况）。
+
+    PostgreSQL 侧由连接层设 ``default_transaction_read_only`` 达成同样目的
+    —— 两道保险在那边对应的是「数据库层拒绝」与「会话层拒绝」。
     """
+    from .repo import conn as _rc
+
+    if _rc.BACKEND == "pg":
+        # 路径参数只对 SQLite 有意义：PG 的库由 DSN 指定，不按文件路径找。
+        return _rc.connect_readonly()
     target = Path(path) if path else DB_PATH
     if not target.exists():
         raise KBError(f"数据库不存在：{target}。先运行 `python -m taxassist initdb` 并采集数据。")
@@ -136,7 +144,26 @@ def _build_search(query: str, tax: str, region: str, effect: str, year: str,
     if not include_reference:
         where.append("IFNULL(p.is_official, 1) = 1")
 
-    if terms and all(len(t) >= 3 for t in terms) and has_fts:
+    # 后端分叉：SQLite 走 FTS5，PostgreSQL 走 PGroonga。两条路的机制完全不同
+    # （见 repo/search.py 的说明），但对外语义必须一致：多词 AND、按相关性优先、
+    # 标题命中权重高于正文。
+    from .repo import conn as _rc
+
+    _use_groonga = _rc.BACKEND == "pg"
+
+    if _use_groonga and terms:
+        # PGroonga 不需要 FTS 影子表，也**不需要二字词回退** —— 探针实测它对
+        # 「税率」召回 2222 条、与 LIKE 真值完全一致，而 FTS5 在这个词上是 0 条
+        # （trigram 索引不了二字词）。上面那段"2 字词必须退回 LIKE"的教训，
+        # 是 FTS5 的缺陷，不该被搬到一个没有这个缺陷的引擎上。
+        base = "FROM policy p"
+        clauses = []
+        for t in terms:
+            clauses.append("(p.title &@~ ? OR COALESCE(p.content, '') &@~ ?)")
+            params += [t, t]
+        where.append("(" + " AND ".join(clauses) + ")")
+        mode = "groonga"
+    elif terms and all(len(t) >= 3 for t in terms) and has_fts:
         base = "FROM policy_fts f JOIN policy p ON p.id = f.rowid"
         where.append("policy_fts MATCH ?")
         params.append(" AND ".join(_fts_phrase(t) for t in terms))
@@ -189,7 +216,12 @@ def _build_search(query: str, tax: str, region: str, effect: str, year: str,
     # 命中两千多条时，不给相关性等于没排序。
     rank_expr = ""
     order_params: list = []
-    if mode == "fts":
+    if mode == "groonga":
+        # PGroonga 的 score **越大越相关**，而 FTS5 的 bm25 是越小越相关 ——
+        # 方向相反，必须显式写 DESC。漏掉它不会有任何报错，只会让相关性
+        # 整体颠倒，而且看上去"还是排了序"。
+        rank_expr = "pgroonga_score(p.tableoid, p.ctid) DESC, "
+    elif mode == "fts":
         # FTS5 的 bm25() 越小越相关。权重按 FTS 表的列序给
         # （title, p_doc_no_full, pub_name, content, o_keywords）：
         # 标题命中远比正文里顺带一句重要；文号是精确标识，给次高；

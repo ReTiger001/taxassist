@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from ..db import now_iso
 from . import conn as c
 
 
@@ -47,21 +48,103 @@ def update(conn, att_id: int, values: dict) -> int:
     return getattr(cur, "rowcount", 0) or 0
 
 
-def pending(conn, *, only_failed: bool = False, limit: int = 0):
-    """待抓的附件。
-
-    ``only_failed`` 时只取上次失败的（重试路径），否则取**从未尝试**的
-    （``parse_status IS NULL``）—— 两条路径分开，避免重试把新附件挤掉。
-    """
-    if only_failed:
-        sql = "SELECT * FROM attachment WHERE parse_status IN ('download_failed','failed') ORDER BY id"
-    else:
-        sql = "SELECT * FROM attachment WHERE parse_status IS NULL ORDER BY id"
+def pending(conn, *, only_failed: bool = False, only_pending: bool = True, limit: int = 0):
+    """待抓的附件（**不做领取**，外部串行时用）。"""
+    sql = f"SELECT * FROM attachment WHERE {_pending_condition(only_failed, only_pending)} ORDER BY id"
     params: list[Any] = []
     if limit:
         sql += " LIMIT ?"
         params.append(int(limit))
     return c.rows(c.execute(conn, sql, tuple(params)))
+
+
+def _pending_condition(only_failed: bool, only_pending: bool = True) -> str:
+    """待处理条件 —— 与 ``pipeline.fetch_attachments`` 的选择口径**逐字一致**。
+
+    两处口径一旦分叉，"能领的"（仓储层）与"能取的"（流水线）就变成两批
+    不同的记录，而这种错误不会报错、只会让一批附件永远轮不到。
+
+    ``url`` 必须非空：没有地址的行连下载都无从谈起，混进来只会白占一批名额。
+
+    三种口径（对应 CLI 的默认 / --all / --retry-failed）：
+      · ``only_failed``  —— 只重试失败过的
+      · ``only_pending`` —— 未完成的三类（默认）
+      · 都不给            —— 不过滤
+
+    **为什么 unsupported 与 download_failed 也在默认重试范围内**（原注释）：
+
+      · ``unsupported`` —— 解析器升级后（例如接通 WPS 处理老式文档），当初
+        "读不了"的文件应该再试一次，否则修复永远不会生效，那 1380 条会一直
+        是 unsupported，而代码明明已经能解析它们了。
+      · ``download_failed`` —— 372 条里有 345 条是 WAF 412（hubei/liaoning/
+        jilin 等站），而浏览器兜底能过挑战：实测同一条 URL，httpx 得到 412、
+        兜底取回 16493 字节的真 docx。那批失败记录都写在兜底上线之前，
+        所以从未被重试过。
+
+    **为什么 failed:* 单独成一条重试路径**：那 388 条 BadZipFile 全是 .docx，
+    而 .docx 本身就是 ZIP 容器 —— 报这个说明当初下到的不是有效文件（多半是
+    站点返回的错误页被当附件存了下来）。默认的 only_pending 不含它们，
+    它们从未被重试过 —— 这就是那条命令存在的理由。
+    """
+    if only_failed:
+        # 只重试**失败过**的。特意不含另外两类：`ok`（已经成功，重下纯属浪费）
+        # 与 `no_text_layer`（扫描件缺的是文字层，不是下载或解析环节坏了 ——
+        # 重试多少次都一样）。
+        return ("url IS NOT NULL AND url <> ''"
+                " AND (parse_status LIKE 'failed:%' OR parse_status = 'download_failed')")
+    if only_pending:
+        return ("url IS NOT NULL AND url <> ''"
+                " AND (parse_status = 'pending' OR parse_status = 'unsupported'"
+                " OR parse_status = 'download_failed')")
+    return "url IS NOT NULL AND url <> ''"
+
+
+def _lease_cutoff(seconds: int) -> str:
+    """租约失效时刻（ISO 字符串）。
+
+    用字符串比较而不是时间函数：``claimed_at`` 就是 ISO 文本，
+    **ISO 8601 的字典序等于时间序**，所以两边数据库用同一套比较都成立。
+    """
+    import datetime
+
+    t = datetime.datetime.now().astimezone() - datetime.timedelta(seconds=seconds)
+    return t.replace(microsecond=0).isoformat()
+
+
+def claim_batch(conn, *, only_failed: bool = False, only_pending: bool = True,
+                limit: int = 20, lease_seconds: int = 1800):
+    """**领取**一批待处理附件，返回领到的那批。
+
+    这是「让不同 Worker 同时抓附件」的关键。两种后端：
+
+    * **PostgreSQL**：``FOR UPDATE SKIP LOCKED`` 选行，同一条 UPDATE 里打上
+      租约时间戳。两个 worker 同时调用会各领各的 —— 不是"一个等工作完"，
+      而是**跳过已被领走的行**。进程崩在中间也不会永久卡死：租约过期后
+      那一条自动重新可领（所以用时间戳而不是新增"处理中"状态）。
+    * **SQLite**：没有 ``SKIP LOCKED``，退化成普通查询 —— 行为与今天完全一致
+      （外部仍靠 writelock 串行）。切库后自动获得并发能力。
+
+    下载本身是幂等的，所以租约过期导致偶尔重复处理是无害的；
+    反过来（永久卡死一条记录）才是真正要避免的。
+    """
+    if c.BACKEND != "pg":
+        return pending(conn, only_failed=only_failed, only_pending=only_pending,
+                       limit=limit)
+
+    cutoff = _lease_cutoff(lease_seconds)
+    cond = _pending_condition(only_failed, only_pending)
+    sql = (
+        "WITH claimed AS ("
+        "  SELECT id FROM attachment"
+        f"  WHERE {cond} AND (claimed_at IS NULL OR claimed_at < ?)"
+        "  ORDER BY id LIMIT ?"
+        "  FOR UPDATE SKIP LOCKED"
+        ")"
+        " UPDATE attachment a SET claimed_at = ?"
+        " FROM claimed c WHERE a.id = c.id"
+        " RETURNING a.*"
+    )
+    return c.rows(c.execute(conn, sql, (cutoff, int(limit), now_iso())))
 
 
 def status_stats(conn) -> dict[str, int]:

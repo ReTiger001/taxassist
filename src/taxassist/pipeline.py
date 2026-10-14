@@ -374,40 +374,20 @@ def fetch_attachments(conn, *, limit: int = 20, only_pending: bool = True,
     逐条容错；解析结果按状态区分，**扫描件（no_text_layer）不算失败**——
     它需要人工打开或后续 OCR，与"解析器坏了"是两回事。
     """
+    from . import repo
     from .collect.attachments import download, parse_attachment, safe_filename
     from .config import RAW_DIR
 
-    sql = (
-        "SELECT a.id, a.doc_uid, a.url, a.filename, a.ext, p.title "
-        "FROM attachment a LEFT JOIN policy p ON p.doc_uid = a.doc_uid "
-        "WHERE a.url IS NOT NULL AND a.url <> ''"
-    )
-    if only_failed:
-        # 只重试**失败过**的：failed:* 与 download_failed。
-        #
-        # 特意不含另外两类：`ok`（已经成功，重下纯属浪费）与 `no_text_layer`
-        # （扫描件缺的是文字层，不是下载或解析环节坏了 —— 重试多少次都一样）。
-        #
-        # failed:* 尤其值得重试：那 388 条 BadZipFile 全是 .docx，而 .docx 本身
-        # 就是 ZIP 容器 —— 报这个说明当初下到的不是有效文件（多半是站点返回的
-        # 错误页被当附件存了下来）。浏览器兜底能过 WAF，重试有机会拿到真文件。
-        # 这批记录写在兜底上线之前，默认的 only_pending 也不含它们，所以从未被
-        # 重试过 —— 这就是那条命令存在的理由。
-        sql += (" AND (a.parse_status LIKE 'failed:%'"
-                " OR a.parse_status = 'download_failed')")
-    elif only_pending:
-        # **也重试 unsupported**：解析器升级后（例如接通 WPS 处理老式文档），
-        # 当初"读不了"的文件应该再试一次 —— 否则修复永远不会生效，
-        # 那 1380 条会一直是 unsupported，而代码明明已经能解析它们了。
-        #
-        # **也重试 download_failed**：同样的道理。372 条里有 345 条是 WAF 412
-        # （hubei/liaoning/jilin 等站），而浏览器兜底（browser.fetch_bytes）
-        # 能过挑战 —— 实测同一条 URL：httpx 得到 412、兜底取回 16493 字节的
-        # 真 docx。那批失败记录都写在兜底上线之前，所以从未被重试过。
-        sql += (" AND (a.parse_status = 'pending' OR a.parse_status = 'unsupported'"
-                " OR a.parse_status = 'download_failed')")
-    sql += " ORDER BY a.id LIMIT ?"
-    rows = conn.execute(sql, (limit,)).fetchall()
+    # 领任务走仓储层 —— **两阶段的第一步**。
+    #
+    # PostgreSQL 侧用 FOR UPDATE SKIP LOCKED + 租约时间戳：多个 worker 同时
+    # 抓附件时各领各的、不会重复；进程崩在中间也不会永久卡死（租约过期后
+    # 那一条自动重新可领）。SQLite 侧退化为普通查询，行为与从前完全一致
+    # （外部仍靠 writelock 串行）。
+    #
+    # 选择口径（哪些状态该重试、为什么）见 repo.attachment._pending_condition。
+    rows = repo.attachment.claim_batch(
+        conn, only_failed=only_failed, only_pending=only_pending, limit=limit)
 
     stats = {"requested": len(rows), "ok": 0, "no_text_layer": 0,
              "unsupported": 0, "failed": 0, "bytes": 0, "errors": []}

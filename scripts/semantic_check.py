@@ -73,7 +73,13 @@ def ask_model(model, zh, en, timeout=180):
         "model": model,
         "prompt": PROMPT.format(zh=zh, en=en),
         "stream": False,
-        "options": {"temperature": 0, "num_predict": 128},
+        # num_ctx 显式给 —— 与 ai_review.py 同一条理由：ollama 的默认值随版本
+        # 变，给小了会**静默截断**。而这里的后果尤其隐蔽：输入是「中文原文 +
+        # 英文译文」，截断后模型只看到前半段，会**因为看不到问题而判 OK** ——
+        # 假阴性、不报错，还会让"语义校验通过"这个结论失去意义。
+        # `--max-chars` 默认 6000 是必要的但不够：中文约 1 字 1 token，
+        # 再加英文译文合计可到 7000+，仍超过默认窗口。
+        "options": {"num_ctx": 8192, "temperature": 0, "num_predict": 128},
     }).encode("utf-8")
     req = urllib.request.Request(OLLAMA_URL, data=payload,
                                 headers={"Content-Type": "application/json"})

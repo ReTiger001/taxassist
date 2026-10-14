@@ -80,12 +80,17 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     from .browse_routes import register as _register_browse
     from .customer_routes import register as _register_customer
     from .middleware import register as _register_middleware
+    from .review_routes import register as _register_review
 
     # 中间件最先接上：它们包裹整个应用
     _register_middleware(app, require_auth=require_auth,
                          auth_mode=auth_mode)
     _register_assistant(app, ctx=ctx, templates=templates)
     _register_browse(app, ctx=ctx, templates=templates)
+    # 审校台（/review）—— 机器判定与人工结论并排放。**只读不写**：
+    # 人工判定的录入走 scripts/import_review.py，避免"谁改的、何时改的"
+    # 变成答不上来的问题。
+    _register_review(app, templates=templates, require_auth=require_auth)
     # 客户自助页（/account）—— 权限模型与 /admin 正好相反：那是管别人，
     # 这是管自己。所以它**不做 is_owner 检查**，只读 request.state.user
     # 名下的余额与用量；放同一个模块里迟早会有人把检查复制错位置。

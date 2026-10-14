@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sqlite3
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
@@ -73,9 +74,13 @@ def connect_readonly(path: str | Path | None = None):
 
     网站与检索侧用：它们只查不写，拿只读身份能避免误写，
     也让 PG 侧将来可以换成真正的只读账号。
+
+    **PG 侧必须也走兼容层** —— 曾经这里返回裸 psycopg 连接，结果是
+    kb.py 的 ``sqlite_master`` 查询原样发给了 PG 并报「关系不存在」。
+    兼容层不是"给写入路径用的"，它是所有出口的唯一通道。
     """
     if BACKEND == "pg":
-        conn = _connect_pg()
+        conn = connect_compat()
         conn.execute("SET default_transaction_read_only = on")
         return conn
     target = Path(path) if path else DB_PATH
@@ -183,3 +188,224 @@ def ping() -> str:
         return "sqlite: " + str(scalar(cur, ""))
     finally:
         conn.close()
+
+
+# ------------------------------------------------------------------ 兼容连接层
+
+
+def adapt_sql(text: str) -> str:
+    """把既有 SQL（SQLite 风格）翻成 PostgreSQL —— 只做**机械且安全**的替换。
+
+    为什么需要它：全项目有 300+ 处 execute 调用，逐处改写既不可能也不必要。
+    让这一层吸收差异，既有 SQL 原样就能跑在两个引擎上。
+
+    替换清单（每条都有全量测试兜底）：
+
+    * ``?`` → ``%s``（占位符）
+    * ``IFNULL(`` → ``COALESCE(``（后者 SQLite 3.30+ 也支持，是两边公共写法）
+    * ``PRAGMA table_info(t)`` → 查 ``information_schema`` 并**补齐成同样的
+      六列**（cid, name, type, notnull, dflt_value, pk）—— 调用方普遍用
+      ``row[1]`` 取列名，形状必须一致，不能只返回一列
+    * ``sqlite_version()`` → ``version()``
+    * ``date('now')`` → ``CURRENT_DATE``
+    * ``MAX(0,`` → ``GREATEST(0,``
+
+    **故意不做**的替换，因为无法机械判定、必须人工改：
+    ``INSERT OR IGNORE`` / ``datetime('now', '-N days')`` / ``changes()`` /
+    ``strftime`` / ``sqlite_master`` / ``lastrowid`` / ``policy_fts``。
+
+    注意 ``?`` 会误伤字符串字面量里的问号 —— 全库 SQL 已扫过，没有这种写法。
+    """
+    if BACKEND != "pg":
+        return text
+    s = text.strip()
+
+    # PRAGMA table_info(t) —— 整条语句替换（形状必须与原函数返回值一致）
+    m = re.fullmatch(r"PRAGMA\s+table_info\s*\(\s*([A-Za-z_][A-Za-z0-9_]*)\s*\)\s*;?", s,
+                     flags=re.IGNORECASE)
+    if m:
+        # 表名已由上面的正则限定为 [A-Za-z_][A-Za-z0-9_]*，插值安全。
+        table = m.group(1)
+        return (
+            "SELECT 0 AS cid, column_name AS name, data_type AS type,"
+            " CASE WHEN is_nullable = 'NO' THEN 1 ELSE 0 END AS notnull,"
+            " column_default AS dflt_value,"
+            " CASE WHEN column_name IN ("
+            "   SELECT kcu.column_name FROM information_schema.table_constraints tc"
+            "   JOIN information_schema.key_column_usage kcu"
+            "     ON kcu.constraint_name = tc.constraint_name AND kcu.table_name = tc.table_name"
+            f"   WHERE tc.constraint_type = 'PRIMARY KEY' AND tc.table_name = '{table}')"
+            " THEN 1 ELSE 0 END AS pk"
+            " FROM information_schema.columns"
+            f" WHERE table_name = '{table}' ORDER BY ordinal_position"
+        )
+
+    # SQLite 的「表存在吗」查询 → information_schema。
+    # 形态固定（项目里两处都长这样），所以能安全地整体替换：
+    # 调用方只看返回有没有行，别名保持 name 以免取值方式变化。
+    m = re.fullmatch(
+        r"SELECT\s+name\s+FROM\s+sqlite_master\s+"
+        r"WHERE\s+type\s*=\s*'table'\s+AND\s+name\s*=\s*'([A-Za-z_][A-Za-z0-9_]*)'\s*;?",
+        s, flags=re.IGNORECASE)
+    if m:
+        return ("SELECT table_name AS name FROM information_schema.tables"
+                f" WHERE table_type = 'BASE TABLE' AND table_name = '{m.group(1)}'")
+
+    # **顺序不能反**：
+    #   1. 先把字面量里的 % 转义成 %% —— psycopg 用 %s 做占位符，裸 % 会被它
+    #      当成占位符起始。而 SQL 里 `LIKE '%的通知'` 这类写法到处都是
+    #      （sqlite3 用 ? 做占位符，% 就只是普通字符，从来没有这个问题）。
+    #   2. 再把 ? 换成 %s。
+    # 反过来做会把刚生成的 %s 也转义成 %%s，占位符全废。
+    s = s.replace("%", "%%")
+    s = s.replace("?", "%s")
+    s = re.sub(r"\bIFNULL\s*\(", "COALESCE(", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bsqlite_version\s*\(\s*\)", "version()", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bdate\s*\(\s*'now'\s*\)", "CURRENT_DATE", s, flags=re.IGNORECASE)
+    s = re.sub(r"\bMAX\s*\(\s*0\s*,", "GREATEST(0,", s, flags=re.IGNORECASE)
+    return s
+
+
+class CompatRow:
+    """同时支持 ``row[0]`` 与 ``row["列名"]`` 的行对象。
+
+    SQLite 的 sqlite3.Row 两者都支持，psycopg 的 dict_row 只支持键 —— 而既有
+    代码里有十几处 ``fetchone()[0]``（聚合结果居多）。与其改那十几处、将来
+    还可能被新代码写回去，不如让 PG 侧的行为与 SQLite 对齐。
+
+    实现 mapping 协议（``keys()`` + ``__getitem__``）使 ``dict(row)`` 可用，
+    ``__iter__`` 给整数索引路径用。
+    """
+
+    __slots__ = ("_vals", "_map")
+
+    def __init__(self, mapping):
+        self._map = mapping
+        self._vals = list(mapping.values()) if hasattr(mapping, "values") else list(mapping)
+
+    def __getitem__(self, key):
+        if isinstance(key, (int, slice)):
+            return self._vals[key]
+        return self._map[key]
+
+    def keys(self):
+        return self._map.keys()
+
+    def values(self):
+        return self._map.values()
+
+    def items(self):
+        return self._map.items()
+
+    def get(self, key, default=None):
+        return self._map.get(key, default)
+
+    def __contains__(self, key):
+        return key in self._map
+
+    def __iter__(self):
+        return iter(self._vals)
+
+    def __len__(self):
+        return len(self._vals)
+
+    def __repr__(self):
+        return f"CompatRow({self._map!r})"
+
+
+class CompatCursor:
+    """兼容游标：让 PG 的结果行两种取值方式都可用。"""
+
+    __slots__ = ("_cur",)
+
+    def __init__(self, cur):
+        self._cur = cur
+
+    def fetchone(self):
+        row = self._cur.fetchone()
+        return None if row is None else CompatRow(row)
+
+    def fetchall(self):
+        return [CompatRow(r) for r in self._cur.fetchall()]
+
+    def __iter__(self):
+        for row in self._cur:
+            yield CompatRow(row)
+
+    @property
+    def rowcount(self):
+        return getattr(self._cur, "rowcount", -1)
+
+    @property
+    def lastrowid(self):
+        # PostgreSQL 没有 lastrowid；需要主键的地方应改用 RETURNING（见 repo.fetch）
+        return getattr(self._cur, "lastrowid", None)
+
+
+class CompatConnection:
+    """把 psycopg 连接包装成既有代码认得的形状。
+
+    只包装既有代码真正用到的部分：execute / executemany / executescript /
+    commit / rollback / close / cursor。不假装自己是 sqlite3.Connection ——
+    类型判断仍然区分得开，需要真实 PG 连接时用 ``.raw``。
+    """
+
+    def __init__(self, raw):
+        self.raw = raw
+
+    def execute(self, text, params=None):
+        return CompatCursor(self.raw.execute(adapt_sql(text), tuple(params or ())))
+
+    def executemany(self, text, seq_params):
+        return CompatCursor(
+            self.raw.executemany(adapt_sql(text), [tuple(p) for p in seq_params]))
+
+    def executescript(self, script: str):
+        """PG 没有 executescript：按分号拆分逐条执行。
+
+        既有代码只在建表路径上用（db.init_db / auth / billing 的 ensure_table），
+        那几处的语句里没有含分号的字符串字面量，拆分是安全的。
+        """
+        for stmt in _split_statements(script):
+            self.raw.execute(adapt_sql(stmt))
+        return None
+
+    def cursor(self, *a, **kw):
+        return CompatCursor(self.raw.cursor(*a, **kw))
+
+    def commit(self):
+        self.raw.commit()
+
+    def rollback(self):
+        self.raw.rollback()
+
+    def close(self):
+        self.raw.close()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        if exc[0] is None:
+            self.raw.commit()
+        else:
+            self.raw.rollback()
+        return False
+
+
+def _split_statements(script: str) -> list[str]:
+    """把一段 DDL 拆成单条语句（跳过空段）。"""
+    return [s.strip() for s in script.split(";") if s.strip() and s.strip() != ""]
+
+
+def connect_compat():
+    """建立 PostgreSQL 连接并包装成兼容层（既有代码用它替代 sqlite3.connect）。"""
+    if BACKEND != "pg":
+        raise RuntimeError("connect_compat 只在 TAXASSIST_BACKEND=pg 时可用")
+    import psycopg
+    from psycopg.rows import dict_row
+
+    dsn = os.environ.get("TAXASSIST_PG_DSN") or DEFAULT_PG_DSN
+    # row_factory 要的是**接收游标的可调用对象**，dict_row 正是那个；
+    # 传内置的 dict 会让游标初始化内部炸在 _make_row 上。
+    return CompatConnection(psycopg.connect(dsn, row_factory=dict_row))

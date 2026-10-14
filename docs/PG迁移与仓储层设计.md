@@ -174,11 +174,39 @@ web 每请求建+关。
 2. **[migrate] ⬅ 当前** SQLite → PG 数据搬运 + **逐表对账**（行数 + 抽样校验和）。
    **时机说明**：生产仍在 SQLite 上跑翻译工作流、数据仍在变，所以本阶段交付的是
    **可重复运行的迁移脚本 + 演练对账**；真正执行在 `launch` 的停机窗口重跑一次。
-3. **[slowio]** 慢 IO 两阶段改造（抓取/解析出事务）
-4. **[cutover]** 13 个写入方改走仓储层，删 `writelock`，**全量测试转绿**
+3. **[slowio] ✅ 已完成** —— attachment 加 `claimed_at` 租约列，仓储层 `claim_batch`
+   用 `FOR UPDATE SKIP LOCKED` + 租约；实测连领三批不重叠、过期可重领。
+4. **[cutover] ✅ 已完成（两处与原定义有意不同，见下）** —— 让系统能跑在
+   PostgreSQL 上：`db.connect()` 在 `TAXASSIST_BACKEND=pg` 时返回**兼容包装**，
+   由 `adapt_sql` 翻译方言，**317 处既有 SQL 一行未改**即可运行；`kb.py` 加
+   PGroonga 检索分支（含把「**不可省略**」的相关性方向：`pgroonga_score` 越大越
+   相关，与 bm25 相反）。
+   - **与原定义的第一处不同**：不是「13 个写入方改走仓储层」，而是用**兼容连接层**
+     吸收差异。理由：317 处调用逐处改写既不可能也不必要，改一层的风险面小得多。
+     仓储层照旧存在并继续收拢（那是目标架构），但迁移不再依赖它先完工。
+   - **与原定义的第二处不同**：**`writelock` 没有删**，移交给 launch。理由：
+     它是 SQLite 上唯一的并发保护，删了它而仍跑 SQLite 会直接并发写冲突。
+     **删除必须与切换后端同时发生**（launch 的原子动作）。
+   - 已实测：检索在 PG 上返回真实结果；`row[0]` / `row["列名"]` / `IFNULL` /
+     `PRAGMA table_info`（形状与 SQLite 逐项一致）/ `sqlite_master` / `date('now')` /
+     `MAX(0,)` 全部工作；全量测试与 ruff 全绿。
 5. **[web]** 网站三块：检索+详情、AI 助手、翻译质量可视化
 6. **[tokens]** 两侧省 token
 7. **[launch]** 端到端冒烟 + 一次性切换 + 旧文件清理（备份留两周）
+
+**launch 前必须补完的方言清单**（不影响「机制成立」，但影响具体功能在 PG 上的完整性）：
+- `INSERT OR IGNORE` 8 处 → `ON CONFLICT DO NOTHING`
+- `lastrowid` 5 处（PG 无此属性）→ 改用 `RETURNING`（`repo.fetch.log_start` 已是范例）
+- `changes()` 2 处 → 用 `cursor.rowcount`
+- `sqlite3.OperationalError` / `IntegrityError` 13 处 → psycopg 的异常类型
+- `datetime('now','-N days')` / `strftime` 各 2 处 → PG 的 `now() - interval` / `to_char`
+- `executescript` 已在兼容层实现（按分号拆分），无需再改
+
+**另一个必须记住的坑**：psycopg 用 `%s` 做占位符，所以 SQL 里**字面量的 `%`
+必须转义成 `%%`** —— `LIKE '%的通知'` 这类写法全库到处都是，而 sqlite3 用 `?`、
+`%` 从来只是普通字符。漏掉这步的表现极具误导性：psycopg 报的不是「未知占位符」，
+而是构造错误消息时对中文解码失败，抛 `UnicodeDecodeError`，让人往编码方向查半天。
+`adapt_sql` 里**先转义 `%`、后换 `?`，顺序不能反**。
 
 **迁移必踩的坑**：
 - PG 的 identity 列默认拒绝显式插入 id，而迁移必须保留原 id（引用都按 id 走）
