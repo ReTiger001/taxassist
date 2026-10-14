@@ -38,7 +38,21 @@ from typing import Any
 
 from ..config import DB_PATH, ensure_dirs
 
-BACKEND = (os.environ.get("TAXASSIST_BACKEND") or "sqlite").strip().lower()
+DEFAULT_BACKEND = "sqlite"
+
+#: 默认后端。
+#:
+#: **目前仍是 sqlite** —— 切换尚未执行。改这一行为 "pg" 是切换的最后一步
+#: （配合 writelock 的 PG 分支一并生效），但**必须与"停机 → 迁移 → 验证"
+#: 一起做**，不能单独改：
+#:
+#:   · 改了它而不停旧进程 → 新进程写 PG、旧进程写 SQLite，两套库同时被写
+#:   · 改了它而不迁数据 → 新进程写的是旧快照
+#:   · 改了它而测试套件未声明后端 → 全量测试会去连生产库（见 tests/conftest.py
+#:     开头那段：本项目测试假设默认库是 SQLite）
+#:
+#: 完整步骤见 docs/PG切换操作手册.md。
+BACKEND = (os.environ.get("TAXASSIST_BACKEND") or DEFAULT_BACKEND).strip().lower()
 
 # 默认 DSN：本机、正式库、专用角色。密码走 %APPDATA%\postgresql\pgpass.conf，不写进代码。
 DEFAULT_PG_DSN = "host=127.0.0.1 dbname=taxassist user=taxassist"

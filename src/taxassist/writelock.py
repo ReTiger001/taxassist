@@ -163,7 +163,11 @@ def holder() -> str | None:
     两条过期判据（任一满足即抢占）：
       ① 进程已不存在  —— 崩溃 / 被 kill
       ② 心跳超时      —— 进程存在但卡死（新增，见模块头部说明）
+
+    PostgreSQL 后端下恒返回 None：没有文件锁可言，互斥由数据库的行级锁接管。
     """
+    if _pg_backend():
+        return None
     info = _read()
     if info is None:
         # 文件在但读不出 → 损坏或旧格式（没有 beat 字段）。一律当过期：
@@ -214,12 +218,34 @@ def _claim(info: dict) -> bool:
     return True
 
 
+def _pg_backend() -> bool:
+    """当前是否走 PostgreSQL。
+
+    延迟导入（而不是模块级）是为了避免与 `repo.conn` 形成导入环：
+    `repo.conn` 不需要 writelock，反过来 writelock 只在运行时问它一次。
+    任何导入异常都当 SQLite 处理 —— 宁可多拿一把锁，不要漏掉保护。
+    """
+    try:
+        from .repo import conn as _rc
+
+        return _rc.BACKEND == "pg"
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def acquire(who: str, *, timeout: float = 0) -> bool:
     """尝试取得写锁。``timeout`` 秒内没拿到就放弃返回 False。
 
     拿不到锁**不是错误** —— 调用方应该跳过本轮而不是报错退出：
     守候循环下一轮还会再来。
+
+    **PostgreSQL 后端下直接返回 True，不建文件锁**：PG 有行级锁与多连接，
+    跨进程互斥由数据库接管；再叠一层文件锁只会让写入方互相白等，而消掉那个
+    白等正是这次改造的目的（实测 attach 卡在网络超时时持锁，翻译连续 32 轮
+    零产出）。SQLite 后端保持原样 —— 它是那边唯一的并发保护，删了会冲突。
     """
+    if _pg_backend():
+        return True
     deadline = time.time() + max(0.0, timeout)
     while True:
         # holder() 顺带清理过期锁（进程没了 / 心跳超时），返回 None 表示
@@ -257,7 +283,12 @@ def heartbeat(who_owned_by: int | None = None) -> bool:
 
 
 def release(who_owned_by: int | None = None) -> None:
-    """释放写锁。默认只释放自己持有的那把。"""
+    """释放写锁。默认只释放自己持有的那把。
+
+    PostgreSQL 后端下无事可做 —— ``acquire`` 从未建过文件锁（见那里的说明）。
+    """
+    if _pg_backend():
+        return
     pid = os.getpid() if who_owned_by is None else who_owned_by
     if pid == os.getpid():
         # 先停心跳线程再删文件：反过来的话线程可能在删除后又把文件写回去，

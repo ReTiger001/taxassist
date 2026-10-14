@@ -17,7 +17,11 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from .config import DB_PATH, ensure_dirs
+from .config import DATA_DIR, DB_PATH, ensure_dirs
+
+#: 默认生产库路径。测试与工具用 monkeypatch 改 ``DB_PATH`` 来隔离库（不传
+#: ``path``），所以判断"是否要走默认后端"时要能分辨这两种情形。
+_DEFAULT_DB_PATH = DATA_DIR / "taxassist.db"
 
 log = logging.getLogger(__name__)
 
@@ -275,7 +279,12 @@ def connect(path: str | Path | None = None):
     """
     from .repo import conn as _rc
 
-    if _rc.BACKEND == "pg":
+    # 只有"要用**默认生产库**"时才按后端设置分流。三个条件缺一不可：
+    #   · path 为 None —— 调用方没指定具体文件
+    #   · DB_PATH 仍是默认生产路径 —— **测试与工具是用 monkeypatch 改
+    #     DB_PATH（不传 path）来隔离库的**，只看 path 会让它们连上生产库
+    #   · 后端设为 pg
+    if path is None and DB_PATH == _DEFAULT_DB_PATH and _rc.BACKEND == "pg":
         return _rc.connect_compat()
     ensure_dirs()
     target = Path(path) if path else DB_PATH
