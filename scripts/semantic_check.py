@@ -40,7 +40,6 @@ r"""语义校验：用本地模型找「形式没问题、意思不对」的偏�
 
 import argparse
 import json
-import sqlite3
 import sys
 import time
 import urllib.error
@@ -48,7 +47,6 @@ import urllib.request
 from pathlib import Path
 
 OLLAMA_URL = "http://127.0.0.1:11434/api/generate"
-DB_RO = "file:D:/EY-project/data/taxassist.db?mode=ro"
 LOG_DIR = Path("data/logs")
 DEFAULT_MODEL = "qwen2.5:14b-instruct"
 
@@ -149,7 +147,12 @@ def main():
     args = ap.parse_args()
 
     out = LOG_DIR / f"semantic_check_{args.field}.json"
-    conn = sqlite3.connect(DB_RO, uri=True, timeout=30)
+    # 走连接层而不是硬编码 SQLite 文件：切换 PostgreSQL 后数据在 PG 里，
+    # 硬编码路径会让这一页永远读到冻结的旧库（resume_translate.py 就是这么
+    # 空转了 400 轮）。连接层自动跟随后端，只读由它保证。
+    from taxassist.repo import conn as _ro
+
+    conn = _ro.connect_readonly()
     done = load_done(out)
     uids = [u for u in pick_items(conn, args.field, args.only_flagged, 0) if u not in done]
     todo = uids if args.limit <= 0 else uids[:args.limit]

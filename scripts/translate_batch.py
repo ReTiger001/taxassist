@@ -54,9 +54,20 @@ def main() -> int:
     #  之后采集更新了大量正文，数量涨到了四位数。）
     #
     # cwrq DESC 的顺序保留（优先译新的）。
-    conn.create_function("doc_hash", 1, lambda s: tl._hash(s or ""),
-                         deterministic=True)
+    from taxassist.repo import conn as _rc
+
     src_col = "IFNULL(p.content,'')" if field == "content" else "IFNULL(p.title,'')"
+    # 指纹表达式（`tl._hash` = sha256(文本) 的十六进制前 32 位）：
+    #   · SQLite 侧注册成自定义 SQL 函数 —— create_function 是 SQLite 专有
+    #   · PostgreSQL 侧用内置的 sha256 + convert_to 算出**同一个值**
+    #     （PG 11+ 自带 sha256，不需要 pgcrypto 扩展）
+    # 两者必须逐位相同，否则会误判"指纹过期"而反复重译。
+    if _rc.BACKEND == "pg":
+        hash_expr = "LEFT(encode(sha256(convert_to({c}, 'UTF8')), 'hex'), 32)"
+    else:
+        conn.create_function("doc_hash", 1, lambda s: tl._hash(s or ""),
+                             deterministic=True)
+        hash_expr = "doc_hash({c})"
     # **这对括号不能省**：下面还会接 ` AND ...`（正文非空、--years 限定），
     # 而 SQL 里 AND 的优先级高于 OR —— 不括起来就成了
     # 「未译过的 或（指纹过期 且 非空 且 年份内）」，于是"未译过但正文为空"
@@ -64,7 +75,8 @@ def main() -> int:
     sql = ("SELECT p.doc_uid, p.title, p.content FROM policy p"
            " LEFT JOIN translation t ON t.doc_uid = p.doc_uid"
            " AND t.field = ? AND t.lang = 'en'"
-           f" WHERE (t.id IS NULL OR t.src_hash <> doc_hash({src_col}))")
+           " WHERE (t.id IS NULL OR t.src_hash <> "
+           + hash_expr.format(c=src_col) + ")")
     params: list = [field]
     if field == "content":
         sql += " AND IFNULL(p.content,'') <> ''"

@@ -194,6 +194,18 @@ def translate_long(text: str, *, model: str = DEFAULT_MODEL,
 # ---------------------------------------------------------------- 落库
 
 def ensure_table(conn) -> None:
+    """建 translation 表（幂等）。
+
+    **PostgreSQL 侧直接返回**：表由 `pg/schema.sql` 建好，而这里的 DDL 是
+    SQLite 方言（AUTOINCREMENT）—— 发过去会报「语法错误 在 AUTOINCREMENT
+    或附近的」。而调用方 `translate_batch` 在**启动时**就走这一步，于是它
+    一上来就崩、一条都没译：实测切换后翻译空转 400 轮、缺口数字一动不动，
+    根因就是这一句。
+    """
+    from .repo import conn as _rc
+
+    if _rc.BACKEND == "pg":
+        return
     conn.execute(
         "CREATE TABLE IF NOT EXISTS translation ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"

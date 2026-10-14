@@ -115,8 +115,17 @@ def test_find_translate_pids_ignores_non_numeric_noise(daemon, monkeypatch):
 
 def test_pending_content_returns_none_when_db_missing(daemon, monkeypatch, tmp_path):
     """库不存在时返回 None（而不是 0）—— 0 的含义是「译完了、别拉了」，
-    与「我查不到」完全不同，混淆这两个会让翻译静默停摆。"""
-    monkeypatch.setattr(daemon, "DB", tmp_path / "不存在.db")
+    与「我查不到」完全不同，混淆这两个会让翻译静默停摆。
+
+    用 `db.DB_PATH` 而不是 `daemon.DB`：`pending_content` 现在走连接层
+    （硬编码 SQLite 路径在切换 PG 后会读到冻结的旧库），只读连接在 sqlite
+    模式下对不存在的文件会报错、异常被捕获后返回 None —— 语义与从前一致。
+    """
+    from taxassist.repo import conn as _rc
+
+    # patch 打在**实际使用它的模块**上：连接层从 `repo.conn` 自己的
+    # `DB_PATH` 取路径，改 `db.DB_PATH` 对它无效（那是另一个模块属性）。
+    monkeypatch.setattr(_rc, "DB_PATH", tmp_path / "不存在.db")
     assert daemon.pending_content() is None
 
 

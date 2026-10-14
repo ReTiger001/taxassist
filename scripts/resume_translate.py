@@ -21,15 +21,14 @@ fix_terms 都在抢），就**整轮退出**，不做等待。2026-10-14 实测�
     python scripts/resume_translate.py 20         # 最多 20 轮
 """
 
-import sqlite3
 import subprocess
 import sys
 import time
 from pathlib import Path
 
 from taxassist import proc as procutil  # 子进程必须带 CREATE_NO_WINDOW
+from taxassist.repo import conn as ro_conn
 
-DB_RO = "file:D:/EY-project/data/taxassist.db?mode=ro"
 GAP_SQL = {
     "titles": """SELECT COUNT(*) FROM policy p
         WHERE p.title IS NOT NULL AND LENGTH(p.title)>1
@@ -43,7 +42,15 @@ GAP_SQL = {
 
 
 def gap(what):
-    c = sqlite3.connect(DB_RO, uri=True, timeout=30)
+    """统计还缺多少条译文。
+
+    **走连接层而不是硬编码 SQLite 文件**：切换 PostgreSQL 后数据在 PG 里，
+    硬编码路径会让这个函数永远读到冻结的旧库 —— 表现是缺口数字一直不动
+    （实测：切换后它空转 400 轮、每轮都报「标题缺 1565」，而翻译成果全写进
+    了 PG，它根本看不见）。连接层的 ``connect_readonly`` 自动跟随后端，
+    只读也由它保证（PG 侧是 default_transaction_read_only）。
+    """
+    c = ro_conn.connect_readonly()
     try:
         return c.execute(GAP_SQL[what]).fetchone()[0]
     finally:

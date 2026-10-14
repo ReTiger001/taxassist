@@ -83,6 +83,11 @@ OK
 
 
 def ensure_table(conn: sqlite3.Connection) -> None:
+    """建表（幂等）。PostgreSQL 侧的表由 pg/schema.sql 建，这里只处理 SQLite。"""
+    from taxassist.repo import conn as _rc
+
+    if _rc.BACKEND == "pg":
+        return
     conn.execute(
         "CREATE TABLE IF NOT EXISTS translation_ai_review ("
         " id INTEGER PRIMARY KEY AUTOINCREMENT,"

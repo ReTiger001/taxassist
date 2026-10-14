@@ -131,9 +131,9 @@ def pending_content() -> int | None:
     高估只会多拉起一次进程，低估却会让翻译无声地停在这里。
     """
     try:
-        import sqlite3
+        from taxassist.repo import conn as _ro
 
-        conn = sqlite3.connect(f"{DB.resolve().as_uri()}?mode=ro", uri=True, timeout=30)
+        conn = _ro.connect_readonly()
         try:
             return conn.execute(
                 "SELECT COUNT(*) FROM policy p"
@@ -150,9 +150,9 @@ def pending_content() -> int | None:
 
 def latest_translation_at() -> str | None:
     try:
-        import sqlite3
+        from taxassist.repo import conn as _ro
 
-        conn = sqlite3.connect(f"{DB.resolve().as_uri()}?mode=ro", uri=True, timeout=30)
+        conn = _ro.connect_readonly()
         try:
             row = conn.execute(
                 "SELECT MAX(created_at) FROM translation WHERE field = 'content'"

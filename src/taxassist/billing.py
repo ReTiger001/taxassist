@@ -39,7 +39,15 @@ KEY_PREFIX = "tk_"
 
 
 def ensure_tables(conn: sqlite3.Connection) -> None:
-    """建表（幂等），并把老库缺的列补上。"""
+    """建表（幂等），并把老库缺的列补上。
+
+    **PostgreSQL 侧直接返回**：那几张表由 `pg/schema.sql` 建好，而这里的
+    DDL 与 executescript 都是 SQLite 方言，发过去只会报语法错。
+    """
+    from .repo import conn as _rc
+
+    if _rc.BACKEND == "pg":
+        return
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS customer (

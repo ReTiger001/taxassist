@@ -7,13 +7,18 @@
   translate 标题与正文的翻译覆盖率
   attachment 解析成功与不支持的构成
 """
-import sqlite3
+import sys
 from pathlib import Path
 
 ROOT = Path(r"D:\EY-project")
-conn = sqlite3.connect(f"file:{ROOT / 'data' / 'taxassist.db'}?mode=ro",
-                       uri=True, timeout=10)
-c = conn.cursor()
+sys.path.insert(0, str(ROOT / "src"))
+
+# 走连接层而不是硬编码 SQLite 文件：切换 PostgreSQL 后数据在 PG 里，硬编码
+# 路径会读到冻结的旧库 —— resume_translate.py 就是这么空转了 400 轮。
+from taxassist.repo import conn as _ro  # noqa: E402
+
+conn = _ro.connect_readonly()
+c = conn  # 连接本身提供 execute；兼容层的 cursor() 只是包装返回值，不必再包一层
 
 
 def one(sql):
