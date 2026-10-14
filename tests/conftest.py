@@ -34,6 +34,16 @@ import pytest
 # 这里统一禁用。要专门测转换本身时，在用例里 delenv 即可。
 os.environ.setdefault("TAXASSIST_NO_WPS", "1")
 
+#: **测试显式声明后端**，不依赖 `repo.conn.DEFAULT_BACKEND` 的当前值。
+#:
+#: 为什么必须显式：`DEFAULT_BACKEND` 会在切换 PostgreSQL 时被改成 "pg"，
+#: 而那时若测试跟着走 PG，整套测试就从"验证代码"变成"在生产库上跑来跑去"
+#: —— 本项目默认库是**真实库**（见文件头），那种事故不会报错，只会静默改数据。
+#:
+#: 用 `setdefault` 而不是直接赋值：需要跑 PG 侧验证时，设
+#: `TAXASSIST_BACKEND=pg` 即可覆盖（`scripts/smoke_pg.py` 就是这么做的）。
+os.environ.setdefault("TAXASSIST_BACKEND", "sqlite")
+
 
 @pytest.fixture
 def temp_db():

@@ -38,20 +38,19 @@ from typing import Any
 
 from ..config import DB_PATH, ensure_dirs
 
-DEFAULT_BACKEND = "sqlite"
+DEFAULT_BACKEND = "pg"
 
-#: 默认后端。
+#: 默认后端。**已切换为 pg**（2026-10-14）。
 #:
-#: **目前仍是 sqlite** —— 切换尚未执行。改这一行为 "pg" 是切换的最后一步
-#: （配合 writelock 的 PG 分支一并生效），但**必须与"停机 → 迁移 → 验证"
-#: 一起做**，不能单独改：
+#: 为什么用默认值而不是在每个 .bat 里设环境变量：`/tmp/taprobe/` 那类自动化是
+#: **直接调 `python -m taxassist ...`** 的、不经过启动脚本，环境变量方案管不到
+#: 它；漏一个入口的表现就是「那个任务还在写 SQLite」，而两套库同时被写是这次
+#: 改造里最难查的状态。
 #:
-#:   · 改了它而不停旧进程 → 新进程写 PG、旧进程写 SQLite，两套库同时被写
-#:   · 改了它而不迁数据 → 新进程写的是旧快照
-#:   · 改了它而测试套件未声明后端 → 全量测试会去连生产库（见 tests/conftest.py
-#:     开头那段：本项目测试假设默认库是 SQLite）
+#: 测试不受影响：`tests/conftest.py` 显式声明 `TAXASSIST_BACKEND=sqlite`
+#: （用 setdefault，可被覆盖）—— 测试本就该隔离后端，而不是跟着默认值走。
 #:
-#: 完整步骤见 docs/PG切换操作手册.md。
+#: **回退**：把这一行改回 "sqlite"，或设 `TAXASSIST_BACKEND=sqlite` 覆盖。
 BACKEND = (os.environ.get("TAXASSIST_BACKEND") or DEFAULT_BACKEND).strip().lower()
 
 # 默认 DSN：本机、正式库、专用角色。密码走 %APPDATA%\postgresql\pgpass.conf，不写进代码。
