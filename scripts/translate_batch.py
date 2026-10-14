@@ -163,6 +163,12 @@ def main() -> int:
             print(f"  已译 {done}  跳过 {skipped}  失败 {failed}  "
                   f"{rate:.2f} 条/秒  预计剩余 {left:.0f} 分钟")
 
+    # **收尾提交**：最后一批可能不足 5 条、且耗时不到 20 秒，两个提交条件
+    # 都不满足 —— 那些成果会随 conn.close() 一起丢掉，而输出仍报「译 N、
+    # 失败 0」，看起来完全成功。实测：切换当天最后 4 条标题译文就是这么
+    # 消失的（1561 条写进了库，因为它们触发了「每 5 条」，最后 4 条没有）。
+    if done:
+        conn.commit()
     el = time.time() - t0
     print(f"\n完成：译 {done}，跳过 {skipped}（已缓存或为空），失败 {failed}，"
           f"用时 {el/60:.1f} 分钟")
