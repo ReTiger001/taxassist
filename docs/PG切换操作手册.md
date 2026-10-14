@@ -31,7 +31,7 @@ TAXASSIST_BACKEND=pg .venv/Scripts/python.exe -c "from taxassist.repo import con
 .venv/Scripts/python.exe -m pytest -q
 
 # 3) 端到端冒烟全过（12 项，跑在 PG 上）
-.venv/Scripts/python.exe data/_scratch/smoke_pg.py
+.venv/Scripts/python.exe scripts/smoke_pg.py
 ```
 
 三项都应通过。第 3 项测的是「同一份代码在 PG 上真能干活」，不是单元测试那种
@@ -164,8 +164,8 @@ grep -rln "writelock" src/ scripts/ tools/ --include=*.py
 ## 第 6 步：验证
 
 ```bash
-# 端到端冒烟（12 项）
-.venv/Scripts/python.exe data/_scratch/smoke_pg.py
+# 端到端冒烟（12 项）—— 脚本在 scripts/ 下，是项目的一部分，不是临时文件
+.venv/Scripts/python.exe scripts/smoke_pg.py
 
 # 起网页看一眼检索与详情
 .venv/Scripts/python.exe -m taxassist serve
