@@ -164,13 +164,24 @@ def transaction(conn) -> Iterator[Any]:
 
 
 def execute(conn, text: str, params: Sequence[Any] | None = None):
-    """执行一条语句（占位符写 ``?``）。"""
-    return conn.execute(sql(text), tuple(params or ()))
+    """执行一条语句（占位符写 ``?``）。
+
+    **不要在这里调 sql()** —— 连接层已经负责翻译：``CompatConnection.execute``
+    会调 ``adapt_sql``，而 SQLite 连接本来就用 ``?``、不需要翻译。
+
+    再翻一次会出事：``adapt_sql`` 的第一步是 ``%`` → ``%%``，于是已经生成的
+    ``%s`` 被转义成 ``%%s``，SQL 里一个占位符都不剩，psycopg 报
+    「the query has 0 placeholders but N parameters were passed」。
+
+    这个 bug 是**端到端冒烟**抓到的 —— 单元测试跑在 SQLite 上，而 SQLite 侧
+    根本不翻译（``sql()`` 在后端不是 pg 时原样返回），所以看不见它。
+    """
+    return conn.execute(text, tuple(params or ()))
 
 
 def executemany(conn, text: str, seq_params):
-    """批量执行（占位符写 ``?``）。"""
-    return conn.executemany(sql(text), [tuple(p) for p in seq_params])
+    """批量执行（占位符写 ``?``）。翻译同样交给连接层，理由见 :func:`execute`。"""
+    return conn.executemany(text, [tuple(p) for p in seq_params])
 
 
 def ping() -> str:
@@ -342,23 +353,76 @@ class CompatCursor:
         return getattr(self._cur, "lastrowid", None)
 
 
+def _raise_translated(exc):
+    """把 psycopg 的异常翻成 sqlite3 的对应类型后再抛。
+
+    为什么值得单独做一层：既有代码里有 7 处捕获 ``sqlite3.OperationalError``
+    / ``sqlite3.IntegrityError`` 做容错降级 —— 例如「全新库还没建表，当作
+    未登录」（auth.py）、「app_user 表可能还不存在」（billing.py）。
+    PG 抛的是 psycopg 自己的类型，不被翻译的话那些容错会**静默失效**：
+    本该降级成「未登录」，实际变成整个请求崩掉。翻译一层，那 7 处一行不用改。
+
+    映射依据是**调用方的语义**，不是名字像不像：
+      · 唯一键 / 外键 / 非空 / CHECK 冲突 → ``sqlite3.IntegrityError``
+      · 其余数据库错误（表或列不存在、连接失败、语法错）→
+        ``sqlite3.OperationalError`` —— 调用方就是这么用的：sqlite3 把
+        「表不存在」也算 OperationalError，那 7 处都按「操作层面出了问题、
+        降级继续」处理。
+
+    总是抛出，不返回 —— 调用处因此不需要 return。
+    """
+    if isinstance(exc, sqlite3.Error):
+        raise exc                                  # 已是 sqlite3 类型，原样抛
+
+    try:
+        import psycopg
+    except ImportError:                            # pragma: no cover
+        # 不该发生：走到这里说明用的是 pg 后端。from None 隐去导入错误本身，
+        # 把原始失败原因露出来。
+        raise exc from None
+
+    integrity_errors = (
+        psycopg.errors.UniqueViolation,
+        psycopg.errors.ForeignKeyViolation,
+        psycopg.errors.NotNullViolation,
+        psycopg.errors.CheckViolation,
+    )
+    if isinstance(exc, integrity_errors):
+        raise sqlite3.IntegrityError(str(exc)) from exc
+    if isinstance(exc, psycopg.Error):
+        raise sqlite3.OperationalError(str(exc)) from exc
+    raise exc                                      # 非数据库异常，原样往上抛
+
+
 class CompatConnection:
     """把 psycopg 连接包装成既有代码认得的形状。
 
     只包装既有代码真正用到的部分：execute / executemany / executescript /
     commit / rollback / close / cursor。不假装自己是 sqlite3.Connection ——
     类型判断仍然区分得开，需要真实 PG 连接时用 ``.raw``。
+
+    **异常也一并翻译**（见 :func:`_raise_translated`）：既有代码里有 7 处
+    捕获 ``sqlite3.OperationalError`` / ``IntegrityError`` 做容错降级
+    （如「全新库还没建表，当作未登录」）。PG 抛的是 psycopg 自己的类型，
+    不被翻译的话那些容错会静默失效 —— 那不是「报错更清楚」，而是
+    「本该降级的地方变成崩溃」。
     """
 
     def __init__(self, raw):
         self.raw = raw
 
     def execute(self, text, params=None):
-        return CompatCursor(self.raw.execute(adapt_sql(text), tuple(params or ())))
+        try:
+            return CompatCursor(self.raw.execute(adapt_sql(text), tuple(params or ())))
+        except Exception as e:  # noqa: BLE001
+            _raise_translated(e)
 
     def executemany(self, text, seq_params):
-        return CompatCursor(
-            self.raw.executemany(adapt_sql(text), [tuple(p) for p in seq_params]))
+        try:
+            return CompatCursor(
+                self.raw.executemany(adapt_sql(text), [tuple(p) for p in seq_params]))
+        except Exception as e:  # noqa: BLE001
+            _raise_translated(e)
 
     def executescript(self, script: str):
         """PG 没有 executescript：按分号拆分逐条执行。
@@ -366,8 +430,11 @@ class CompatConnection:
         既有代码只在建表路径上用（db.init_db / auth / billing 的 ensure_table），
         那几处的语句里没有含分号的字符串字面量，拆分是安全的。
         """
-        for stmt in _split_statements(script):
-            self.raw.execute(adapt_sql(stmt))
+        try:
+            for stmt in _split_statements(script):
+                self.raw.execute(adapt_sql(stmt))
+        except Exception as e:  # noqa: BLE001
+            _raise_translated(e)
         return None
 
     def cursor(self, *a, **kw):

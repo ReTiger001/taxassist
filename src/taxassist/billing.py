@@ -208,9 +208,13 @@ def ensure_customer(conn: sqlite3.Connection, name: str) -> bool:
     except sqlite3.OperationalError:
         is_owner = False
     cur = conn.execute(
-        "INSERT OR IGNORE INTO customer"
+        "INSERT INTO customer"
         " (name, balance, assistant_balance, unlimited, created_at)"
-        " VALUES(?, 0, 0, ?, ?)",
+        " VALUES(?, 0, 0, ?, ?)"
+        # ON CONFLICT(name) 而不是 INSERT OR IGNORE：两者语义相同（customer 的
+        # 主键就是 name），而前者在 SQLite 3.24+ 与 PostgreSQL 上是同一句话 ——
+        # 切库时这一处不必再想。
+        " ON CONFLICT(name) DO NOTHING",
         (name, 1 if is_owner else 0, now_iso()))
     # 客户早就存在、但后来被封为超管的情形：把标志补上（老库首次跑到这里时有用）。
     if is_owner:
@@ -230,10 +234,13 @@ def add_balance(conn: sqlite3.Connection, name: str, kind: str, amount: int) -> 
     if col is None:
         raise ValueError(f"未知的计费种类：{kind!r}")
     ensure_tables(conn)
-    conn.execute(
+    # 用 rowcount 判断"有没有这个客户"，不用 SELECT changes()：后者是 SQLite
+    # 专有函数，PG 里没有对应的东西，而 rowcount 两边都有。
+    # MAX(0, ...) 保留不动 —— 兼容层已把它翻成 PG 的 GREATEST。
+    cur = conn.execute(
         f"UPDATE customer SET {col} = MAX(0, {col} + ?) WHERE name = ?",
         (int(amount), name))
-    if conn.execute("SELECT changes()").fetchone()[0] == 0:
+    if cur.rowcount == 0:
         conn.rollback()
         raise ValueError(f"没有这个客户：{name!r}")
     conn.commit()

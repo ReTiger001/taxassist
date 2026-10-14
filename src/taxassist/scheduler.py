@@ -20,7 +20,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
 from . import db as dbmod
 from . import effect, pipeline, writelock
@@ -54,9 +54,14 @@ def fetch_health(conn) -> dict:
     last_ok = conn.execute(
         "SELECT started_at, window_end FROM fetch_log WHERE status='ok'"
         " ORDER BY id DESC LIMIT 1").fetchone()
+    # 时间窗在 Python 里算好再传参：SQLite 的 datetime('now','-7 days') 在 PG 上
+    # 没有对应写法（那边是 now() - interval '7 days'），把方言留在 SQL 里会让
+    # 这一处成为切库时的地雷 —— 而且它不会报错，只会让"最近 7 天"变成别的东西。
+    since_7d = (datetime.now().astimezone() - timedelta(days=7)).replace(
+        microsecond=0).isoformat()
     bad = conn.execute(
         "SELECT COUNT(*) c FROM fetch_log WHERE status IN ('incomplete','failed')"
-        " AND started_at >= datetime('now', '-7 days')").fetchone()["c"]
+        " AND started_at >= ?", (since_7d,)).fetchone()["c"]
     recent_bad = conn.execute(
         "SELECT source_id, status, fetched_count, reported_total, error, started_at"
         " FROM fetch_log WHERE status IN ('incomplete','failed')"
