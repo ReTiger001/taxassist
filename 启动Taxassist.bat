@@ -19,6 +19,13 @@ setlocal
 
 set "PY=D:\EY-project\.venv\Scripts\python.exe"
 set "OLLAMA=D:\longvideocrater\Ollama\ollama.exe"
+REM ollama looks up models by OLLAMA_MODELS. The real dir is D:\models; the
+REM user-scope env var on this machine points at D:\ollama-models, which holds
+REM ONLY hunyuan-mt -- so without this line ollama silently starts without
+REM qwen2.5:14b-instruct and AI review / the assistant report "model not
+REM found". Set it here, immediately before ollama is started.
+set "OLLAMA_MODELS=D:\models"
+set "OLLAMA_KEEP_ALIVE=30m"
 cd /d "D:\EY-project"
 
 echo ============================================
@@ -40,8 +47,8 @@ if %errorlevel%==0 (
   REM (every translation request adds lines to it) and this is the window the
   REM user asked to stop seeing. Web and worker keep their windows on purpose.
   REM
-  REM The env vars set with `set` above are inherited by this PowerShell child,
-  REM so OLLAMA_MODELS / OLLAMA_KEEP_ALIVE still take effect.
+  REM The OLLAMA_MODELS / OLLAMA_KEEP_ALIVE set above are inherited by this
+  REM PowerShell child, so the model dir still takes effect.
   REM -RedirectStandardOutput and -RedirectStandardError cannot point at the
   REM same file, hence two logs.
   if not exist "data\logs" mkdir "data\logs"
