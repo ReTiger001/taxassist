@@ -5,7 +5,7 @@
 这个脚本把那条路径真跑一遍。
 
 覆盖：连接 → 检索 → 详情页四表 → 列表页聚合 → 助手取数层 → 审校台渲染 →
-写入 + 回滚 → 附件租约领取 → 异常类型翻译。
+每日简报渲染 → 写入 + 回滚 → 附件租约领取 → 异常类型翻译。
 
 全部在 taxassist 库（演练库）上做；写入的部分自己清理。
 
@@ -115,6 +115,25 @@ def review_page():
 
 
 check("审校台渲染", review_page)
+
+
+# 每日简报 —— **专门盯 date('now', ?) 这类方言漏网**
+# 这里原先写着 `WHERE p.cwrq >= date('now', ?)`：SQLite 的 date() 收两个参数，
+# 而 PG 的 date() **只收一个**，于是 /daily 在 PG 上直接 500（报「函数
+# date(unknown, unknown) 不存在」），单元测试跑在 SQLite 上看不见。
+# 修法是让调用处写两边通用的 SQL（日期边界在 Python 算好当文本参数传）。
+# 这条冒烟就是钉住它：任何一端坏掉都会在这里报出来。
+def daily_page():
+    from fastapi.testclient import TestClient
+
+    from taxassist.web.app import create_app
+
+    resp = TestClient(create_app(require_auth=False)).get("/daily")
+    has_title = "Daily Brief" in resp.text
+    return f"HTTP {resp.status_code} / {len(resp.text)} 字符 / 标题在: {has_title}"
+
+
+check("每日简报渲染", daily_page)
 
 
 # 写入 + 清理

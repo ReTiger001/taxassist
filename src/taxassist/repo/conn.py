@@ -231,7 +231,11 @@ def adapt_sql(text: str) -> str:
       六列**（cid, name, type, notnull, dflt_value, pk）—— 调用方普遍用
       ``row[1]`` 取列名，形状必须一致，不能只返回一列
     * ``sqlite_version()`` → ``version()``
-    * ``date('now')`` → ``CURRENT_DATE``
+    * ``date('now')`` → ``CURRENT_DATE``。
+      **带参数形式（``date('now', '-14 days')``）故意不翻译**：PG 的 ``date()``
+      只收一个参数，而正确译法要按列的**类型**决定（text 列必须转成字符串再比，
+      否则报「操作符不存在: text >= timestamp」）。这种判断无法靠机械替换做对，
+      所以这类写法应当在调用处改成两边通用的 SQL —— 见 ``browse_routes.daily``。
     * ``MAX(0,`` → ``GREATEST(0,``
 
     **故意不做**的替换，因为无法机械判定、必须人工改：

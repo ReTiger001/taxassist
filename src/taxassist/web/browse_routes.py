@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from datetime import date, timedelta
 
 from fastapi import Query, Request
 from fastapi.responses import HTMLResponse
@@ -347,9 +348,9 @@ def register(app, *, ctx, templates) -> None:
             " p.o_column, p.p_effect_status, p.p_effect_source, p.url,"
             " (SELECT COUNT(*) FROM attachment a WHERE a.doc_uid=p.doc_uid) AS n_attach"
             " FROM policy_official p"
-            " WHERE p.cwrq >= date('now', ?)"
+            " WHERE p.cwrq >= ?"
             f" ORDER BY {_SUBSTANTIVE_FIRST}, p.cwrq DESC",
-            (f"-{days} days",))
+            ((date.today() - timedelta(days=days)).isoformat(),))
         # 按日期归并分组。**不能依赖"相邻即同组"**：排序是先按实质政策优先、
         # 再按日期，同一天的政策法规与解读会被隔开，顺序分组会产出重复的日期组头
         # （实测：同一天可能出现"09-22 · 6 条"与"09-22 · 2 条"两个组）。
