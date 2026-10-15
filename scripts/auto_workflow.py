@@ -197,6 +197,65 @@ def in_window(spec: str) -> bool:
     return a <= h < b if a <= b else (h >= a or h < b)
 
 
+# --------------------------------------------------------------- 单实例闸门
+
+LOCK_NAME = "auto_workflow.pid"
+
+
+def _lock_path() -> Path:
+    """PID 文件位置。独立成函数是为了测试能 monkeypatch 到临时目录。"""
+    return ROOT / "data" / "worker_locks" / LOCK_NAME
+
+
+def running_pid() -> int | None:
+    """已在运行的那个实例的 PID；没有则 None。
+
+    **为什么工作流需要自己这道闸门**：``writelock`` 在 PG 后端下直接返回 True、
+    不建文件锁（互斥交给数据库行级锁），所以它挡不住"同一条工作流起两份"。
+    而两份工作流并行不是并发问题、是**数据问题**：它们写同一个
+    ``auto_workflow.json``、共用 ``wf_*.log``（run() 用 "w" 打开，互相截断），
+    还会各自去重译同一批条目。2026-10-16 凌晨就实测撞上过。
+
+    判据用 PID + 进程存活（复用 writelock 的实现，那边已处理
+    ``tasklist``/``os.kill`` 两种平台差异）。被 kill -9 留下的残留 PID 文件
+    会因为"那个进程已经不在"而被自动接管，不需要人工清理。
+    """
+    path = _lock_path()
+    if not path.exists():
+        return None
+    try:
+        pid = int((path.read_text(encoding="utf-8") or "").strip())
+    except (OSError, ValueError):
+        path.unlink(missing_ok=True)
+        return None
+    if pid == os.getpid():
+        return None                      # 自己留下的，不挡自己
+    sys.path.insert(0, str(ROOT / "src"))
+    from taxassist import writelock  # noqa: PLC0415
+    if writelock._pid_alive(pid):
+        return pid
+    log(f"发现残留 PID 文件（进程 {pid} 已不在），接管")
+    return None
+
+
+def acquire_single() -> bool:
+    """抢占单实例闸门。已有活着的实例则返回 False，**不覆盖**它的 PID 文件。"""
+    path = _lock_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(str(os.getpid()), encoding="utf-8")
+    return True
+
+
+def release_single() -> None:
+    """退出时清理 —— 只清自己的那份，免得删掉别人的。"""
+    path = _lock_path()
+    try:
+        if path.exists() and int((path.read_text(encoding="utf-8") or "0").strip()) == os.getpid():
+            path.unlink(missing_ok=True)
+    except (OSError, ValueError):
+        pass
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -213,27 +272,42 @@ def main() -> int:
     ap.add_argument("--sleep", type=int, default=30, help="轮间隔秒")
     ap.add_argument("--once", action="store_true", help="只跑一轮")
     ap.add_argument("--rounds", type=int, default=0, help="跑几轮，0=不限")
+    ap.add_argument("--force", action="store_true",
+                    help="忽略单实例闸门强行启动（确认只有一个时用）")
     args = ap.parse_args()
+
+    # 单实例闸门：先查后抢，抢不到就是已有实例在跑。
+    if not args.force:
+        other = running_pid()
+        if other is not None:
+            log(f"已有实例在运行（PID {other}），本次退出。"
+                f"确认只有一个时要强行启动，加 --force。")
+            return 1
+        acquire_single()
+    log(f"单实例闸门已取得（PID {os.getpid()}；闸门文件 data/worker_locks/{LOCK_NAME}）")
 
     history: list[dict] = []
     n = 0
-    while True:
-        if not args.once and not in_window(args.hours):
-            log(f"当前不在 {args.hours} 时段，退出")
-            break
-        n += 1
-        log(f"===== 第 {n} 轮 =====")
-        set_state("轮次开始", f"第 {n} 轮", round=n)
-        rep = one_round(args, n)
-        history.append({"round": n,
-                        "at": dt.datetime.now().isoformat(timespec="seconds"),
-                        **rep})
-        PROGRESS.write_text(json.dumps(history[-60:], ensure_ascii=False, indent=1),
-                            encoding="utf-8")
-        if args.once or (args.rounds and n >= args.rounds):
-            break
-        log(f"本轮结束，{args.sleep} 秒后进入下一轮")
-        time.sleep(args.sleep)
+    try:
+        while True:
+            if not args.once and not in_window(args.hours):
+                log(f"当前不在 {args.hours} 时段，退出")
+                break
+            n += 1
+            log(f"===== 第 {n} 轮 =====")
+            set_state("轮次开始", f"第 {n} 轮", round=n)
+            rep = one_round(args, n)
+            history.append({"round": n,
+                            "at": dt.datetime.now().isoformat(timespec="seconds"),
+                            **rep})
+            PROGRESS.write_text(json.dumps(history[-60:], ensure_ascii=False, indent=1),
+                                encoding="utf-8")
+            if args.once or (args.rounds and n >= args.rounds):
+                break
+            log(f"本轮结束，{args.sleep} 秒后进入下一轮")
+            time.sleep(args.sleep)
+    finally:
+        release_single()
     log(f"工作流结束，共 {n} 轮。进度：{PROGRESS}")
     return 0
 
