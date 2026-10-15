@@ -199,23 +199,51 @@ def _claim(info: dict) -> bool:
     于是两个写库任务并行跑，而这正是这把锁唯一要防的事。窗口只有毫秒级，
     但 acquire 每天被调用几十次（工作流每步 + 人工命令 + 调度），迟早会撞上。
 
-    独占创建把裁决权交给内核：``O_CREAT|O_EXCL`` 在文件已存在时必然失败，
-    所以"谁先创建成功谁持有"是原子的。拿不到就回到调用方的循环里重新判断 ——
-    那时 ``holder()`` 会看到对方写的那个持有者，该等就等。
+    两步都要原子，少一步就有真竞态（**实测**：30 次 6 进程抢锁，4 次出现 2 个赢家）：
+
+    ① **原子的"出现"**：先写临时文件、再 ``os.link`` 建硬链接。链接是原子的，
+       目标已存在必然失败 —— 与 ``O_CREAT|O_EXCL`` 的裁决语义相同。
+    ② **出现时内容就是完整的**：``O_CREAT|O_EXCL`` 只保证"文件出现"原子，而
+       它出现在 ``os.fdopen(...).write(...)`` **之前**，于是文件会有一瞬间是
+       空的。另一个进程此时的 ``holder()`` 读到空文件 → ``_read()`` 返回 None
+       → 按"损坏"处理并 **unlink 掉赢家的锁** → 自己也 ``_claim`` 成功。
+       两个赢家就是这么来的。先把内容写进临时文件再链接，锁文件一出现就是
+       可解析的，这个窗口不存在。
+
+    拿不到就回调用方的循环，那时 ``holder()`` 会看到对方写的持有者，该等就等。
     """
     LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    payload = json.dumps(info, ensure_ascii=False)
+    tmp = LOCK_FILE.with_suffix(f".{os.getpid()}.claim.tmp")
+    # 固定名 + 清理：进程不会同时抢两把锁，且自己不留残留
+    tmp.unlink(missing_ok=True)
     try:
-        fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-    except FileExistsError:
+        tmp.write_text(payload, encoding="utf-8")
+    except OSError:
         return False
     try:
-        with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(json.dumps(info, ensure_ascii=False))
-    except OSError:
-        # 写失败要撤掉自己的占位，否则那把锁变成一个谁都读不出的空文件
-        LOCK_FILE.unlink(missing_ok=True)
-        raise
-    return True
+        try:
+            os.link(tmp, LOCK_FILE)
+        except FileExistsError:
+            return False                                  # 别人先建好了
+        except (AttributeError, NotImplementedError, OSError):
+            # 文件系统不支持硬链接（如某些网络盘）：退回 O_EXCL + 就地写。
+            # 这条路会重新引入"短暂空文件"窗口，但没有别的原子手段了。
+            try:
+                fd = os.open(LOCK_FILE, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                return False
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                    fh.write(payload)
+            except OSError:
+                LOCK_FILE.unlink(missing_ok=True)
+                raise
+        return True
+    finally:
+        # 只清理**自己的**临时文件。绝不 unlink LOCK_FILE —— 链接成功后它可能
+        # 已经易主（持有者释放、别人抢到），删它等于删别人的锁。
+        tmp.unlink(missing_ok=True)
 
 
 def _pg_backend() -> bool:
