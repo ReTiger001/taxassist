@@ -154,7 +154,8 @@ def one_round(args, rnd: int = 0) -> dict:
     log(f"③ AI 审核（上限 {args.ai_review_limit} 条）")
     set_state("③ AI 审核", f"上限 {args.ai_review_limit} 条", round=rnd)
     rep["ai_review"] = run("ai_review", [
-        "scripts/ai_review.py", "--limit", str(args.ai_review_limit)], timeout=7200)
+        "scripts/ai_review.py", "--limit", str(args.ai_review_limit),
+        "--max-chars", "4500"], timeout=7200)
     show("AI审核", rep["ai_review"])
 
     # ④ 自纠错之一：规则明确的（机构名结构 + 已定稿术语）。这两类不需要判断，
