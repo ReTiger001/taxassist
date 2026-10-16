@@ -67,9 +67,26 @@ from . import kb
 
 log = logging.getLogger(__name__)
 
-#: 对话模型。选 Qwen2.5-14B-Instruct：中文强、能跑在 16G 显存上。
-#: 实测单次问答约 94 秒（15GB 模型 > 16GB 显存，少量层在 CPU），前端要做流式。
-DEFAULT_MODEL = "qwen2.5:14b-instruct"
+#: 对话模型。**2026-10-17 从 qwen2.5:14b-instruct 换成 qwen3:14b**：
+#: 同样是 14B 一档、同样能整块装进 16G 显存，但新一代的指令跟随与判断更强。
+#: 换模型的依据不是"感觉新"，是同一批真实条目的对比（见 AI 审核那侧的评测）：
+#: qwen2.5 标 OK 的条目里，qwen3 揪出了约 25% 的真错
+#: （「2亿元」→"200 million"、期限译错、数字串错位等）。
+#:
+#: **必须传 think=False**：Qwen3 默认开思考模式，实测会把整个输出预算吃在推理上、
+#: `response` 返回空串 —— 表现为"模型不回答"，而且不报错。见 ai_review.py 的 THINK。
+#:
+#: 为什么不选更强的 qwen3.8:27b（用户提过）：实测它 17GB / 16GB 显存装不下，
+#: **每次请求都重新加载（25-38s）**，连 num_ctx 降到 4096 也一样 —— 那是显存
+#: 溢出导致的反复换入换出，不是 KV cache 的问题。而 qwen3:14b 实测整块驻留
+#: （13.39GB），热态响应 1-3 秒。
+DEFAULT_MODEL = "qwen3:14b"
+
+#: 关闭思考模式（与默认模型配套，**不能省**）。
+#: Qwen3 默认开 thinking，实测会把整个输出预算吃在推理上、`response` 返回空串，
+#: 表现为"助手不说话"而且**不报错**。关掉后同样问题 16.9s→ 回答正常。
+#: 问答与判断题都不需要思维链；需要推理深度的场景可单独开。
+THINK = False
 
 #: 一次最多带入多少条政策。**这个数由 NUM_CTX 反推**：
 #: 6 条 × 约 530 字 ≈ 3200 字，加上系统提示与补充说明约 7000 token，
@@ -125,6 +142,7 @@ def chat(messages: list[dict], *, model: str = DEFAULT_MODEL,
 
     payload = {"model": model, "messages": messages, "stream": False,
                "keep_alive": KEEP_ALIVE,
+               "think": THINK,
                "options": {"temperature": temperature,
                            "num_predict": num_predict,
                            "num_ctx": NUM_CTX}}
@@ -204,6 +222,7 @@ def chat_stream(messages: list[dict], *, model: str = DEFAULT_MODEL,
 
     payload = {"model": model, "messages": messages, "stream": True,
                "keep_alive": KEEP_ALIVE,
+               "think": THINK,
                "options": {"temperature": temperature,
                            "num_predict": num_predict,
                            "num_ctx": NUM_CTX}}

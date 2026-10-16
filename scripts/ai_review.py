@@ -55,9 +55,16 @@ import httpx  # noqa: E402
 
 from taxassist import db as dbmod  # noqa: E402
 
-MODEL = "qwen2.5:14b-instruct"
+MODEL = "qwen3:14b"
 OLLAMA = "http://127.0.0.1:11434/api/generate"
 UNSURE_OUT = Path("data/logs/ai_unsure.json")
+
+#: **必须显式关掉思考模式**。Qwen3 系列默认开启 thinking，实测它会把整个
+#: num_predict 预算吃在推理上、`response` 直接返回空字符串 ——
+#: 那样每条都会解析成"拿不准"，而且是静默的（不报错）。
+#: 实测同一问题：默认 27.0s / 输出 200 tok / 回答为空；think=False 后
+#: 16.9s / 输出 7 tok / 回答正常。审核是判断题，不需要思维链。
+THINK = False
 
 #: 提示词刻意写得短而具体。长篇大论的要求会让 14B 模型抓不住重点；点出三类最
 #: 容易读反的地方，比泛泛说「是否准确」有效得多。**必须给出「不确定」这个
@@ -124,6 +131,7 @@ def ask(zh: str, en: str, timeout: int = 900) -> str:
         "model": MODEL,
         "prompt": PROMPT.format(zh=zh, en=en),
         "stream": False,
+        "think": THINK,
         "options": {"num_ctx": NUM_CTX, "temperature": 0.1, "num_predict": 160},
     }, timeout=timeout)
     r.raise_for_status()
