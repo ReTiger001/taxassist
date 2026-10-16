@@ -268,13 +268,13 @@ def main() -> int:
                     help="每轮翻译条数上限")
     ap.add_argument("--retranslate-limit", type=int, default=40,
                     help="每轮定点重译条数上限")
-    ap.add_argument("--ai-review-limit", type=int, default=80,
+    ap.add_argument("--ai-review-limit", type=int, default=150,
                     help="每轮 AI 审核条数上限。**默认按时限倒推**：run() 给这步的超时"
-                         "是 7200s，而放开长度上限后单条耗时差很多 —— 短条目约 12s，"
-                         "2 万字的长条目实测约 52s。按最坏 60s 算，80 条约 80 分钟，"
-                         "留了 50% 余量；300 条最坏要 4.3 小时，会撞上超时、整步白跑"
-                         "（run() 丢弃结果报 rc=-1）。队列清空后每轮只剩少量复审，"
-                         "届时可调回。")
+                         "是 7200s，而放开长度上限后单条耗时差很多 —— 实测平均约 "
+                         "9-17s（本轮 80 条用 1373s≈17s/条），最坏（大量 2 万字条目）"
+                         "约 52s。150 条按最坏算 130 分钟，仍在 7200s 之内；"
+                         "300 条最坏要 4.3 小时会撞超时、整步白跑（rc=-1）。"
+                         "队列清空后每轮只剩少量复审，届时可调回。")
     ap.add_argument("--sleep", type=int, default=30, help="轮间隔秒")
     ap.add_argument("--once", action="store_true", help="只跑一轮")
     ap.add_argument("--rounds", type=int, default=0, help="跑几轮，0=不限")
