@@ -112,6 +112,12 @@ def ensure_table(conn: sqlite3.Connection) -> None:
 #: "原文没写"，于是给出假 OK —— 这比不审更危险。
 NUM_CTX = 32768
 
+#: 分块审核时每块的原文字数。
+#: 实测 1.4 token/字（原文 19462 字 → 27077 tokens），12000 字 ≈ 16800 tokens，
+#: 对 32768 留了约一半给输出与模板 —— 余量给足是因为这一路专门处理超长文档，
+#: 它们的表格/数字最密，token 比可能更高。
+CHUNK_CHARS = 12000
+
 
 def ask(zh: str, en: str, timeout: int = 900) -> str:
     r = httpx.post(OLLAMA, json={
@@ -137,9 +143,74 @@ def parse(ans: str) -> tuple[str, str]:
     return "unsure", f"回答无法归类：{t[:200]}"
 
 
-def pick_pending(conn, field: str, limit: int, max_chars: int) -> list[sqlite3.Row]:
-    """取还没审过的（或译文在上次审核之后又被重译过的）。"""
+def _chunk_pair(zh: str, en: str, max_chars: int) -> list[tuple[str, str]]:
+    """把超长条目切成若干块，**两个文本按长度比例同切**。
+
+    为什么按比例而不是各自均分：译文与原文段落一一对应，各自均分会让第 k 段
+    的中文配上第 k 段的英文的**错位**版本 —— 那等于拿两份无关文本让模型对照，
+    比不审更糟。
+
+    切点找不到句末标点时退回均分：**宁可切在句中也不能丢字**，
+    丢字会让模型把自己"没看到"当成"原文没写"（同 NUM_CTX 那条假 OK 隐患）。
+    """
+    n = max(1, -(-len(zh) // max_chars))
+    parts: list[tuple[str, str]] = []
+    pz = pe = 0
+    for i in range(n):
+        z_end = len(zh) if i == n - 1 else min(len(zh), (i + 1) * max_chars)
+        e_end = len(en) if i == n - 1 else min(len(en), round((i + 1) * len(en) / n))
+        # 只有还有富余时才往前找句末 —— 避免把块缩得太短
+        win = min(240, max(0, z_end - pz - max_chars // 2))
+        if i < n - 1 and win > 0:
+            seg = zh[z_end - win:z_end]
+            cut = max(seg.rfind(c) for c in "。；！？\n")
+            if cut > 0:
+                z_end = z_end - win + cut + 1
+        parts.append((zh[pz:z_end], en[pe:e_end]))
+        pz, pe = z_end, e_end
+    return parts
+
+
+def review_long(zh: str, en: str, max_chars: int | None = None) -> tuple[str, str]:
+    """超长条目：分块审核后合并结论。
+
+    合并规则偏保守：**任一块有问题即为有问题**（并标出在哪一块），
+    任一块拿不准即为拿不准；全 OK 才算 OK。理由与 ``parse`` 一致 ——
+    宁可升级给人，也不要让漏看的块冒充「通过」。
+
+    任何一块失败都返回 unsure 并写明失败位置，**绝不静默丢弃**：
+    那等于把"没审到"粉饰成"通过"。
+    """
+    mc = max_chars or CHUNK_CHARS
+    parts = _chunk_pair(zh, en, mc)
+    verdicts: list[str] = []
+    for idx, (cz, ce) in enumerate(parts, 1):
+        try:
+            v, _ = parse(ask(cz, ce))
+        except Exception as e:  # noqa: BLE001 - 单块失败不中断整条
+            return "unsure", f"第 {idx}/{len(parts)} 块审核失败：{type(e).__name__}: {e}"
+        verdicts.append(v)
+    n_issue = sum(1 for v in verdicts if v == "issue")
+    if n_issue:
+        loc = "、".join(str(i + 1) for i, v in enumerate(verdicts) if v == "issue")
+        return "issue", f"分 {len(parts)} 块审核：第 {loc} 块发现问题"
+    if "unsure" in verdicts:
+        loc = "、".join(str(i + 1) for i, v in enumerate(verdicts) if v == "unsure")
+        return "unsure", f"分 {len(parts)} 块审核：第 {loc} 块拿不准"
+    return "ok", ""
+
+
+def pick_pending(conn, field: str, limit: int, max_chars: int | None) -> list[sqlite3.Row]:
+    """取还没审过的（或译文在上次审核之后又被重译过的）。
+
+    ``max_chars=None`` 表示不限长度 —— 分块审核那条路用它把超长条目也捞出来。
+    """
     zh_col = "p.title" if field == "title" else "p.content"
+    hi = "" if max_chars is None else f" AND LENGTH(IFNULL({zh_col}, '')) BETWEEN 1 AND ?"
+    params: list = [field]
+    if max_chars is not None:
+        params.append(max_chars)
+    params.append(limit)
     return conn.execute(
         f"SELECT t.doc_uid, {zh_col} AS zh, t.text AS en, t.created_at AS made"
         f" FROM translation t"
@@ -147,7 +218,7 @@ def pick_pending(conn, field: str, limit: int, max_chars: int) -> list[sqlite3.R
         f" LEFT JOIN translation_ai_review r ON r.doc_uid = t.doc_uid"
         f"   AND r.field = t.field"
         f" WHERE t.field = ? AND t.text IS NOT NULL"
-        f"   AND LENGTH(IFNULL({zh_col}, '')) BETWEEN 1 AND ?"
+        f"{hi}"
         f"   AND (r.doc_uid IS NULL OR t.created_at > r.reviewed_at)"
         f" ORDER BY t.created_at DESC LIMIT ?",
         (field, max_chars, limit)).fetchall()
@@ -162,11 +233,17 @@ def main() -> int:
     ap.add_argument("--field", choices=("title", "content"), default="content")
     ap.add_argument("--limit", type=int, default=200)
     ap.add_argument("--max-chars", type=int, default=20000,
-                    help="原文超过这个字数的跳过。默认 20000 是**实测倒推**的："
-                         "NUM_CTX=32768 下，原文 19462 字（译文 73315 字符）的 prompt 实测"
-                         " 27077 tokens，留了约 5000 token 给输出；约 24000 字即顶到 32768。"
-                         "超过它的条目（160 条，最长 110885 字）单个上下文放不下，"
-                         "要覆盖只能分块审核。")
+                    help="**单次送模型的原文上限**，超过的会分块审核（不是跳过）。默认"
+                         " 20000 是实测倒推的：NUM_CTX=32768 下原文 19462 字"
+                         "（译文 73315 字符）的 prompt 实测 27077 tokens，留了约 5000"
+                         " token 给输出；约 24000 字即顶到 32768。")
+    ap.add_argument("--chunk-chars", type=int, default=CHUNK_CHARS,
+                    help=f"分块审核时每块的原文字数（默认 {CHUNK_CHARS}，"
+                         "按 1.4 token/字 与 32768 上下文倒推，留足输出余量）")
+    ap.add_argument("--max-block-docs", type=int, default=5,
+                    help="每轮最多分块审核几篇超长文档（默认 5）。**限量是刻意的**："
+                         "一篇 11 万字要切 10 块、耗时几分钟，不限量会挤掉正常队列"
+                         "并撞上工作流的 7200s 超时")
     ap.add_argument("--stats", action="store_true")
     args = ap.parse_args()
 
@@ -184,23 +261,32 @@ def main() -> int:
                 print(f"  {r['field']:8} {r['verdict']:7} {r['n']} 条")
             return 0
 
-        pending = pick_pending(conn, args.field, args.limit, args.max_chars)
-        print(f"[{args.field}] 待审 {len(pending)} 条（≤{args.max_chars} 字，"
-              f"新的优先）\n")
+        # 两条队列：正常长度的直接审；超长的分块审（否则它们永远轮不到）。
+        # 分块的那条**每轮限量**（--max-block-docs），免得多篇 11 万字文档
+        # 挤掉正常队列并撞上工作流的 7200s 超时。
+        normal = pick_pending(conn, args.field, args.limit, args.max_chars)
+        blocks = pick_pending(conn, args.field, args.max_block_docs, None)
+        blocks = [r for r in blocks if len(r["zh"] or "") > args.max_chars]
+        pending = [(r, False) for r in normal] + [(r, True) for r in blocks]
+        print(f"[{args.field}] 待审 {len(normal)} 条（≤{args.max_chars} 字）"
+              f" + 超长 {len(blocks)} 条（分块，每轮上限 {args.max_block_docs}）"
+              f"　新的优先\n")
         if not pending:
             return 0
 
         counts = {"ok": 0, "issue": 0, "unsure": 0}
         unsure: list[dict] = []
         t0 = time.time()
-        for i, r in enumerate(pending, 1):
+        for i, (r, is_block) in enumerate(pending, 1):
             try:
-                ans = ask(r["zh"], r["en"])
+                if is_block:
+                    verdict, reason = review_long(r["zh"], r["en"], args.chunk_chars)
+                else:
+                    verdict, reason = parse(ask(r["zh"], r["en"]))
             except Exception as e:  # noqa: BLE001 - 单条失败不中断整批
                 print(f"  [{i}/{len(pending)}] 失败 {r['doc_uid'][:36]}: "
                       f"{type(e).__name__}: {e}", flush=True)
                 continue
-            verdict, reason = parse(ans)
             counts[verdict] += 1
             conn.execute(
                 "INSERT INTO translation_ai_review"
@@ -217,8 +303,9 @@ def main() -> int:
             if i % 20 == 0:
                 conn.commit()
             mark = {"ok": "OK ", "issue": "问题", "unsure": "拿不准"}[verdict]
-            print(f"  [{i}/{len(pending)}] {mark} {r['doc_uid'][:40]:<40} "
-                  f"{reason[:76]}", flush=True)
+            tag = "[长]" if is_block else ""
+            print(f"  [{i}/{len(pending)}] {tag}{mark} {r['doc_uid'][:36]:<36} "
+                  f"{reason[:70]}", flush=True)
         conn.commit()
     finally:
         conn.close()
