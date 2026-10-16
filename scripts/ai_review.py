@@ -221,7 +221,7 @@ def pick_pending(conn, field: str, limit: int, max_chars: int | None) -> list[sq
         f"{hi}"
         f"   AND (r.doc_uid IS NULL OR t.created_at > r.reviewed_at)"
         f" ORDER BY t.created_at DESC LIMIT ?",
-        (field, max_chars, limit)).fetchall()
+        tuple(params)).fetchall()
 
 
 def main() -> int:
