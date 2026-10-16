@@ -155,7 +155,7 @@ def one_round(args, rnd: int = 0) -> dict:
     set_state("③ AI 审核", f"上限 {args.ai_review_limit} 条", round=rnd)
     rep["ai_review"] = run("ai_review", [
         "scripts/ai_review.py", "--limit", str(args.ai_review_limit),
-        "--max-chars", "4500"], timeout=7200)
+        "--max-chars", "20000"], timeout=7200)
     show("AI审核", rep["ai_review"])
 
     # ④ 自纠错之一：规则明确的（机构名结构 + 已定稿术语）。这两类不需要判断，
@@ -268,12 +268,12 @@ def main() -> int:
                     help="每轮翻译条数上限")
     ap.add_argument("--retranslate-limit", type=int, default=40,
                     help="每轮定点重译条数上限")
-    ap.add_argument("--ai-review-limit", type=int, default=300,
-                    help="每轮 AI 审核条数上限。**默认 300 是按时限倒推的**："
-                         "run() 给这步的超时是 7200s，而长条目实测约 19.4s/条，"
-                         "400 条 ≈ 133 分钟会撞上超时、整步白跑；300 条 ≈ 97 分钟，"
-                         "留了余量。（原默认 150 时队列里都是短条目，约 12s/条，"
-                         "上限提到 400 也不会超时 —— 放开 max-chars 后不再成立。）")
+    ap.add_argument("--ai-review-limit", type=int, default=100,
+                    help="每轮 AI 审核条数上限。**默认按时限倒推**：run() 给这步的超时"
+                         "是 7200s，而放开长度上限后单条耗时差很多 —— 短条目约 12s，"
+                         "2 万字的长条目实测约 52s。按最坏 60s 算，100 条约 100 分钟，"
+                         "留了余量；300 条则会撞上超时、整步白跑（run() 丢弃结果报 rc=-1）。"
+                         "队列清空后每轮只剩少量复审，届时可调回。")
     ap.add_argument("--sleep", type=int, default=30, help="轮间隔秒")
     ap.add_argument("--once", action="store_true", help="只跑一轮")
     ap.add_argument("--rounds", type=int, default=0, help="跑几轮，0=不限")

@@ -102,14 +102,23 @@ def ensure_table(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
-def ask(zh: str, en: str, timeout: int = 400) -> str:
+#: 送进模型的上下文窗口。**32768 是这台机器的上限，且是实测出来的**：
+#: - 模型本体 14B-Q4_K_M 常驻显存约 10.4GB，16GB 卡只剩约 5.5GB 给 KV cache
+#: - 实测 num_ctx=32768 处理原文 19462 字（prompt 27077 tokens）耗时 51.7s，
+#:   模型稳定驻留显存、没有明显 CPU 卸载；处理 11083 字（15751 tokens）19.1s
+#: - 超过 32768 就要往 CPU 卸层，吞吐掉得厉害，不划算
+#: **别调小**：给小了 ollama 会**静默截断输入**（实测同一请求 ctx=8192 只报
+#: 4098 tokens，真实值是 17003），而模型看不到结尾时会把自己"没看到"当成
+#: "原文没写"，于是给出假 OK —— 这比不审更危险。
+NUM_CTX = 32768
+
+
+def ask(zh: str, en: str, timeout: int = 900) -> str:
     r = httpx.post(OLLAMA, json={
         "model": MODEL,
         "prompt": PROMPT.format(zh=zh, en=en),
         "stream": False,
-        # num_ctx 显式给：ollama 默认值随版本变，给小了会静默截断 —— 模型看不到
-        # 结尾，会把「没看到」当成「原文没写」。
-        "options": {"num_ctx": 8192, "temperature": 0.1, "num_predict": 160},
+        "options": {"num_ctx": NUM_CTX, "temperature": 0.1, "num_predict": 160},
     }, timeout=timeout)
     r.raise_for_status()
     return (r.json().get("response") or "").strip()
@@ -152,12 +161,12 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--field", choices=("title", "content"), default="content")
     ap.add_argument("--limit", type=int, default=200)
-    ap.add_argument("--max-chars", type=int, default=4500,
-                    help="原文超过这个字数的跳过。默认 4500 是**实测**定的，不是拍的："
-                         "num_ctx=8192 下，原文 4501 字 + 译文 19800 字符的 prompt 实测"
-                         " 6226 tokens，装得下；6000 字则要 7933 tokens，会挤掉输出。"
-                         "原默认 2500 过保守——8192 上下文实际能吃到约 5000 字原文，"
-                         "而 2500 把 1393 条本可审核的条目挡在了外面（覆盖率 84.8%→94.3%）。")
+    ap.add_argument("--max-chars", type=int, default=20000,
+                    help="原文超过这个字数的跳过。默认 20000 是**实测倒推**的："
+                         "NUM_CTX=32768 下，原文 19462 字（译文 73315 字符）的 prompt 实测"
+                         " 27077 tokens，留了约 5000 token 给输出；约 24000 字即顶到 32768。"
+                         "超过它的条目（160 条，最长 110885 字）单个上下文放不下，"
+                         "要覆盖只能分块审核。")
     ap.add_argument("--stats", action="store_true")
     args = ap.parse_args()
 
