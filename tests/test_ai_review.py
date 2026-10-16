@@ -36,7 +36,7 @@ def air(tmp_path, monkeypatch):
     conn.executescript(
         "CREATE TABLE policy (doc_uid TEXT PRIMARY KEY, title TEXT, content TEXT);"
         "CREATE TABLE translation (doc_uid TEXT, field TEXT, lang TEXT, text TEXT,"
-        "  created_at TEXT);"
+        "  src_hash TEXT, model TEXT, created_at TEXT);"
         "CREATE TABLE translation_ai_review (doc_uid TEXT, field TEXT, verdict TEXT,"
         "  reason TEXT, model TEXT, zh_len INTEGER, reviewed_at TEXT,"
         "  PRIMARY KEY (doc_uid, field));"
@@ -181,3 +181,60 @@ def test_review_long_chunk_failure_is_unsure_not_ok(air, monkeypatch):
     v, reason = mod.review_long("字" * 30000, "c" * 120000, 12000)
     assert v == "unsure"
     assert "第 2" in reason
+
+
+# --------------------------------------------------------------- 修正校验与落库
+
+def test_fix_ok_accepts_reasonable_fix(air):
+    mod, _ = air
+    old = "The rate is 15% for 2026, cap 100,000 yuan."
+    fixed = "The rate is 15% for 2026, and the cap is 100,000 yuan."
+    assert mod._fix_ok(old, fixed) is True
+
+
+def test_fix_ok_rejects_too_short(air):
+    """过短多半是模型只回了片段 —— 必须拒绝，否则会把半截译文写进库。"""
+    mod, _ = air
+    old = "x" * 1000
+    assert mod._fix_ok(old, "x" * 100) is False
+
+
+def test_fix_ok_rejects_lost_numbers(air):
+    """数字保留率是"数字被打错/整段被截断"最直接的信号。"""
+    mod, _ = air
+    old = "rates 10% 20% 30% 40% 50% amounts 111 222 333 444 555"
+    fixed = "rates 10% 20% 30% 40% 50% amounts 1 2 3 4 5"
+    assert mod._fix_ok(old, fixed) is False
+
+
+def test_fix_ok_without_numbers_only_checks_length(air):
+    mod, _ = air
+    old = "no digits here at all, just words"
+    assert mod._fix_ok(old, "no digits here at all, just some words") is True
+
+
+def test_apply_fix_updates_text_and_review_row(air):
+    """落库必须同时改译文与审核记录，且**不能动 created_at**。
+
+    created_at 若变新，条目会因为「译文比审核记录新」被无限重审 ——
+    这正是修复流程最容易踩的坑。
+    """
+    mod, conn = air
+    _add(conn, "u1", "原文", "old translation")
+    before = conn.execute("SELECT created_at FROM translation WHERE doc_uid='u1'").fetchone()[0]
+
+    mod._apply_fix(conn, "u1", "content", "brand new translation", "数字译错", 2)
+    conn.commit()
+
+    t = conn.execute(
+        "SELECT text, model, created_at FROM translation WHERE doc_uid='u1'").fetchone()
+    r = conn.execute(
+        "SELECT verdict, reason, model, zh_len FROM translation_ai_review"
+        " WHERE doc_uid='u1' AND field='content'").fetchone()
+    assert t["text"] == "brand new translation"
+    assert t["model"].endswith("+fix")
+    assert t["created_at"] == before, "created_at 不能变，否则会被无限重审"
+    assert r["verdict"] == "issue" and r["reason"].startswith("[已修复]")
+    assert r["model"].endswith("+fix")
+    assert r["zh_len"] == 2
+

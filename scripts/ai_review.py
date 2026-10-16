@@ -44,6 +44,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import re
 import sqlite3
 import sys
 import time
@@ -168,6 +169,102 @@ def parse(ans: str) -> tuple[str, str]:
     return "unsure", f"回答无法归类：{t[:200]}"
 
 
+#: 审核 + **直接给出修正译文**的提示词。
+#: 用户要的流程是「千问发现问题 → 千问自己修好」，而不是「发现问题 → 退回混元重译」。
+#: 一次调用同时拿到判定与修正，省一轮往返。
+FIX_PROMPT = """你是税务政策翻译的校对员兼修理工。下面是一份中文政策原文和它的机器英译。
+
+第一步：判断英译有没有**实质性错误**，只看这几类：
+1. 义务方向（"可/应当/不得/准予"）译反或强度译错
+2. 数字、比例、金额、日期、期限译错或漏掉
+3. 适用条件、主体、范围译错
+4. 关键术语译错（如"免征/减征""留抵退税""起征点"）
+
+第二步：
+- 若**没有**错误，只回答：OK
+- 若**有**错误，先一句话指出问题，再给出**完整的修正后英译**（不要只给片段、不要省略）
+
+严格按此格式，不要额外解释：
+OK
+或
+问题：<一句话>
+修正译文：
+<完整英文译文>
+
+原文：
+{zh}
+
+英译：
+{en}"""
+
+
+def _ai_fix(prompt: str, zh: str, en: str, timeout: int = 1200) -> tuple[str, str, str | None]:
+    """审核并（如发现问题）给出修正译文。返回 ``(判定, 说明, 修正译文或None)``。
+
+    任意格式异常一律降级为 unsure 且不带修正 —— 与 ``parse`` 同一原则：
+    宁可升级给人，也不要让没读懂的回答冒充通过。
+    """
+    r = httpx.post(OLLAMA, json={
+        "model": MODEL, "prompt": prompt.format(zh=zh, en=en), "stream": False,
+        "think": THINK,
+        # num_predict **按译文长度动态给**：修正译文与原文等长（英文约 4 倍字符，
+        # 约 1.3 token/字符）。给死 8192 会白等 —— 实测本机约 29 tok/s，
+        # 万一模型写满 8192 就是 4.7 分钟。留 1.5 倍余量给"问题：…"那段说明。
+        "options": {"num_ctx": NUM_CTX, "temperature": 0.1,
+                    "num_predict": max(512, int(len(en) * 1.3 * 1.5))},
+    }, timeout=timeout)
+    r.raise_for_status()
+    t = (r.json().get("response") or "").strip()
+    if t.upper().startswith("OK"):
+        return "ok", "", None
+    if "修正译文" not in t:
+        # 有判定但没给修正 → 拿不准（无法自动修）
+        if t.startswith("问题") or "问题：" in t[:8]:
+            return "unsure", t.split("：", 1)[-1][:300], None
+        return "unsure", f"回答无法归类：{t[:160]}", None
+    head, body = t.split("修正译文", 1)
+    fixed = body.lstrip("：: \n").strip()
+    reason = head.replace("问题：", "").replace("问题:", "").strip()[:300]
+    if not fixed:
+        return "unsure", reason or "模型未给出修正译文", None
+    return "issue", reason, fixed
+
+
+def _fix_ok(old: str, fixed: str) -> bool:
+    """修正译文的廉价校验。**宁可放弃自动修，也不让"修得更差"静默入库。**
+
+    只查两件机械可判的事：
+      ① 长度是否与原文同量级（过短多半是模型只回了片段）
+      ② 原文里的数字**保留率** —— 这是数字被打错、整段被截断最直接的信号
+    """
+    if not fixed or len(fixed) < 0.3 * len(old):
+        return False
+    old_nums = set(re.findall(r"\d+(?:\.\d+)?", old))
+    if not old_nums:
+        return True
+    fixed_nums = set(re.findall(r"\d+(?:\.\d+)?", fixed))
+    return len(old_nums & fixed_nums) / len(old_nums) >= 0.7
+
+
+def _apply_fix(conn, uid: str, field: str, fixed: str, reason: str,
+               zh_len: int = 0) -> None:
+    """把修正译文落库，并**同步写成审核记录**（verdict 用模型给出的判定）。
+
+    ``created_at`` 不动：它若变新，条目会因为「译文比审核记录新」被无限重审。
+    """
+    now = dt.datetime.now().isoformat(timespec="seconds")
+    conn.execute("UPDATE translation SET text=?, model=? WHERE doc_uid=? AND field=? AND lang=?",
+                 (fixed, f"{MODEL}+fix", uid, field, "en"))
+    conn.execute(
+        "INSERT INTO translation_ai_review"
+        " (doc_uid, field, verdict, reason, model, zh_len, reviewed_at)"
+        " VALUES (?,?,?,?,?,?,?)"
+        " ON CONFLICT(doc_uid, field) DO UPDATE SET"
+        "   verdict=excluded.verdict, reason=excluded.reason, model=excluded.model,"
+        "   reviewed_at=excluded.reviewed_at",
+        (uid, field, "issue", f"[已修复] {reason}", f"{MODEL}+fix", zh_len, now))
+
+
 def _chunk_pair(zh: str, en: str, max_chars: int) -> list[tuple[str, str]]:
     """把超长条目切成若干块，**两个文本按长度比例同切**。
 
@@ -225,27 +322,51 @@ def review_long(zh: str, en: str, max_chars: int | None = None) -> tuple[str, st
     return "ok", ""
 
 
-def pick_pending(conn, field: str, limit: int, max_chars: int | None) -> list[sqlite3.Row]:
-    """取还没审过的（或译文在上次审核之后又被重译过的）。
+def pick_pending(conn, field: str, limit: int, max_chars: int | None,
+                 model: str | None = None) -> list[sqlite3.Row]:
+    """取待审条目，**按"最可能有问题"优先**。
 
     ``max_chars=None`` 表示不限长度 —— 分块审核那条路用它把超长条目也捞出来。
+
+    排序（2026-10-17 加）：未审 → 现判 issue → 现判 unsure → 其余。
+    为什么优先重审自己的旧判定：库里大批 ``ok`` 是**较弱模型**（qwen2.5:14b）
+    下的结论，实测它标 ok 的条目里约 25% 有实质错误；而 ``issue`` 的条目
+    直接进第 ⑤ 步修，优先级最高。
+
+    ``model`` 传当前审核模型时，**已由该模型审过的条目不再重审** ——
+    否则本轮判为 issue 的条目下一轮又被捞回来，永远在原地打转。
+    未审条目不受此限（r.model 为 NULL → 比较得 NULL → 视为不成立，
+    由同一条件里的 ``r.doc_uid IS NULL`` 分支放行）。
     """
     zh_col = "p.title" if field == "title" else "p.content"
     hi = "" if max_chars is None else f" AND LENGTH(IFNULL({zh_col}, '')) BETWEEN 1 AND ?"
     params: list = [field]
     if max_chars is not None:
         params.append(max_chars)
+    # 待审条件：未审过 / 译文在上次审核后又被重译过 /
+    # 现判 issue·unsure 且**不是当前模型**审的（换模型后要复审，但不能每轮重复审）
+    cond = "(r.doc_uid IS NULL OR t.created_at > r.reviewed_at"
+    if model is not None:
+        # `!=` 而非 `IS NOT`：后者是 `IS DISTINCT FROM` 的语法位，
+        # PG 不接受参数占位符（实测报 `语法错误 在 "$3" 或附近`）。
+        cond += " OR (r.verdict IN ('issue','unsure') AND r.model != ?)"
+        params.append(model)
+    cond += ")"
     params.append(limit)
     return conn.execute(
-        f"SELECT t.doc_uid, {zh_col} AS zh, t.text AS en, t.created_at AS made"
+        f"SELECT t.doc_uid, {zh_col} AS zh, t.text AS en, t.created_at AS made,"
+        f" r.verdict AS prev_verdict"
         f" FROM translation t"
         f" JOIN policy p ON p.doc_uid = t.doc_uid"
         f" LEFT JOIN translation_ai_review r ON r.doc_uid = t.doc_uid"
         f"   AND r.field = t.field"
         f" WHERE t.field = ? AND t.text IS NOT NULL"
         f"{hi}"
-        f"   AND (r.doc_uid IS NULL OR t.created_at > r.reviewed_at)"
-        f" ORDER BY t.created_at DESC LIMIT ?",
+        f"   AND {cond}"
+        f" ORDER BY CASE WHEN r.verdict IN ('issue','unsure') THEN 0"
+        f"               WHEN r.doc_uid IS NULL THEN 1"
+        f"               ELSE 2 END,"
+        f"          t.created_at DESC LIMIT ?",
         tuple(params)).fetchall()
 
 
@@ -289,8 +410,8 @@ def main() -> int:
         # 两条队列：正常长度的直接审；超长的分块审（否则它们永远轮不到）。
         # 分块的那条**每轮限量**（--max-block-docs），免得多篇 11 万字文档
         # 挤掉正常队列并撞上工作流的 7200s 超时。
-        normal = pick_pending(conn, args.field, args.limit, args.max_chars)
-        blocks = pick_pending(conn, args.field, args.max_block_docs, None)
+        normal = pick_pending(conn, args.field, args.limit, args.max_chars, model=MODEL)
+        blocks = pick_pending(conn, args.field, args.max_block_docs, None, model=MODEL)
         blocks = [r for r in blocks if len(r["zh"] or "") > args.max_chars]
         pending = [(r, False) for r in normal] + [(r, True) for r in blocks]
         print(f"[{args.field}] 待审 {len(normal)} 条（≤{args.max_chars} 字）"
@@ -299,29 +420,48 @@ def main() -> int:
         if not pending:
             return 0
 
-        counts = {"ok": 0, "issue": 0, "unsure": 0}
+        counts = {"ok": 0, "issue": 0, "unsure": 0, "fixed": 0}
         unsure: list[dict] = []
         t0 = time.time()
         for i, (r, is_block) in enumerate(pending, 1):
+            fixed: str | None = None
             try:
                 if is_block:
+                    # 超长条目：分块审核（超长文档的修复交给第 ⑤ 步重译，
+                    # 因为修正译文比原文更长，分块改写风险高于收益）
                     verdict, reason = review_long(r["zh"], r["en"], args.chunk_chars)
                 else:
-                    verdict, reason = parse(ask(r["zh"], r["en"]))
+                    # **用户要的流程**：发现问题就当场修好，而不是退回重译
+                    verdict, reason, fixed = _ai_fix(FIX_PROMPT, r["zh"], r["en"])
             except Exception as e:  # noqa: BLE001 - 单条失败不中断整批
                 print(f"  [{i}/{len(pending)}] 失败 {r['doc_uid'][:36]}: "
                       f"{type(e).__name__}: {e}", flush=True)
                 continue
+
+            fix_note = ""
+            if fixed is not None:
+                if _fix_ok(r["en"], fixed):
+                    _apply_fix(conn, r["doc_uid"], args.field, fixed, reason,
+                               len(r["zh"] or ""))
+                    counts["fixed"] += 1
+                    fix_note = f" → 已修正 {len(fixed)} 字符"
+                else:
+                    # 修正没过校验：降级为拿不准，**绝不把可疑修正写进库**
+                    verdict = "unsure"
+                    reason = f"修正未通过校验（长度/数字对不上）：{reason[:120]}"
+                    fixed = None
+
             counts[verdict] += 1
-            conn.execute(
-                "INSERT INTO translation_ai_review"
-                " (doc_uid, field, verdict, reason, model, zh_len, reviewed_at)"
-                " VALUES (?,?,?,?,?,?,?)"
-                " ON CONFLICT(doc_uid, field) DO UPDATE SET"
-                "   verdict=excluded.verdict, reason=excluded.reason,"
-                "   reviewed_at=excluded.reviewed_at",
-                (r["doc_uid"], args.field, verdict, reason, MODEL, len(r["zh"] or ""),
-                 dt.datetime.now().isoformat(timespec="seconds")))
+            if fixed is None:
+                conn.execute(
+                    "INSERT INTO translation_ai_review"
+                    " (doc_uid, field, verdict, reason, model, zh_len, reviewed_at)"
+                    " VALUES (?,?,?,?,?,?,?)"
+                    " ON CONFLICT(doc_uid, field) DO UPDATE SET"
+                    "   verdict=excluded.verdict, reason=excluded.reason,"
+                    "   model=excluded.model, reviewed_at=excluded.reviewed_at",
+                    (r["doc_uid"], args.field, verdict, reason, MODEL,
+                     len(r["zh"] or ""), dt.datetime.now().isoformat(timespec="seconds")))
             if verdict == "unsure":
                 unsure.append({"uid": r["doc_uid"], "reason": reason,
                                "zh_len": len(r["zh"] or "")})
@@ -330,7 +470,7 @@ def main() -> int:
             mark = {"ok": "OK ", "issue": "问题", "unsure": "拿不准"}[verdict]
             tag = "[长]" if is_block else ""
             print(f"  [{i}/{len(pending)}] {tag}{mark} {r['doc_uid'][:36]:<36} "
-                  f"{reason[:70]}", flush=True)
+                  f"{reason[:60]}{fix_note}", flush=True)
         conn.commit()
     finally:
         conn.close()
@@ -338,8 +478,8 @@ def main() -> int:
     el = (time.time() - t0) / 60
     tot = sum(counts.values())
     print(f"\n完成：{tot} 条，用时 {el:.1f} 分钟")
-    print(f"  OK {counts['ok']} ／ 有问题 {counts['issue']} ／ "
-          f"拿不准 {counts['unsure']}")
+    print(f"  OK {counts['ok']} ／ 有问题 {counts['issue']}（其中已修正并落库 "
+          f"{counts['fixed']}）／ 拿不准 {counts['unsure']}")
     if unsure:
         # **从库里取全部 unsure，而不是只写这一批** —— 第一版把局部变量
         # `unsure` 直接覆盖写进文件，于是每次运行都冲掉上一批：库里累计 54 条，
