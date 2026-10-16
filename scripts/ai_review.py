@@ -443,6 +443,11 @@ def main() -> int:
                 if _fix_ok(r["en"], fixed):
                     _apply_fix(conn, r["doc_uid"], args.field, fixed, reason,
                                len(r["zh"] or ""))
+                    # **每条修正立即提交**，不等每 20 条的批量提交：
+                    # 单条修复实测约 45-230s，攒 20 条意味着最多半小时的成果
+                    # 悬在未提交事务里，进程一被 kill 就全丢 —— 而这些是已花掉
+                    # 的模型时间，重跑代价极高。
+                    conn.commit()
                     counts["fixed"] += 1
                     fix_note = f" → 已修正 {len(fixed)} 字符"
                 else:
