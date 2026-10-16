@@ -266,8 +266,12 @@ def main() -> int:
     ap.add_argument("--hours", default="9-20", help="工作时段（默认 9-20）")
     ap.add_argument("--translate-batch", type=int, default=150,
                     help="每轮翻译条数上限")
-    ap.add_argument("--retranslate-limit", type=int, default=40,
-                    help="每轮定点重译条数上限")
+    ap.add_argument("--retranslate-limit", type=int, default=10,
+                    help="每轮定点重译条数上限。**默认 10 是刻意的**：第 ⑤ 步两个子步骤"
+                         "各跑一遍，实测 50 条要 40 分钟（2046s+383s），是单轮里最重的"
+                         "一块，却与清空 AI 审核队列这个目标无关。调到 10 后每轮省约"
+                         " 28 分钟 —— 清空 1703 条审核队列从约 15 小时压到约 10 小时。"
+                         "重译是长期维护任务，队列清空后可按需要调回 50。")
     ap.add_argument("--ai-review-limit", type=int, default=150,
                     help="每轮 AI 审核条数上限。**默认按时限倒推**：run() 给这步的超时"
                          "是 7200s，而放开长度上限后单条耗时差很多 —— 实测平均约 "
