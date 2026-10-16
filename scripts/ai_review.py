@@ -55,7 +55,24 @@ import httpx  # noqa: E402
 
 from taxassist import db as dbmod  # noqa: E402
 
-MODEL = "qwen3:14b"
+#: **2026-10-17：qwen2.5:14b-instruct → qwen3.8:27b-q4_K_M**。
+#:
+#: 换的依据是同一批真实条目的对比，不是"感觉新"：
+#:
+#:   qwen2.5:14b 标 OK 的条目里，qwen3 系列揪出约 25% 是**真错**
+#:   （「2亿元」→"200 million" 差 10 倍、「2022年10月31日」→"October 30"、
+#:    合同款 256,349,924 → 25,634,992 差一个数量级、
+#:    「中华全国体育基金会」→"All-China Sports Federation"（那是体育总会））
+#:
+#: **用 27B 而不是 14B**：用户明确"质量优先于速度"。实测同样能跑：
+#: 17GB 权重在 16GB 卡上由 ollama 把 12.88GB 放显存、其余放内存
+#: （`size_vram` < `size`），32768 上下文下短问答热态 4.4s、
+#: 19916 字长条目约 98s。代价是比 qwen3:14b 慢约 2-5 倍，换来更强的判断。
+#:
+#: 曾一度以为它"每次请求都要重载 25-38s"——那是**模型文件没下完**造成的假象
+#: （`ollama pull` 中途中断，某个分片显示 100% 但整体不完整，调用报 not found）。
+#: 完整下载后实测可稳定驻留。**教训：判断模型不可用之前先确认它下载完整。**
+MODEL = "qwen3.8:27b-q4_K_M"
 OLLAMA = "http://127.0.0.1:11434/api/generate"
 UNSURE_OUT = Path("data/logs/ai_unsure.json")
 
