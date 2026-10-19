@@ -157,6 +157,18 @@ def run_daily(conn=None, *, enrich_limit: int = 200, days: int = 7,
 
         result["steps"]["translate"] = _translate_incremental(conn)
 
+        # **采集后补向量索引**：新政策没有向量，混合检索在它们身上会退化成
+        # 纯全文（客户"搜不到"最容易发生在新政策上）。限量 500 条避免日更拖太久，
+        # 剩余由次日 / 手动 scripts/embed_policy.py 补齐（增量、可反复跑）。
+        try:
+            from . import indexing
+
+            vr = indexing.embed_pending(conn, limit=500)
+            result["steps"]["embed"] = {"docs": vr["docs"], "chunks": vr["chunks"],
+                                        "seconds": round(vr["seconds"], 1)}
+        except Exception as e:  # noqa: BLE001 - 向量化失败不该让日更算失败
+            result["steps"]["embed"] = {"error": f"{type(e).__name__}: {e}"}
+
         result["ok"] = len(bad) == 0
         status = "ok" if result["ok"] else "incomplete"
     except Exception as e:

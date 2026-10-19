@@ -214,6 +214,22 @@ def cmd_collect(args) -> int:
     stats = effect.judge_effects(conn)
     print(f"效力判定：{stats['judged']} 条（来源分布 {stats['by_source']}）")
 
+    # **采集完顺手补向量索引**：新政策若没有向量，混合检索会在新内容上退化成
+    # 纯全文 —— 而客户投诉的"搜不到"恰恰最容易发生在新政策上。
+    # 限量 500 条：一次采集可能上千条，全量补会让命令卡很久；剩下的由每日
+    # 定时任务或手动 `scripts/embed_policy.py` 补齐（都是增量的）。
+    from . import indexing
+
+    try:
+        r = indexing.embed_pending(conn, limit=500)
+        if r["docs"]:
+            print(f"向量索引：补建 {r['docs']} 条 / {r['chunks']} 块"
+                  f"（用时 {r['seconds']/60:.1f} 分钟）")
+        else:
+            print("向量索引：无新文档需要补建")
+    except Exception as e:  # noqa: BLE001 - 向量化失败不该让采集算失败
+        print(f"向量索引补建失败（不影响采集结果）：{type(e).__name__}: {e}")
+
     bad = [r for r in results if r["status"] != "ok"]
     return 1 if bad else 0
 
