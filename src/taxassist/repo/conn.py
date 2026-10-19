@@ -435,9 +435,19 @@ class CompatConnection:
             _raise_translated(e)
 
     def executemany(self, text, seq_params):
+        # **psycopg3 的 Connection 没有 executemany** —— 只有 cursor 有。
+        # 原实现直接 `self.raw.executemany(...)`，在 PG 上必报
+        # `'Connection' object has no attribute 'executemany'`。
+        # 此前全项目没有一处用 executemany，所以这个洞一直没被踩到；
+        # 2026-10-20 写向量索引批量插入时第一次踩到。
+        # sqlite3.Connection 是有 executemany 的，所以 SQLite 侧照旧。
         try:
-            return CompatCursor(
-                self.raw.executemany(adapt_sql(text), [tuple(p) for p in seq_params]))
+            if hasattr(self.raw, "executemany"):
+                return CompatCursor(
+                    self.raw.executemany(adapt_sql(text), [tuple(p) for p in seq_params]))
+            cur = self.raw.cursor()
+            cur.executemany(adapt_sql(text), [tuple(p) for p in seq_params])
+            return CompatCursor(cur)
         except Exception as e:  # noqa: BLE001
             _raise_translated(e)
 
