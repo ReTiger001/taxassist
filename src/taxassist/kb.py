@@ -17,11 +17,12 @@
 from __future__ import annotations
 
 import logging
+import os
 import re
 import sqlite3
 from pathlib import Path
 
-from . import filters
+from . import embedding, filters
 from .config import DB_PATH
 from .translate import to_chinese_query
 
@@ -311,6 +312,46 @@ _NO_HIT_HINT = (
 )
 
 
+def _rrf_fuse(rankings: list[list[str]], k: int = 60) -> list[str]:
+    """Reciprocal Rank Fusion：把多路检索结果融合成一个顺序。
+
+    为什么用 RRF 而不是把两边的分数加起来：全文的 PGroonga score 与向量的余弦
+    相似度**量纲完全不同**（前者无上界、后者 0-1），直接加权相加需要先归一化，
+    而归一化参数会随查询漂移。RRF 只看**名次**，对两路的分数量纲免疫 ——
+    这是 RAG 混合检索的标准做法。
+
+    ``k=60`` 是论文里的常用值：k 越大，靠后的名次衰减越缓（更强调"两路都上榜"）。
+    """
+    scores: dict[str, float] = {}
+    for ranked in rankings:
+        for rank, uid in enumerate(ranked, 1):
+            scores[uid] = scores.get(uid, 0.0) + 1.0 / (k + rank)
+    return [uid for uid, _ in sorted(scores.items(), key=lambda kv: -kv[1])]
+
+
+def _rows_by_uids(conn, uids: list[str]) -> list:
+    """按给定 uid 顺序取完整行（IN 查询 + 内存重排）。
+
+    为什么不直接 `WHERE doc_uid IN (...) ORDER BY ...`：SQL 无法表达"按给定
+    列表顺序排序"（除非用 VALUES 构造，可读性差且两边方言有别）。取回来在
+    Python 里按融合顺序重排更直接。
+    """
+    if not uids:
+        return []
+    placeholders = ",".join("?" for _ in uids)
+    rows = conn.execute(
+        f"SELECT {_HIT_COLUMNS} FROM policy p WHERE p.doc_uid IN ({placeholders})",
+        tuple(uids)).fetchall()
+    by_uid = {r["doc_uid"]: r for r in rows}
+    return [by_uid[u] for u in uids if u in by_uid]
+
+
+def _mix_enabled() -> bool:
+    """混合检索开关。设 ``TAXASSIST_HYBRID_SEARCH=0`` 可一键退回纯全文 ——
+    向量索引换了模型/重建期间，线上要能立刻降级而不改代码。"""
+    return (os.environ.get("TAXASSIST_HYBRID_SEARCH") or "1").strip() not in ("0", "false", "off")
+
+
 def search(query: str = "", *, tax: str = "", region: str = "", effect: str = "",
            year: str = "", column: str = "", sort: str = "relevance",
            limit: int = DEFAULT_LIMIT, offset: int = 0,
@@ -362,12 +403,43 @@ def search(query: str = "", *, tax: str = "", region: str = "", effect: str = ""
         try:
             result["total_matched"] = conn.execute(
                 f"SELECT COUNT(*) c {from_where}", tuple(params)).fetchone()["c"]
-            # 参数按 SQL 里 ? 的出现顺序绑定：WHERE 的 → ORDER BY 的 → LIMIT/OFFSET。
-            # 相关性表达式可能要一个参数（LIKE 模式用来判断标题是否命中），
-            # 所以不能只用 params。计数查询不带 ORDER BY，故那边仍旧只用 params。
-            rows = conn.execute(
-                f"SELECT {_HIT_COLUMNS} {from_where}{order} LIMIT ? OFFSET ?",
-                tuple(params + order_params + [limit, offset])).fetchall()
+            # **混合检索**（全文 + 向量 RRF 融合）：只在「纯关键词查询 + PG 后端 +
+            # 向量表有数据」时启用。带筛选条件时**不启用** —— 向量候选也必须应用
+            # 同一套过滤才有可比性，而过滤条件只在全文那条 SQL 里构建，强行复用
+            # 会让两边口径分叉（这类"两处逻辑各写一遍"正是本项目反复踩的坑）。
+            use_mix = (mode == "groonga" and bool(terms) and _mix_enabled()
+                       and not (tax or region or effect or year or column)
+                       and embedding.available())
+            if use_mix:
+                # 候选池放大到 200：RRF 要有足够的两路候选才有意义，
+                # 只取 limit 条会让"一路第 1 名、另一路第 50 名"这种融合失效。
+                cand = 200
+                full_rows = conn.execute(
+                    f"SELECT {_HIT_COLUMNS} {from_where}{order} LIMIT ?",
+                    tuple(params + order_params + [cand])).fetchall()
+                full_ids = [r["doc_uid"] for r in full_rows]
+                vec_ids: list[str] = []
+                qvec = embedding.embed_text(query or " ".join(terms))
+                if qvec:
+                    vec_ids = [
+                        r["doc_uid"] for r in conn.execute(
+                            "SELECT e.doc_uid, MAX(1 - (e.embedding <=> ?::vector)) AS sim"
+                            " FROM policy_embedding e"
+                            " JOIN policy p ON p.doc_uid = e.doc_uid"
+                            " WHERE IFNULL(p.is_official, 1) = 1"
+                            " GROUP BY e.doc_uid ORDER BY sim DESC LIMIT ?",
+                            (embedding.vec_literal(qvec), cand)).fetchall()]
+                fused = _rrf_fuse([full_ids, vec_ids])
+                rows = _rows_by_uids(conn, fused[offset:offset + limit])
+                result["mode"] = "hybrid"
+                result["vector_candidates"] = len(vec_ids)
+            else:
+                # 参数按 SQL 里 ? 的出现顺序绑定：WHERE 的 → ORDER BY 的 → LIMIT/OFFSET。
+                # 相关性表达式可能要一个参数（LIKE 模式用来判断标题是否命中），
+                # 所以不能只用 params。计数查询不带 ORDER BY，故那边仍旧只用 params。
+                rows = conn.execute(
+                    f"SELECT {_HIT_COLUMNS} {from_where}{order} LIMIT ? OFFSET ?",
+                    tuple(params + order_params + [limit, offset])).fetchall()
         except sqlite3.OperationalError as e:
             # FTS5 的语法错误消息会把表名、列名等实现细节带出来，细节写日志即可
             log.warning("检索失败 q=%r: %s", query, e)
