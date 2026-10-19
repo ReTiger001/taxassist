@@ -417,6 +417,17 @@ def init_db(conn: sqlite3.Connection) -> str:
     busy_timeout 只覆盖单条语句的等待，挡不住这种长窗口。
     """
     last: Exception | None = None
+    # **PG 后端下整套 DDL 都不该跑**：SCHEMA 里是 SQLite 专有语法
+    # （`PRAGMA journal_mode = WAL`、FTS5 虚表、`CREATE VIEW IF NOT EXISTS`
+    # 的写法差异），PG 的表/索引/视图在迁移时由 `pg/schema.sql` 建好。
+    # 不跳过的话 `taxassist serve --expose` **完全起不来** —— 实测报
+    # `语法错误 在 "PRAGMA" 或附近`（2026-10-19 真机踩到；此前审计只用
+    # TestClient 测页面，没走 cli.cmd_serve 这条真实启动路径，所以漏了）。
+    # 返回值保持"分词器名"的语义：PG 侧用 groonga，不是 trigram。
+    from .repo import conn as _rc
+
+    if _rc.BACKEND == "pg":
+        return "groonga"
     # 拆一次即可：SCHEMA 是常量，索引与建表的位置在运行时不会变。
     tables_sql, indexes_sql = _split_schema(SCHEMA)
     for attempt in range(6):
