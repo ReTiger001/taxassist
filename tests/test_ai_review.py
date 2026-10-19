@@ -238,3 +238,35 @@ def test_apply_fix_updates_text_and_review_row(air):
     assert r["model"].endswith("+fix")
     assert r["zh_len"] == 2
 
+
+def test_pick_pending_returns_prev_model_for_recheck(air):
+    """修复过的条目必须能被捞出、且带出 ``prev_model`` 供主循环识别"这是复查"。
+
+    主循环靠 ``"+fix" in prev_model`` 判断：复查时只审核不重修，
+    若仍判 issue 就降级 unsure —— 否则会「修→审→还 issue→再修」无限循环
+    （实测 163 条复查里 79 条又判 issue，每轮大量配额耗在同一批条目上）。
+    """
+    mod, conn = air
+    _add(conn, "u1", "原文", "fixed translation")
+    conn.execute(
+        "INSERT INTO translation_ai_review(doc_uid, field, verdict, model, reviewed_at)"
+        " VALUES('u1','content','issue',?, '2026-10-18T00:00:00')",
+        ("qwen3.8:27b-q4_K_M+fix",))
+    conn.commit()
+
+    rows = mod.pick_pending(conn, "content", 10, 20000, model="qwen3.8:27b-q4_K_M")
+    assert len(rows) == 1
+    assert rows[0]["prev_model"].endswith("+fix")
+
+
+def test_pick_pending_does_not_repeat_reviewed_ok(air):
+    """普通模型已判 ok 的条目不该被反复捞出（否则永远在原地打转）。"""
+    mod, conn = air
+    _add(conn, "u1", "原文", "good translation")
+    conn.execute(
+        "INSERT INTO translation_ai_review(doc_uid, field, verdict, model, reviewed_at)"
+        " VALUES('u1','content','ok',?, '2026-10-18T00:00:00')",
+        ("qwen3.8:27b-q4_K_M",))
+    conn.commit()
+    assert mod.pick_pending(conn, "content", 10, 20000, model="qwen3.8:27b-q4_K_M") == []
+

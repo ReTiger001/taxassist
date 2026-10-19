@@ -355,7 +355,7 @@ def pick_pending(conn, field: str, limit: int, max_chars: int | None,
     params.append(limit)
     return conn.execute(
         f"SELECT t.doc_uid, {zh_col} AS zh, t.text AS en, t.created_at AS made,"
-        f" r.verdict AS prev_verdict"
+        f" r.verdict AS prev_verdict, r.model AS prev_model"
         f" FROM translation t"
         f" JOIN policy p ON p.doc_uid = t.doc_uid"
         f" LEFT JOIN translation_ai_review r ON r.doc_uid = t.doc_uid"
@@ -425,11 +425,23 @@ def main() -> int:
         t0 = time.time()
         for i, (r, is_block) in enumerate(pending, 1):
             fixed: str | None = None
+            # 上一轮修过 → 本轮是**复查**。复查只审核、不重修：
+            # 若仍判 issue 就降级 unsure 交给人工。否则会「修→审→还 issue→再修」
+            # 无限循环 —— 实测 163 条复查里 79 条又判 issue，每轮 50 条有大量
+            # 配额耗在同一批条目上（2026-10-19 观测：9 轮只净增 73 条修复）。
+            is_recheck = "+fix" in (r["prev_model"] or "")
             try:
                 if is_block:
                     # 超长条目：分块审核（超长文档的修复交给第 ⑤ 步重译，
                     # 因为修正译文比原文更长，分块改写风险高于收益）
                     verdict, reason = review_long(r["zh"], r["en"], args.chunk_chars)
+                elif is_recheck:
+                    # **复查用 ask(不生成修正)**：`_ai_fix` 会让模型再写一遍完整
+                    # 译文（约 124s），而复查只需要一个判定（约 60s）。
+                    verdict, reason = parse(ask(r["zh"], r["en"]))
+                    if verdict == "issue":
+                        verdict = "unsure"
+                        reason = f"修复后复查仍发现问题：{reason[:180]}"
                 else:
                     # **用户要的流程**：发现问题就当场修好，而不是退回重译
                     verdict, reason, fixed = _ai_fix(FIX_PROMPT, r["zh"], r["en"])

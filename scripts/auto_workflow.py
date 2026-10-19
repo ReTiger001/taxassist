@@ -272,12 +272,12 @@ def main() -> int:
                          "一块，却与清空 AI 审核队列这个目标无关。调到 10 后每轮省约"
                          " 28 分钟 —— 清空 1703 条审核队列从约 15 小时压到约 10 小时。"
                          "重译是长期维护任务，队列清空后可按需要调回 50。")
-    ap.add_argument("--ai-review-limit", type=int, default=50,
-                    help="每轮 AI 审核条数上限。**默认 50 是按时限倒推的**：run() 给这步"
+    ap.add_argument("--ai-review-limit", type=int, default=40,
+                    help="每轮 AI 审核条数上限。**默认 40 是按时限倒推的**：run() 给这步"
                          "的超时是 7200s，而 qwen3.8:27b 在 16GB 卡上有 18/66 层跑在 CPU"
-                         "（实测 CPU 90%、GPU 仅 10-20%），单条约 124s（短条目快、长条目慢）。"
-                         "150 条实测撞上超时、整步丢弃（rc=-1，2026-10-17 04:46 真的发生过）；"
-                         "50 条约 100 分钟，留了余量。修好一条就 commit，所以调小不会丢进度。")
+                         "（实测 CPU 90%、GPU 仅 10-20%），单条 60-124s。"
+                         "50 条在 2026-10-19 19:26 仍撞过一次超时（rc=-1，整步丢弃）；"
+                         "40 条约 70-80 分钟，留足余量。修好一条就 commit，调小不丢进度。")
     ap.add_argument("--sleep", type=int, default=30, help="轮间隔秒")
     ap.add_argument("--once", action="store_true", help="只跑一轮")
     ap.add_argument("--rounds", type=int, default=0, help="跑几轮，0=不限")
