@@ -107,6 +107,14 @@ def register(app, *, ctx, templates) -> None:
                subject: str = "", pref: str = "", doctype: str = "",
                limit: int = Query(50, ge=1, le=200)):
         rows, error = [], None
+        # 后端判定：**网页检索必须与 kb.py 走同一套分叉**。
+        # 曾经这里自己拼了 `policy_fts MATCH`（SQLite FTS5 专有），在 PG 后端
+        # 上必然报 `语法错误 在 "MATCH" 或附近` —— 外部用户搜「所得税」直接
+        # 拿到「检索失败」，而日志里每天刷同样的 WARNING（2026-10-20 真机发现）。
+        # FTS5 是 SQLite 的引擎，PG 侧对应 PGroonga，不能共用一套 SQL。
+        from ..repo import conn as _rc
+
+        _is_pg = _rc.BACKEND == "pg"
         # 命中总数：模板要显示「共 N 条」，N 必须是**命中总数**而非返回条数。
         # 无条件浏览时保持 None，模板据此不显示这一行。
         matched_total = None
@@ -124,7 +132,26 @@ def register(app, *, ctx, templates) -> None:
         # 空分支返回 0 条（实测：选「已废止」得 0 条，而库里有 1042 条）。
         if (terms or column or tax or region or effect or year
                 or subject or pref or doctype):
-            if terms and all(len(t) >= 3 for t in terms):
+            if _is_pg and terms:
+                # **PG 走 PGroonga**：不需要 FTS 影子表、也不需要"二字词退回
+                # LIKE"（那是 FTS5 trigram 的缺陷）。
+                # 注意查的是**真实表 policy**、不是视图 policy_official：
+                # `pgroonga_score(p.tableoid, p.ctid)` 需要真实的 tableoid/ctid，
+                # 视图上取不到（实测 `字段 p.tableoid 不存在`）。分层改用
+                # is_official 条件等价表达，与原来 FTS 分支的写法一致。
+                clauses = []
+                params = []
+                for t in terms:
+                    clauses.append("(p.title &@~ ? OR COALESCE(p.content, '') &@~ ?)")
+                    params += [t, t]
+                official = "" if ref else " AND IFNULL(p.is_official, 1) = 1"
+                sql = (
+                    "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.p_doc_no_confidence,"
+                    " p.pub_name,"
+                    " p.o_column, p.p_region, p.p_effect_status, p.p_effect_source, p.url"
+                    " FROM policy p WHERE (" + " AND ".join(clauses) + ")" + official
+                )
+            elif terms and all(len(t) >= 3 for t in terms):
                 sql = (
                     "SELECT p.doc_uid, p.cwrq, p.title, p.p_doc_no_full, p.p_doc_no_confidence,"
                     " p.pub_name,"
@@ -204,7 +231,12 @@ def register(app, *, ctx, templates) -> None:
             # 网页和 API 里会给出不同顺序，使用者无从判断哪个可信。
             rank_expr = ""
             rank_params: list = []
-            if terms and all(len(t) >= 3 for t in terms):
+            if _is_pg and terms:
+                # PGroonga 的 score **越大越相关**，而 FTS5 的 bm25 越小越相关
+                # —— 方向相反，必须显式 DESC。漏掉不会报错，只会让相关性整体
+                # 颠倒（与 kb.py 的 groonga 分支同一口径）。
+                rank_expr = "pgroonga_score(p.tableoid, p.ctid) DESC, "
+            elif terms and all(len(t) >= 3 for t in terms):
                 # FTS5 的 bm25() 越小越相关；权重按 FTS 表列序
                 # （title, p_doc_no_full, pub_name, content, o_keywords）。
                 rank_expr = f"bm25(policy_fts, {kb.BM25_WEIGHTS}), "
