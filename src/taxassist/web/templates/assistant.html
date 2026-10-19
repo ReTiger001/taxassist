@@ -258,6 +258,13 @@ body>main.wrap{flex:1;min-height:0;display:flex;flex-direction:column;
         data-ph-zh="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"
         data-ph-en="Describe the situation, or upload a file first… (Ctrl+Enter to send)"
         placeholder="描述业务事实，或先上传文件再提问…（Ctrl+Enter 发送）"></textarea>
+      <select id="tier" class="ibtn tier"
+              data-title-zh="快速：3-8 秒，日常查政策；深度：30-60 秒，多条件判断更准"
+              data-title-en="Fast: 3-8s daily lookup; Deep: 30-60s, better on multi-condition judgement"
+              title="快速：3-8 秒，日常查政策；深度：30-60 秒，多条件判断更准">
+        <option value="fast" selected>快速 Fast</option>
+        <option value="deep">深度 Deep</option>
+      </select>
       <button class="ibtn go" id="send" type="button" {% if not model_ok %}disabled{% endif %} data-zh="发送" data-en="Send">发送</button>
     </div>
     {#- 含 {{ model }} 变量，静态部分拆 span -#}
@@ -544,7 +551,9 @@ document.querySelectorAll('.ex').forEach(function (b) {
       body: JSON.stringify({
         text: text || T().askDefault,
         file_ids: usedFiles.map(function (f) { return f.id; }),
-        history: chatHistory
+        history: chatHistory,
+        /* 分级模型：快速(14b) / 深度(3.8)。取不到就回 fast —— 服务端也会兜底。 */
+        tier: (document.getElementById('tier') || {}).value || 'fast'
       })
     }).then(function (resp) {
       if (!resp.ok) {

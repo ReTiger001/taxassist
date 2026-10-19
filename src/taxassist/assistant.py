@@ -82,6 +82,24 @@ log = logging.getLogger(__name__)
 #: （13.39GB），热态响应 1-3 秒。
 DEFAULT_MODEL = "qwen3:14b"
 
+#: **分级模型**：日常问答用快的，深度分析用强的。用户在页面上自选。
+#:
+#: 为什么分两级而不是统一用一个：
+#:   - `qwen3:14b` 全部装在显存（13.4GB），热态 **3-8 秒** —— 日常查政策够用
+#:   - `qwen3.8:27b` 判断更强，但 19.5GB 装不进 16GB 显存，有 18/66 层跑在 CPU，
+#:     单次回答 **30-60 秒**；只有在需要长链条推理（多条件适用判断、条款冲突）
+#:     时才值得等
+#: 外部客户为主时默认快档，避免"打开页面就要等一分钟"。
+MODEL_FAST = "qwen3:14b"
+MODEL_DEEP = "qwen3.8:27b-q4_K_M"
+#: 前端传来的 tier → 实际模型。未知 tier 一律回退快档（**不要因为拼错参数就慢十倍**）。
+TIERS: dict[str, str] = {"fast": MODEL_FAST, "deep": MODEL_DEEP}
+
+
+def resolve_model(tier: str | None) -> str:
+    """把前端的 tier 解析成模型名。未知值回退快档。"""
+    return TIERS.get((tier or "fast").strip().lower(), MODEL_FAST)
+
 #: 关闭思考模式（与默认模型配套，**不能省**）。
 #: Qwen3 默认开 thinking，实测会把整个输出预算吃在推理上、`response` 返回空串，
 #: 表现为"助手不说话"而且**不报错**。关掉后同样问题 16.9s→ 回答正常。

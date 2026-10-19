@@ -94,7 +94,11 @@ def test_assistant_streams_normal_stages(client, monkeypatch):
     monkeypatch.setattr(
         am, "build_prompt",
         lambda *a, **k: ([{"role": "user", "content": "x"}], [], {0: []}))
-    monkeypatch.setattr(am, "chat_stream", lambda _m: iter(["第一段", "第二段"]))
+    # ``chat_stream`` 现在带 ``model=``（分级模型：快速 14b / 深度 3.8），
+    # mock 必须收下这个关键字参数，否则会被路由当成"助手问答失败"静默吞掉
+    # （表现为正文增量全空，而不是报错）。
+    monkeypatch.setattr(am, "chat_stream",
+                        lambda _m, **k: iter(["第一段", "第二段"]))
 
     r = client.post("/api/assistant/ask", json={"text": "测试"})
     assert r.status_code == 200

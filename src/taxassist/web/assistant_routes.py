@@ -171,6 +171,10 @@ def register(app, *, ctx, templates) -> None:
         except Exception:  # noqa: BLE001 - 非法 JSON 当空处理
             data = {}
         text = str(data.get("text") or "").strip()[:20000]
+        # 分级模型：用户在页面上自选「快速(14b) / 深度(3.8)」。
+        # 未知值回退快档 —— 拼错一个参数不该让用户白等一分钟。
+        tier = str(data.get("tier") or "fast")
+        model = am.resolve_model(tier)
         file_ids = data.get("file_ids") or []
         # 多轮追问的历史，由前端维护并回传。这里只做类型保护，
         # **具体裁剪（留几轮、每轮多长）在 assistant.build_prompt 里做** ——
@@ -221,7 +225,7 @@ def register(app, *, ctx, templates) -> None:
                 emit({"facts": facts,
                       "policies": [{k: p.get(k) for k in keep} for p in ordered],
                       "groups": groups})
-                for piece in am.chat_stream(messages):
+                for piece in am.chat_stream(messages, model=model):
                     emit({"delta": piece})
             except Exception as exc:  # noqa: BLE001 - 任何失败都要传回前端
                 log.warning("助手问答失败：%s", exc)
