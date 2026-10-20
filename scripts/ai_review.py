@@ -56,24 +56,29 @@ import httpx  # noqa: E402
 
 from taxassist import db as dbmod  # noqa: E402
 
-#: **2026-10-17：qwen2.5:14b-instruct → qwen3.8:27b-q4_K_M**。
+#: **2026-10-21：拆成"审核判定"与"修复生成"两级模型**（用户选的方案 B）。
 #:
-#: 换的依据是同一批真实条目的对比，不是"感觉新"：
+#: 原来统一用 qwen3.8:27b。质量确实好 —— 它揪出过 qwen2.5 漏掉的约 25% 真错
+#: （「2亿元」→"200 million" 差 10 倍、「2022年10月31日」→"October 30"、
+#: 合同款 256,349,924 → 25,634,992 差一个数量级）。
 #:
-#:   qwen2.5:14b 标 OK 的条目里，qwen3 系列揪出约 25% 是**真错**
-#:   （「2亿元」→"200 million" 差 10 倍、「2022年10月31日」→"October 30"、
-#:    合同款 256,349,924 → 25,634,992 差一个数量级、
-#:    「中华全国体育基金会」→"All-China Sports Federation"（那是体育总会））
+#: 但 27B 在 16GB 卡上有 18/66 层跑在 CPU（**6.8 tok/s**），而长条目的修正译文
+#: 可达 2 万字符（约 5000 token）→ 单条 700+ 秒。2026-10-20 用 40 条/轮时
+#: **连续两轮撞满 7200s 超时整步丢弃**（第 8、9 轮），剩余 1660 条按当时速度
+#: 要跑约 4 天。
 #:
-#: **用 27B 而不是 14B**：用户明确"质量优先于速度"。实测同样能跑：
-#: 17GB 权重在 16GB 卡上由 ollama 把 12.88GB 放显存、其余放内存
-#: （`size_vram` < `size`），32768 上下文下短问答热态 4.4s、
-#: 19916 字长条目约 98s。代价是比 qwen3:14b 慢约 2-5 倍，换来更强的判断。
+#: 拆开之后各用所长：
+#:   - **审核判定**（判断有没有错、错在哪）：qwen3:14b —— 全部驻留显存，热态快，
+#:     而且"发现问题"这个能力 14B 已经够（它比 qwen2.5 强得多，实测能揪出
+#:     2 亿元/日期/术语错误）
+#:   - **修复生成**（写出完整修正译文，几千 token）：仍用 qwen3.8:27b ——
+#:     这是最容易"改出新错"的环节，值得用更强的模型、多等一会儿
 #:
-#: 曾一度以为它"每次请求都要重载 25-38s"——那是**模型文件没下完**造成的假象
-#: （`ollama pull` 中途中断，某个分片显示 100% 但整体不完整，调用报 not found）。
-#: 完整下载后实测可稳定驻留。**教训：判断模型不可用之前先确认它下载完整。**
-MODEL = "qwen3.8:27b-q4_K_M"
+#: 预计整体从约 4 天压到约 1.5 天。
+MODEL_AUDIT = "qwen3:14b"
+MODEL_FIX = "qwen3.8:27b-q4_K_M"
+#: 兼容旧引用：审核记录里"纯判定"的条目标这个模型名。
+MODEL = MODEL_AUDIT
 OLLAMA = "http://127.0.0.1:11434/api/generate"
 UNSURE_OUT = Path("data/logs/ai_unsure.json")
 
@@ -145,8 +150,9 @@ CHUNK_CHARS = 12000
 
 
 def ask(zh: str, en: str, timeout: int = 600) -> str:
+    """**纯判定**用快模型（``MODEL_AUDIT``）：只回答 OK / 问题 / 不确定，输出很短。"""
     r = httpx.post(OLLAMA, json={
-        "model": MODEL,
+        "model": MODEL_AUDIT,
         "prompt": PROMPT.format(zh=zh, en=en),
         "stream": False,
         "think": THINK,
@@ -201,15 +207,19 @@ OK
 def _ai_fix(prompt: str, zh: str, en: str, timeout: int = 900) -> tuple[str, str, str | None]:
     """审核并（如发现问题）给出修正译文。返回 ``(判定, 说明, 修正译文或None)``。
 
+    **这一步用强模型 ``MODEL_FIX``**：要写出几千 token 的完整修正译文，是整个
+    流程里最容易"改出新错"的环节；而判定那一步（``ask``）用快模型就够。
+    这是 2026-10-21 的分级改造：审核 14b、修复 3.8。
+
     任意格式异常一律降级为 unsure 且不带修正 —— 与 ``parse`` 同一原则：
     宁可升级给人，也不要让没读懂的回答冒充通过。
     """
     r = httpx.post(OLLAMA, json={
-        "model": MODEL, "prompt": prompt.format(zh=zh, en=en), "stream": False,
+        "model": MODEL_FIX, "prompt": prompt.format(zh=zh, en=en), "stream": False,
         "think": THINK,
         # num_predict **按译文长度动态给**：修正译文与原文等长（英文约 4 倍字符，
-        # 约 1.3 token/字符）。给死 8192 会白等 —— 实测本机约 29 tok/s，
-        # 万一模型写满 8192 就是 4.7 分钟。留 1.5 倍余量给"问题：…"那段说明。
+        # 约 1.3 token/字符）。给死 8192 会白等（本机约 6.8-29 tok/s，看模型），
+        # 万一模型写满 8192 就是几分钟。留 1.5 倍余量给"问题：…"那段说明。
         "options": {"num_ctx": NUM_CTX, "temperature": 0.1,
                     "num_predict": max(512, int(len(en) * 1.3 * 1.5))},
     }, timeout=timeout)
@@ -254,7 +264,7 @@ def _apply_fix(conn, uid: str, field: str, fixed: str, reason: str,
     """
     now = dt.datetime.now().isoformat(timespec="seconds")
     conn.execute("UPDATE translation SET text=?, model=? WHERE doc_uid=? AND field=? AND lang=?",
-                 (fixed, f"{MODEL}+fix", uid, field, "en"))
+                 (fixed, f"{MODEL_FIX}+fix", uid, field, "en"))
     conn.execute(
         "INSERT INTO translation_ai_review"
         " (doc_uid, field, verdict, reason, model, zh_len, reviewed_at)"
@@ -262,7 +272,7 @@ def _apply_fix(conn, uid: str, field: str, fixed: str, reason: str,
         " ON CONFLICT(doc_uid, field) DO UPDATE SET"
         "   verdict=excluded.verdict, reason=excluded.reason, model=excluded.model,"
         "   reviewed_at=excluded.reviewed_at",
-        (uid, field, "issue", f"[已修复] {reason}", f"{MODEL}+fix", zh_len, now))
+        (uid, field, "issue", f"[已修复] {reason}", f"{MODEL_FIX}+fix", zh_len, now))
 
 
 def _chunk_pair(zh: str, en: str, max_chars: int) -> list[tuple[str, str]]:
@@ -410,8 +420,8 @@ def main() -> int:
         # 两条队列：正常长度的直接审；超长的分块审（否则它们永远轮不到）。
         # 分块的那条**每轮限量**（--max-block-docs），免得多篇 11 万字文档
         # 挤掉正常队列并撞上工作流的 7200s 超时。
-        normal = pick_pending(conn, args.field, args.limit, args.max_chars, model=MODEL)
-        blocks = pick_pending(conn, args.field, args.max_block_docs, None, model=MODEL)
+        normal = pick_pending(conn, args.field, args.limit, args.max_chars, model=MODEL_AUDIT)
+        blocks = pick_pending(conn, args.field, args.max_block_docs, None, model=MODEL_AUDIT)
         blocks = [r for r in blocks if len(r["zh"] or "") > args.max_chars]
         pending = [(r, False) for r in normal] + [(r, True) for r in blocks]
         print(f"[{args.field}] 待审 {len(normal)} 条（≤{args.max_chars} 字）"
@@ -443,8 +453,18 @@ def main() -> int:
                         verdict = "unsure"
                         reason = f"修复后复查仍发现问题：{reason[:180]}"
                 else:
-                    # **用户要的流程**：发现问题就当场修好，而不是退回重译
-                    verdict, reason, fixed = _ai_fix(FIX_PROMPT, r["zh"], r["en"])
+                    # **分级改造（2026-10-21）**：先用快模型（14b）做判定，
+                    # **只有判为 issue 才调强模型（3.8）生成修正译文**。
+                    # 原来是一步 `_ai_fix`（3.8 同时判定+修），于是每条 OK 也
+                    # 要付 3.8 的速度代价（6.8 tok/s）—— 而 OK 占未审条目的多数。
+                    # 现在 OK 只花一次 14b 调用，issue 才多一次 3.8。
+                    verdict, reason = parse(ask(r["zh"], r["en"]))
+                    if verdict == "issue":
+                        _, fix_reason, fixed = _ai_fix(FIX_PROMPT, r["zh"], r["en"])
+                        if fixed is None:
+                            # 3.8 也没能给出修正（或格式坏）→ 不硬修，交给人
+                            verdict = "unsure"
+                        reason = fix_reason or reason
             except Exception as e:  # noqa: BLE001 - 单条失败不中断整批
                 print(f"  [{i}/{len(pending)}] 失败 {r['doc_uid'][:36]}: "
                       f"{type(e).__name__}: {e}", flush=True)
