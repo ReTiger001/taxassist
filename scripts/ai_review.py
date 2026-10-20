@@ -144,7 +144,7 @@ NUM_CTX = 32768
 CHUNK_CHARS = 12000
 
 
-def ask(zh: str, en: str, timeout: int = 900) -> str:
+def ask(zh: str, en: str, timeout: int = 600) -> str:
     r = httpx.post(OLLAMA, json={
         "model": MODEL,
         "prompt": PROMPT.format(zh=zh, en=en),
@@ -198,7 +198,7 @@ OK
 {en}"""
 
 
-def _ai_fix(prompt: str, zh: str, en: str, timeout: int = 1200) -> tuple[str, str, str | None]:
+def _ai_fix(prompt: str, zh: str, en: str, timeout: int = 900) -> tuple[str, str, str | None]:
     """审核并（如发现问题）给出修正译文。返回 ``(判定, 说明, 修正译文或None)``。
 
     任意格式异常一律降级为 unsure 且不带修正 —— 与 ``parse`` 同一原则：
