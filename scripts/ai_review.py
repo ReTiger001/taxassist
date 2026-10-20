@@ -204,6 +204,18 @@ OK
 {en}"""
 
 
+#: 单条**直接生成修正译文**的原文上限（字）。
+#:
+#: 为什么必须设：`_ai_fix` 要模型输出**完整**修正译文，输出量约等于译文长度。
+#: 原文 1.5 万字 → 修正译文约 6 万字符 ≈ 7.8 万 token，按 qwen3.8 在本机
+#: 6.8 tok/s 要 **3 小时** —— 必然撞 900s 超时（2026-10-21 实测第一条
+#: 15811 字直接 ReadTimeout，整轮报废）。
+#:
+#: 超过这个长度的条目：14b 判为 issue 后**不直接修**，交给第 ⑤ 步
+#: `retranslate.py` 用混元重译（它有分块能力，且混元是翻译专长）。
+FIX_MAX_CHARS = 5000
+
+
 def _ai_fix(prompt: str, zh: str, en: str, timeout: int = 900) -> tuple[str, str, str | None]:
     """审核并（如发现问题）给出修正译文。返回 ``(判定, 说明, 修正译文或None)``。
 
@@ -460,11 +472,18 @@ def main() -> int:
                     # 现在 OK 只花一次 14b 调用，issue 才多一次 3.8。
                     verdict, reason = parse(ask(r["zh"], r["en"]))
                     if verdict == "issue":
-                        _, fix_reason, fixed = _ai_fix(FIX_PROMPT, r["zh"], r["en"])
-                        if fixed is None:
-                            # 3.8 也没能给出修正（或格式坏）→ 不硬修，交给人
-                            verdict = "unsure"
-                        reason = fix_reason or reason
+                        if len(r["zh"] or "") > FIX_MAX_CHARS:
+                            # **长条目不在这一步直接修**：生成完整修正译文会超时
+                            # （见 FIX_MAX_CHARS 的说明）。保持 issue 判定，
+                            # 由第 ⑤ 步 retranslate 用混元分块重译修复。
+                            reason = (f"{reason}（原文 {len(r['zh'] or '')} 字，"
+                                      f"超过直接修复上限 {FIX_MAX_CHARS}，交第⑤步重译）")
+                        else:
+                            _, fix_reason, fixed = _ai_fix(FIX_PROMPT, r["zh"], r["en"])
+                            if fixed is None:
+                                # 3.8 也没能给出修正（或格式坏）→ 不硬修，交给人
+                                verdict = "unsure"
+                            reason = fix_reason or reason
             except Exception as e:  # noqa: BLE001 - 单条失败不中断整批
                 print(f"  [{i}/{len(pending)}] 失败 {r['doc_uid'][:36]}: "
                       f"{type(e).__name__}: {e}", flush=True)
