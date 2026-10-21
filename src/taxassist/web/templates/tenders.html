@@ -48,6 +48,10 @@
       <input type="checkbox" name="tax_only" value="1" {% if tax_only == '1' %}checked{% endif %}>
       <span data-zh="只看税务服务类" data-en="Tax services only">只看税务服务类</span>
     </label>
+    <label class="chk">
+      <input type="checkbox" name="show_finished" value="1" {% if show_finished == '1' %}checked{% endif %}>
+      <span data-zh="含已结束（中标/合同）" data-en="Include finished">含已结束（中标/合同）</span>
+    </label>
     <button type="submit" data-zh="筛选" data-en="Filter">筛选</button>
   </div>
 </form>
@@ -71,7 +75,7 @@
   <thead>
     <tr>
       <th data-zh="公告标题" data-en="Title">公告标题</th>
-      <th data-zh="类型" data-en="Type">类型</th>
+      <th data-zh="阶段" data-en="Stage">阶段</th>
       <th data-zh="采购人" data-en="Buyer">采购人</th>
       <th data-zh="预算" data-en="Budget">预算</th>
       <th data-zh="截止" data-en="Deadline">截止</th>
@@ -86,7 +90,16 @@
         {% if r.is_tax %}<span class="tag tax" data-zh="税务" data-en="tax">税务</span>{% endif %}
         {% if r.project_no %}<div class="meta">{{ r.project_no }}</div>{% endif %}
       </td>
-      <td>{{ notice_types.get(r.notice_type, r.notice_type or '—') }}</td>
+      <td>
+        {% set proc = r.bid_process or '' %}
+        {% if proc %}
+          {% if proc in ('中标结果', '中标候选人', '合同') %}
+          <span class="tag done" title="已定标，投标已结束">{{ proc }}</span>
+          {% else %}
+          <span class="tag live" title="仍可投标">{{ proc }}</span>
+          {% endif %}
+        {% else %}—{% endif %}
+      </td>
       <td>{{ r.purchaser or '—' }}</td>
       <td>{% if r.budget %}{{ '%.0f'|format(r.budget / 10000) }} 万{% else %}—{% endif %}</td>
       <td>{{ r.deadline or '—' }}</td>
@@ -111,6 +124,8 @@
 .tenders th { font-weight: 600; white-space: nowrap; }
 .tenders .meta { color: var(--muted, #888); font-size: 12px; margin-top: 2px; }
 .tag.tax { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: #e8f2ff; color: #1560bd; font-size: 12px; }
+.tag.live { display: inline-block; padding: 0 5px; border-radius: 3px; background: #e7f7ec; color: #1a7f37; font-size: 12px; white-space: nowrap; }
+.tag.done { display: inline-block; padding: 0 5px; border-radius: 3px; background: #f0f0f0; color: #888; font-size: 12px; white-space: nowrap; text-decoration: line-through; }
 .f-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .f-row label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
 .pager { margin: 16px 0; display: flex; gap: 12px; align-items: center; }

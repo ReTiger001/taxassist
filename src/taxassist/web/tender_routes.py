@@ -36,6 +36,7 @@ def register(app, *, ctx, templates) -> None:
                      region: str = "",
                      notice_type: str = "",
                      tax_only: str = "1",
+                     show_finished: str = "0",
                      days: str = "30",
                      page: int = Query(1, ge=1),
                      limit: int = Query(30, ge=1, le=100)):
@@ -54,6 +55,12 @@ def register(app, *, ctx, templates) -> None:
         params: list = []
         if tax_only == "1":
             where.append("t.is_tax = 1")
+        # **默认只看还能投的阶段**：中标结果/中标候选人/合同意味着项目已经定标，
+        # 再去投是白费力气。用户看不出"候选供应商征集"（还能投）和"中标候选人
+        # 公示"（已结束）的区别，所以由系统默认挡掉（勾"看全部"仍可看到）。
+        if show_finished != "1":
+            where.append("(t.bid_process IS NULL OR t.bid_process NOT IN"
+                         " ('中标结果', '中标候选人', '合同'))")
         if q:
             where.append("(t.title LIKE ? OR t.content LIKE ? OR t.project_no LIKE ?)")
             like = f"%{q}%"
@@ -100,7 +107,8 @@ def register(app, *, ctx, templates) -> None:
         def url_with(**kw) -> str:
             """保留其它筛选条件的翻页/筛选链接（与 browse_routes 同一手法）。"""
             cur = {"q": q, "region": region, "notice_type": notice_type,
-                   "tax_only": tax_only, "days": days, "page": page, "limit": limit}
+                   "tax_only": tax_only, "show_finished": show_finished,
+                   "days": days, "page": page, "limit": limit}
             cur.update(kw)
             qs = "&".join(f"{k}={v}" for k, v in cur.items() if v not in (None, ""))
             return f"/tenders?{qs}"
@@ -109,7 +117,8 @@ def register(app, *, ctx, templates) -> None:
             request=request, name="tenders.html",
             context=ctx(request,
                         q=q, region=region, notice_type=notice_type,
-                        tax_only=tax_only, days=days, page=page, limit=limit,
+                        tax_only=tax_only, show_finished=show_finished,
+                        days=days, page=page, limit=limit,
                         pages=pages, total=total, rows=rows,
                         regions=regions, types=types,
                         notice_types=tmod.NOTICE_TYPES,

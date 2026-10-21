@@ -17,6 +17,18 @@
   {% endif %}
   <tr><th data-zh="公告类型" data-en="Notice type">公告类型</th>
       <td>{{ notice_types.get(row.notice_type, row.notice_type or '—') }}</td></tr>
+  {% if row.bid_process %}
+  <tr><th data-zh="阶段" data-en="Stage">阶段</th>
+      <td>
+        {% if row.bid_process in ('中标结果', '中标候选人', '合同') %}
+        <span class="tag done">{{ row.bid_process }}</span>
+        <span class="sub">（已定标，投标已结束）</span>
+        {% else %}
+        <span class="tag live">{{ row.bid_process }}</span>
+        <span class="sub">（仍可投标）</span>
+        {% endif %}
+      </td></tr>
+  {% endif %}
   {% if row.purchaser %}
   <tr><th data-zh="采购人" data-en="Buyer">采购人</th><td>{{ row.purchaser }}</td></tr>
   {% endif %}
@@ -62,6 +74,8 @@
 .tender-meta th, .tender-meta td { padding: 5px 10px; border-bottom: 1px solid var(--line, #eee); text-align: left; vertical-align: top; }
 .tender-meta th { white-space: nowrap; color: var(--muted, #666); font-weight: 500; width: 110px; }
 .tender-content { white-space: pre-wrap; line-height: 1.75; font-size: 14px; }
+.tag.live { display: inline-block; padding: 0 6px; border-radius: 3px; background: #e7f7ec; color: #1a7f37; font-size: 12px; }
+.tag.done { display: inline-block; padding: 0 6px; border-radius: 3px; background: #f0f0f0; color: #888; font-size: 12px; text-decoration: line-through; }
 .empty { padding: 24px 0; color: var(--muted, #888); }
 </style>
 {% endblock %}

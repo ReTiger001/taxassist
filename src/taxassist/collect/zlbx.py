@@ -154,6 +154,8 @@ def _rows_from_items(items: list[dict]) -> list[dict]:
             "doc_uid": f"zlbx:{bid_id}",
             "source": "zlbx",
             "notice_type": "gkzb" if (it.get("bid_type") == "招标") else "zbgg",
+            # 公告阶段：招标/预招标/采购意向（可投） vs 中标结果/中标候选人/合同（已结束）
+            "bid_process": it.get("bid_process"),
             "title": it.get("title") or "",
             "project_no": str(bid_id),
             "purchaser": it.get("caller_name"),
@@ -184,7 +186,7 @@ def collect(conn, *, days: int = 7, max_pages: int = 2,
         raise RuntimeError("没有可用的知了标讯 API Key（自动注册也失败了）")
 
     stats = {"pages": 0, "fetched": 0, "new": 0, "updated": 0,
-             "total_matched": 0, "failed": 0}
+             "total_matched": 0, "failed": 0, "duplicates": 0}
     for page in range(1, max_pages + 1):
         try:
             resp = search_bids(key, TAX_QUERY_KEYWORDS, days=days, page=page,
@@ -202,6 +204,22 @@ def collect(conn, *, days: int = 7, max_pages: int = 2,
         stats["pages"] += 1
         for row in _rows_from_items(items):
             stats["fetched"] += 1
+            # **去重**：知了标讯聚合多平台，同一公告会被重复收录（bid_id 不同、
+            # 标题与日期完全相同）。实测 100 条里 6 组重复，不去重页面会看到
+            # 一模一样的两条。
+            #
+            # 判定顺序很重要：**先看自己是否已存在**，只有自己不存在时才去找
+            # 别的重复记录。反过来写（先 find_duplicate）会把"已存在条目自己的
+            # 更新"重定向到另一条重复记录上，导致原记录的字段（如 bid_process）
+            # 永远补不上 —— 这正是 2026-10-22 踩到的坑。
+            self_exists = conn.execute(
+                "SELECT 1 FROM tender WHERE doc_uid = ?", (row["doc_uid"],)).fetchone()
+            if not self_exists:
+                dup = tmod.find_duplicate(conn, row.get("title") or "",
+                                          row.get("purchaser"))
+                if dup:
+                    stats["duplicates"] += 1
+                    row["doc_uid"] = dup
             _, is_new = tmod.upsert(conn, row)
             stats["new" if is_new else "updated"] += 1
         conn.commit()

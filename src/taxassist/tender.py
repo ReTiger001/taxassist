@@ -94,10 +94,68 @@ CREATE INDEX IF NOT EXISTS idx_tender_region ON tender(region, publish_at DESC);
 
 
 def ensure_table(conn) -> None:
-    """建表（幂等）。SQLite 与 PostgreSQL 语法在此 DDL 上完全兼容。"""
+    """建表 + 补新列（幂等）。SQLite 与 PostgreSQL 语法在此 DDL 上兼容。"""
     for stmt in [s.strip() for s in TENDER_DDL.split(";") if s.strip()]:
         conn.execute(stmt)
+    # 2026-10-22 新增：公告阶段（知了标讯的 bid_process）。
+    # 值：招标/预招标/采购意向（可投）、中标结果/中标候选人/合同（已结束）。
+    # 用户看不出"候选供应商征集"和"中标候选人公示"的区别，必须显式标出来。
+    _add_column(conn, "tender", "bid_process", "TEXT")
     conn.commit()
+
+
+def _add_column(conn, table: str, column: str, ddl: str) -> None:
+    """加列（幂等）。
+
+    **失败后必须 rollback**：PostgreSQL 与 SQLite 的关键差异 —— SQLite 的
+    "duplicate column" 只是单条语句失败，事务照常；而 PG 一旦某条语句出错，
+    整个事务进入 aborted 状态，**后续所有语句被静默丢弃**（不抛错）。
+
+    2026-10-22 踩到的就是这个：`_add_column` 吞掉异常但没 rollback，结果
+    同一连接上后续的 `UPDATE ... bid_process` 全部无效，表现为「采集显示
+    更新 100 条、数据库里阶段字段仍是空」——而且不报任何错。
+    """
+    try:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        conn.commit()
+        log.info("已新增列 %s.%s", table, column)
+    except Exception as e:  # noqa: BLE001 - 已存在是常态
+        log.debug("加列 %s.%s 跳过（多半已存在）：%s", table, column, e)
+        try:
+            conn.rollback()   # ← 关键：清掉 PG 的 aborted 事务状态
+        except Exception:  # noqa: BLE001
+            pass
+
+
+#: 还能投的阶段（知了标讯 bid_process 的取值）。
+BIDDABLE_PROCESSES: tuple[str, ...] = ("招标", "预招标", "采购意向")
+#: 已经结束的阶段（中标结果/候选人/合同）—— 投标再去就是白费力气。
+FINISHED_PROCESSES: tuple[str, ...] = ("中标结果", "中标候选人", "合同")
+
+
+def is_biddable(process: str | None) -> bool:
+    """这个阶段还能不能投？**未知阶段一律当真**（宁可多显示，不要误杀）。"""
+    if not process:
+        return True
+    return process not in FINISHED_PROCESSES
+
+
+def find_duplicate(conn, title: str, purchaser: str | None) -> str | None:
+    """查同一项目的已有公告（标题 + 采购人相同）。
+
+    知了标讯聚合了多个来源平台，**同一条公告会被重复收录**（bid_id 不同、
+    标题日期完全相同）。实测 100 条里有 6 组完全重复。采集时拦掉，页面才干净。
+    """
+    if not title:
+        return None
+    if purchaser:
+        row = conn.execute(
+            "SELECT doc_uid FROM tender WHERE title = ? AND purchaser = ? LIMIT 1",
+            (title, purchaser)).fetchone()
+    else:
+        row = conn.execute(
+            "SELECT doc_uid FROM tender WHERE title = ? LIMIT 1", (title,)).fetchone()
+    return row["doc_uid"] if row else None
 
 
 def tax_hits(text: str) -> list[str]:
@@ -164,14 +222,20 @@ def upsert(conn, row: dict) -> tuple[str, bool]:
     """写入一条公告。返回 ``(doc_uid, 是否新增)``。
 
     按 ``doc_uid`` 幂等更新：同一公告重抓不会重复，正文修订会覆盖。
+
+    **不在这里调 ``ensure_table``**：那会在每条记录前执行一次 DDL，而
+    ``_add_column`` 里的 ALTER 失败会 rollback **整个事务** —— 把同一批里
+    前面已经 UPDATE 的记录一起撤销。2026-10-22 的 bug 就是这个：采集显示
+    "更新 50 条"，实际只有最后一条落库，且全程不报错。
+    建表由调用方在开始前调一次 ``ensure_table``。
     """
-    ensure_table(conn)
     uid = row["doc_uid"]
     exists = conn.execute("SELECT 1 FROM tender WHERE doc_uid = ?", (uid,)).fetchone()
     now = _now()
     fields = {
         "source": row.get("source"),
         "notice_type": row.get("notice_type"),
+        "bid_process": _clean(row.get("bid_process")),
         "title": _clean(row.get("title")),
         "project_no": _clean(row.get("project_no")),
         "purchaser": _clean(row.get("purchaser")),
