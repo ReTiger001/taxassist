@@ -71,6 +71,10 @@ def build_parser() -> argparse.ArgumentParser:
     td.add_argument("--detail-limit", type=int, default=None,
                     help="CCGP 源专用：最多抓几条详情（调试用）")
 
+    ta = sub.add_parser("tender-ai", help="AI 评估招标公告值不值得投（1-5 分）")
+    ta.add_argument("--limit", type=int, default=None,
+                    help="最多评估几条（默认全部未评的）")
+
     s = sub.add_parser("status", help="抓取日志与库统计")
     s.add_argument("--limit", type=int, default=15, help="显示最近多少条抓取记录")
 
@@ -258,6 +262,30 @@ def _ensure_tender(conn, tmod) -> None:
     except Exception as e:  # noqa: BLE001 - 建表失败要显式报出来，别静默
         print(f"建 tender 表失败：{type(e).__name__}: {e}")
         raise
+
+
+def cmd_tender_ai(args) -> int:
+    """AI 评估招标公告的投标价值（1-5 分）。
+
+    主要作用不是"打分"，而是**过滤误报**：税务关键词会把「税务局食堂服务」
+    「税务局设备采购」这类一起抓进来，模型能识别出它们不是税务专业服务。
+    """
+    from . import tender as tmod
+    from . import tender_ai
+
+    conn = dbmod.connect()
+    try:
+        _ensure_tender(conn, tmod)
+        print("开始 AI 评估（每条约 5-10 秒）…")
+        stats = tender_ai.judge_pending(
+            conn, limit=args.limit,
+            progress=lambda i, n: print(f"  [{i}/{n}]", flush=True))
+    finally:
+        conn.close()
+    print(f"完成：评估 {stats['judged']} 条，失败 {stats['failed']}，"
+          f"其中判定非税务服务 {stats['not_tax']} 条")
+    print(f"  分数分布：{dict(sorted(stats['by_score'].items(), reverse=True))}")
+    return 0
 
 
 def cmd_collect(args) -> int:
@@ -1025,6 +1053,7 @@ def main(argv: list[str] | None = None) -> int:
         "initdb": cmd_initdb,
         "collect": cmd_collect,
         "tenders": cmd_tenders,
+        "tender-ai": cmd_tender_ai,
         "provincial": cmd_provincial,
         "enrich": cmd_enrich,
         "attach": cmd_attach,

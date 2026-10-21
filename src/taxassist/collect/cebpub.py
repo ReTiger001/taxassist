@@ -39,11 +39,31 @@ log = logging.getLogger(__name__)
 SEARCH_URL = ("https://www.cebpubservice.com/ctpsp_iiss/"
               "searchbusinesstypebeforedooraction/getSearch.do")
 
-#: 用来覆盖"税务服务标"的关键词。每个词一次浏览器查询。
+#: 用来覆盖"税务服务标"的关键词。每个词一次浏览器查询（约 15 秒/词）。
+#:
+#: 覆盖三类：①通用服务名（税务服务/税务咨询）②具体业务（汇算清缴/转让定价/
+#: 税务尽调）③交付形态（税务筹划/税务审计/税务合规）。词越多覆盖越全，但
+#: 耗时线性增长 —— 20 个词约 5-6 分钟，每天跑一次可接受。
 SEARCH_KEYWORDS: list[str] = [
     "税务服务", "税务咨询", "汇算清缴", "涉税服务", "税务代理",
     "税务尽调", "税务顾问", "涉税鉴证", "税务筹划", "转让定价",
+    "税务审计", "涉税审计", "税务合规", "税收风险", "税务争议",
+    "纳税申报", "税务外包", "税务健康检查", "税务复核", "税收筹划",
 ]
+
+#: 采购人提取：标题通常以"XX有限公司/集团/局/院"开头。
+#:
+#: 列表页没有采购人字段，详情页要过验证码（`showDetails` 里是 `withVerification`，
+#: 不是"首次免验证"），所以从标题**启发式推断** —— 比显示空白有用得多。
+_PURCHASER_RE = re.compile(
+    r"^(.{2,40}?(?:股份有限公司|有限责任公司|有限公司|集团公司|集团|公司|"
+    r"研究院|事务所|大学|医院|中心|管理局|税务局|局|院|厂))")
+
+
+def extract_purchaser(title: str) -> str | None:
+    """从公告标题里推断采购人。认不出返回 None（页面显示"—"）。"""
+    m = _PURCHASER_RE.match((title or "").strip())
+    return m.group(1) if m else None
 
 _ROWS_RE = re.compile(r'<tbody id="tenderBulletin">(.*?)</tbody>', re.S)
 _TR_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S)
@@ -131,18 +151,20 @@ def _doc_uid(row: dict) -> str:
 
 def to_tender_row(row: dict) -> dict:
     """映射成 tender 表的一行。"""
+    title = row.get("title") or ""
     return {
         "doc_uid": _doc_uid(row),
         "source": "cebpub",
         "notice_type": "gkzb",
         # 搜索页固定按「招标公告」类型查 → 都是可投标阶段
         "bid_process": "招标",
-        "title": row.get("title") or "",
-        "purchaser": None,          # 列表页没有采购人字段，详情页才需要再抓
+        "title": title,
+        # 采购人从标题推断（列表页没有该字段，详情页要验证码）
+        "purchaser": extract_purchaser(title),
         "region": row.get("region"),
         "publish_at": row.get("publish_at"),
         "deadline": row.get("deadline"),
-        # 平台名放到 agency（页面上"代理机构"一栏显示，比丢掉有用）
+        # 平台名放到 agency（页面上「代理机构」一栏显示，比丢掉有用）
         "agency": row.get("platform"),
         "is_tax": 1,
         "tax_hits": ["税务服务"],

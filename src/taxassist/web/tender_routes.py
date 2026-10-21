@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 
 from fastapi import Query, Request
 from fastapi.responses import HTMLResponse
@@ -25,6 +25,19 @@ def _ensure(conn) -> None:
         tmod.ensure_table(conn)
     except Exception as e:  # noqa: BLE001 - 建表失败不该让页面 500
         log.warning("tender 建表失败：%s", e)
+
+
+def _days_left(deadline: str | None, today: date) -> int | None:
+    """距截止日期还有几天。解析不出返回 None（页面照常显示原日期）。"""
+    if not deadline:
+        return None
+    txt = str(deadline).strip()[:10]
+    for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
+        try:
+            return (datetime.strptime(txt, fmt).date() - today).days
+        except ValueError:
+            continue
+    return None
 
 
 def register(app, *, ctx, templates) -> None:
@@ -88,6 +101,14 @@ def register(app, *, ctx, templates) -> None:
                 tuple(params + [limit, (page - 1) * limit]))
         except Exception as e:  # noqa: BLE001
             log.warning("招标列表查询失败：%s: %s", type(e).__name__, e)
+
+        # **截止日剩余天数**：投标最怕"看到时已经来不及"。
+        # 3 天内到期的在页面上高亮（红色），已截止的置灰。
+        today = date.today()
+        rows = [dict(r) for r in rows]
+        for r in rows:
+            r["days_left"] = _days_left(r.get("deadline"), today)
+            r["urgent"] = (r["days_left"] is not None and 0 <= r["days_left"] <= 3)
 
         # 筛选项取值（地区 / 公告类型）——从已入库数据里现取，不维护硬编码列表
         regions: list[str] = []

@@ -97,10 +97,16 @@ def ensure_table(conn) -> None:
     """建表 + 补新列（幂等）。SQLite 与 PostgreSQL 语法在此 DDL 上兼容。"""
     for stmt in [s.strip() for s in TENDER_DDL.split(";") if s.strip()]:
         conn.execute(stmt)
+    # **先提交 DDL 再 ALTER**：PostgreSQL 里若 DDL 与后续 ALTER 在同一个未提交
+    # 事务里，任一句失败会把整批回滚 —— 表现为"加列静默失效"（2026-10-22 踩到）。
+    conn.commit()
     # 2026-10-22 新增：公告阶段（知了标讯的 bid_process）。
     # 值：招标/预招标/采购意向（可投）、中标结果/中标候选人/合同（已结束）。
-    # 用户看不出"候选供应商征集"和"中标候选人公示"的区别，必须显式标出来。
     _add_column(conn, "tender", "bid_process", "TEXT")
+    # 2026-10-22：AI 投标价值评估（见 tender_ai.py）
+    _add_column(conn, "tender", "ai_score", "INTEGER")
+    _add_column(conn, "tender", "ai_reason", "TEXT")
+    _add_column(conn, "tender", "ai_is_tax_service", "INTEGER")
     conn.commit()
 
 

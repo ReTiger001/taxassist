@@ -75,6 +75,7 @@
   <thead>
     <tr>
       <th data-zh="公告标题" data-en="Title">公告标题</th>
+      <th data-zh="推荐度" data-en="Fit">推荐度</th>
       <th data-zh="阶段" data-en="Stage">阶段</th>
       <th data-zh="采购人" data-en="Buyer">采购人</th>
       <th data-zh="预算" data-en="Budget">预算</th>
@@ -91,6 +92,11 @@
         {% if r.project_no %}<div class="meta">{{ r.project_no }}</div>{% endif %}
       </td>
       <td>
+        {% if r.ai_score %}
+          <span class="score s{{ r.ai_score }}" title="{{ r.ai_reason or '' }}">{{ r.ai_score }}</span>
+        {% else %}<span class="meta">—</span>{% endif %}
+      </td>
+      <td>
         {% set proc = r.bid_process or '' %}
         {% if proc %}
           {% if proc in ('中标结果', '中标候选人', '合同') %}
@@ -102,7 +108,14 @@
       </td>
       <td>{{ r.purchaser or '—' }}</td>
       <td>{% if r.budget %}{{ '%.0f'|format(r.budget / 10000) }} 万{% else %}—{% endif %}</td>
-      <td>{{ r.deadline or '—' }}</td>
+      <td>
+        {% if r.days_left is not none %}
+          {% if r.days_left < 0 %}<span class="closed">已截止</span>
+          {% elif r.urgent %}<span class="urgent" title="即将截止">{{ r.days_left }} 天</span>
+          {% else %}{{ r.days_left }} 天{% endif %}
+        {% elif r.deadline %}{{ r.deadline[:10] }}
+        {% else %}—{% endif %}
+      </td>
       <td>{{ r.publish_at or '—' }}</td>
     </tr>
   {% endfor %}
@@ -126,6 +139,16 @@
 .tag.tax { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: #e8f2ff; color: #1560bd; font-size: 12px; }
 .tag.live { display: inline-block; padding: 0 5px; border-radius: 3px; background: #e7f7ec; color: #1a7f37; font-size: 12px; white-space: nowrap; }
 .tag.done { display: inline-block; padding: 0 5px; border-radius: 3px; background: #f0f0f0; color: #888; font-size: 12px; white-space: nowrap; text-decoration: line-through; }
+.urgent { color: #c0392b; font-weight: 700; background: #fdecea; padding: 1px 6px; border-radius: 3px; white-space: nowrap; }
+.closed { color: #999; text-decoration: line-through; white-space: nowrap; }
+/* AI 推荐度徽章：5 最好、1 最差。颜色随分数变，扫一眼就能排序判断。 */
+.score { display: inline-block; min-width: 20px; text-align: center; padding: 1px 6px;
+         border-radius: 10px; font-weight: 700; font-size: 12px; cursor: help; }
+.score.s5 { background: #1a7f37; color: #fff; }
+.score.s4 { background: #2f81f7; color: #fff; }
+.score.s3 { background: #d4d4d4; color: #333; }
+.score.s2 { background: #f0e0c0; color: #8a6d3b; }
+.score.s1 { background: #fdecea; color: #c0392b; }
 .f-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
 .f-row label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
 .pager { margin: 16px 0; display: flex; gap: 12px; align-items: center; }
