@@ -140,11 +140,26 @@ def is_biddable(process: str | None) -> bool:
     return process not in FINISHED_PROCESSES
 
 
+def _normalize_title(title: str | None) -> str:
+    """规范化标题用于**去重比对**（不改存储值）。
+
+    知了标讯会把同一公告以带不同编号前缀的形式重复收录：
+    「10中国建设银行…」「7中国建设银行…」——正文完全相同，只差开头 1-2 位数字。
+    这里去掉**开头 1-2 位数字 + 可选标点**。为什么只去 1-2 位：4 位通常是年份
+    （"2026年度企业所得税汇算清缴"），去掉就把不同年份的标混成一类了。
+    """
+    t = re.sub(r"^[\s\d]{1,2}[.、,，\s]*", "", title or "")
+    return re.sub(r"\s+", "", t).strip()
+
+
 def find_duplicate(conn, title: str, purchaser: str | None) -> str | None:
     """查同一项目的已有公告（标题 + 采购人相同）。
 
     知了标讯聚合了多个来源平台，**同一条公告会被重复收录**（bid_id 不同、
     标题日期完全相同）。实测 100 条里有 6 组完全重复。采集时拦掉，页面才干净。
+
+    比对分两步：先精确匹配（快），再无视"编号前缀"比较同一采购人的标题
+    （处理「10中国建设银行…」vs「7中国建设银行…」这种）。
     """
     if not title:
         return None
@@ -155,7 +170,26 @@ def find_duplicate(conn, title: str, purchaser: str | None) -> str | None:
     else:
         row = conn.execute(
             "SELECT doc_uid FROM tender WHERE title = ? LIMIT 1", (title,)).fetchone()
-    return row["doc_uid"] if row else None
+    if row:
+        return row["doc_uid"]
+
+    # 第二步：同采购人下按规范化标题比较（数据量小，Python 端做即可）
+    norm = _normalize_title(title)
+    if not norm:
+        return None
+    try:
+        if purchaser:
+            rows = conn.execute(
+                "SELECT doc_uid, title FROM tender WHERE purchaser = ?",
+                (purchaser,)).fetchall()
+        else:
+            rows = conn.execute("SELECT doc_uid, title FROM tender").fetchall()
+        for r in rows:
+            if _normalize_title(r["title"]) == norm:
+                return r["doc_uid"]
+    except Exception as e:  # noqa: BLE001 - 查重失败不该阻断采集
+        log.debug("规范化查重失败：%s", e)
+    return None
 
 
 def tax_hits(text: str) -> list[str]:
