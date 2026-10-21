@@ -58,11 +58,16 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--max-pages", type=int, default=None, help="每个窗口最多抓几页（调试用）")
     c.add_argument("--no-archive", action="store_true", help="不归档原始响应（不建议）")
 
-    td = sub.add_parser("tenders", help="抓取招标公告（中国政府采购网，走浏览器）")
-    td.add_argument("--days", type=int, default=3, help="往回抓几天（默认 3，重叠防漏）")
-    td.add_argument("--max-pages", type=int, default=60, help="每个源最多翻几页")
+    td = sub.add_parser("tenders", help="抓取税务服务招标公告")
+    td.add_argument("--source", action="append", dest="source",
+                    choices=["zlbx", "ccgp"],
+                    help="来源：zlbx=知了标讯 API（默认，命中率高）、"
+                         "ccgp=中国政府采购网（走浏览器，命中率低）；可重复")
+    td.add_argument("--days", type=int, default=7, help="往回抓几天（默认 7）")
+    td.add_argument("--max-pages", type=int, default=2,
+                    help="最多翻几页（知了标讯每页是一次免费额度调用，默认 2 = 100 条）")
     td.add_argument("--detail-limit", type=int, default=None,
-                    help="最多抓几条详情（调试用；默认不限制税务相关的全部）")
+                    help="CCGP 源专用：最多抓几条详情（调试用）")
 
     s = sub.add_parser("status", help="抓取日志与库统计")
     s.add_argument("--limit", type=int, default=15, help="显示最近多少条抓取记录")
@@ -197,28 +202,43 @@ def cmd_initdb(args) -> int:
 
 
 def cmd_tenders(args) -> int:
-    """抓取招标公告（CCGP）。走真浏览器 —— 直接 HTTP 请求会被 403。
+    """抓取税务服务招标公告。
 
-    只对**命中税务关键词**的条目抓详情（补预算/截止/正文），其余只存列表级
-    信息：CCGP 每天新增数千条，全抓详情要数小时，而税务师只关心其中很小一部分。
+    **默认走知了标讯 API**：实测 CCGP（政府采购网）400 条标题里 0 条税务服务标，
+    而知了标讯用「税务服务/税务咨询/汇算清缴/涉税服务」搜到数万条真标
+    （建设银行常年税务顾问、雅砻江水电税务咨询、新疆农牧投涉税服务选聘…）。
+    CCGP 保留为可选项（``--source ccgp``），技术已通但命中率极低。
+
+    知了标讯每次翻页消耗一次免费额度（自动注册送 100 次），默认只翻 2 页。
     """
     from . import tender as tmod
-    from .collect import ccgp
 
+    sources = args.source or ["zlbx"]
     conn = dbmod.connect()
     try:
         _ensure_tender(conn, tmod)
-        print(f"开始抓取招标公告：回溯 {args.days} 天，每源最多 {args.max_pages} 页")
-        stats = ccgp.collect(conn, days=args.days, max_pages=args.max_pages,
-                             detail_limit=args.detail_limit)
+        for src in sources:
+            print(f"=== 来源 {src} ===")
+            if src == "zlbx":
+                from .collect import zlbx
+
+                st = zlbx.collect(conn, days=args.days,
+                                  max_pages=args.max_pages)
+                print(f"  翻页 {st['pages']} / 抓 {st['fetched']} 条 / "
+                      f"新增 {st['new']} · 更新 {st['updated']} / "
+                      f"7 天内总命中 {st['total_matched']}")
+            elif src == "ccgp":
+                from .collect import ccgp
+
+                st = ccgp.collect(conn, days=args.days,
+                                  max_pages=max(args.max_pages, 60),
+                                  detail_limit=args.detail_limit)
+                print(f"  翻页 {st['pages']} / 列表 {st['listed']} 条 / "
+                      f"新增 {st['new']} · 更新 {st['updated']} / "
+                      f"税务相关 {st['tax']} / 详情 {st['details']}")
     finally:
         conn.close()
-    print(f"完成：翻页 {stats['pages']} 页 / 列表 {stats['listed']} 条 / "
-          f"新增 {stats['new']} · 更新 {stats['updated']} / 税务相关 {stats['tax']} / "
-          f"抓详情 {stats['details']} 条 / 失败 {stats['failed']}")
-    for src, d in stats["by_source"].items():
-        print(f"  {src}: 页 {d['pages']} 列表 {d['listed']} "
-              f"新增 {d['new']} 更新 {d['updated']} 税务 {d['tax']}")
+    print("完成。")
     return 0
 
 

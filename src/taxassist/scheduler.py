@@ -310,19 +310,20 @@ def start_background_scheduler(hour: int = 7, minute: int = 30):
 
 
 def _job_tenders() -> None:
-    """抓招标公告。异常必须记录，不能让它静默杀掉调度线程。"""
+    """抓税务服务招标公告（默认知了标讯 API）。异常记录，不杀掉调度线程。"""
     try:
         from . import tender as tmod
-        from .collect import ccgp
+        from .collect import zlbx
 
         conn = dbmod.connect()
         try:
             tmod.ensure_table(conn)
-            stats = ccgp.collect(conn, days=3, max_pages=60)
+            # 每天抓最近 7 天（重叠防漏），只翻 2 页 —— 每页消耗一次免费额度
+            stats = zlbx.collect(conn, days=7, max_pages=2)
         finally:
             conn.close()
-        log.info("招标采集完成：列表 %d 条 / 新增 %d / 税务 %d / 详情 %d",
-                 stats["listed"], stats["new"], stats["tax"], stats["details"])
+        log.info("招标采集完成：抓 %d 条 / 新增 %d / 总命中 %d",
+                 stats["fetched"], stats["new"], stats["total_matched"])
     except Exception:
         log.exception("招标采集失败（不影响政策日更，请查看日志）")
 
