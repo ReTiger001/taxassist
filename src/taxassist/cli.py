@@ -60,12 +60,14 @@ def build_parser() -> argparse.ArgumentParser:
 
     td = sub.add_parser("tenders", help="抓取税务服务招标公告")
     td.add_argument("--source", action="append", dest="source",
-                    choices=["zlbx", "ccgp"],
-                    help="来源：zlbx=知了标讯 API（默认，命中率高）、"
-                         "ccgp=中国政府采购网（走浏览器，命中率低）；可重复")
-    td.add_argument("--days", type=int, default=7, help="往回抓几天（默认 7）")
+                    choices=["cebpub", "zlbx", "ccgp"],
+                    help="来源：cebpub=中国招标投标公共服务平台（官方上游，默认，"
+                         "覆盖全国企业平台、无额度限制）；zlbx=知了标讯 API"
+                         "（有预算金额等字段，100 次免费额度）；ccgp=中国政府采购网"
+                         "（命中率低）；可重复")
+    td.add_argument("--days", type=int, default=7, help="往回抓几天（zlbx 用）")
     td.add_argument("--max-pages", type=int, default=2,
-                    help="最多翻几页（知了标讯每页是一次免费额度调用，默认 2 = 100 条）")
+                    help="zlbx 最多翻几页（每页消耗一次免费额度，默认 2 = 100 条）")
     td.add_argument("--detail-limit", type=int, default=None,
                     help="CCGP 源专用：最多抓几条详情（调试用）")
 
@@ -213,13 +215,20 @@ def cmd_tenders(args) -> int:
     """
     from . import tender as tmod
 
-    sources = args.source or ["zlbx"]
+    sources = args.source or ["cebpub"]
     conn = dbmod.connect()
     try:
         _ensure_tender(conn, tmod)
         for src in sources:
             print(f"=== 来源 {src} ===")
-            if src == "zlbx":
+            if src == "cebpub":
+                from .collect import cebpub
+
+                st = cebpub.collect(conn)
+                print(f"  关键词 {st['keywords']} / 抓 {st['fetched']} 条 / "
+                      f"新增 {st['new']} · 更新 {st['updated']} / "
+                      f"重复 {st['duplicates']} / 失败 {st['failed']}")
+            elif src == "zlbx":
                 from .collect import zlbx
 
                 st = zlbx.collect(conn, days=args.days,

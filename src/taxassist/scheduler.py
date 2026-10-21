@@ -310,20 +310,23 @@ def start_background_scheduler(hour: int = 7, minute: int = 30):
 
 
 def _job_tenders() -> None:
-    """抓税务服务招标公告（默认知了标讯 API）。异常记录，不杀掉调度线程。"""
+    """抓税务服务招标公告。默认走**官方上游**（中国招标投标公共服务平台）。
+
+    它覆盖全国所有企业招标平台且无额度限制（走「首次查询免验证」，不碰验证码）。
+    知了标讯作为补充（有预算金额字段，但有 100 次免费额度）。
+    """
     try:
         from . import tender as tmod
-        from .collect import zlbx
+        from .collect import cebpub
 
         conn = dbmod.connect()
         try:
             tmod.ensure_table(conn)
-            # 每天抓最近 7 天（重叠防漏），只翻 2 页 —— 每页消耗一次免费额度
-            stats = zlbx.collect(conn, days=7, max_pages=2)
+            stats = cebpub.collect(conn)
         finally:
             conn.close()
-        log.info("招标采集完成：抓 %d 条 / 新增 %d / 总命中 %d",
-                 stats["fetched"], stats["new"], stats["total_matched"])
+        log.info("招标采集完成（官方源）：抓 %d 条 / 新增 %d / 重复 %d",
+                 stats["fetched"], stats["new"], stats["duplicates"])
     except Exception:
         log.exception("招标采集失败（不影响政策日更，请查看日志）")
 
