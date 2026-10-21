@@ -39,11 +39,97 @@ log = logging.getLogger(__name__)
 SEARCH_URL = ("https://www.cebpubservice.com/ctpsp_iiss/"
               "searchbusinesstypebeforedooraction/getSearch.do")
 
-#: 用来覆盖"税务服务标"的关键词。每个词一次浏览器查询（约 15 秒/词）。
+#: 31 个省级地区编码（官方搜索接口的 ``searchArea`` 参数值）。
+#:
+#: **必须用 6 位编码**：传中文"北京市"服务端会忽略该条件、返回全国结果
+#: （实测：'北京市'→498 条全量，'110000'→61 条北京）。这决定了「按地区遍历」
+#: 能不能生效。
+AREA_CODES: dict[str, str] = {
+    "110000": "北京", "120000": "天津", "130000": "河北", "140000": "山西",
+    "150000": "内蒙古", "210000": "辽宁", "220000": "吉林", "230000": "黑龙江",
+    "310000": "上海", "320000": "江苏", "330000": "浙江", "340000": "安徽",
+    "350000": "福建", "360000": "江西", "370000": "山东", "410000": "河南",
+    "420000": "湖北", "430000": "湖南", "440000": "广东", "450000": "广西",
+    "460000": "海南", "500000": "重庆", "510000": "四川", "520000": "贵州",
+    "530000": "云南", "540000": "西藏", "610000": "陕西", "620000": "甘肃",
+    "630000": "青海", "640000": "宁夏", "650000": "新疆",
+}
+
+#: 官方查询接口（POST，form-urlencoded）。参数必须**全部出现**（缺一个就返回空，
+#: 哪怕那个参数是空值）—— 这是 2026-10-22 调了半天返回 0 条的原因。
+_API_URL = ("https://www.cebpubservice.com/ctpsp_iiss/"
+            "searchbusinesstypebeforedooraction/getStringMethod.do")
+_API_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                  "AppleWebKit/537.36 Chrome/120 Safari/537.36",
+    "Referer": ("https://www.cebpubservice.com/ctpsp_iiss/"
+                "searchbusinesstypebeforedooraction/getSearch.do"),
+    "X-Requested-With": "XMLHttpRequest",
+    "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+}
+
+
+def _api_body(keyword: str, area: str = "") -> str:
+    """拼请求体。**空字段也必须带上**（见 _API_URL 注释）。"""
+    from urllib.parse import quote
+
+    return (
+        f"searchName={quote(keyword)}&searchArea={quote(area)}"
+        "&searchIndustry=&centerPlat="
+        f"&businessType={quote('招标公告')}"
+        "&searchTimeStart=&searchTimeStop=&timeTypeParam="
+        "&bulletinIssnTime=&bulletinIssnTimeStart=&bulletinIssnTimeStop="
+        "&pageNo=1&row=15"
+    )
+
+
+def api_search(client, keyword: str, area: str = "",
+               retries: int = 2) -> list[dict]:
+    """直调官方查询接口（第 1 页，15 条）。
+
+    **比浏览器快 100 倍**（0.1 秒 vs 20 秒）。限制是只能拿第 1 页——翻页在
+    服务端要 vaptcha token；但「地区 × 关键词」组合能绕过这个限制：每个组合
+    都是独立的第 1 页查询。
+
+    **有频率限制**：连续几百次后返回非 JSON（空/拦截页）。实测 640 次后被拦，
+    所以调用方要把 ``sleep_between`` 放大，并且这里对非 JSON 响应做短退避重试。
+    """
+    for attempt in range(retries + 1):
+        try:
+            r = client.post(_API_URL, content=_api_body(keyword, area), timeout=30)
+            j = r.json()
+            items = (j.get("object") or {}).get("returnlist") or []
+            break
+        except Exception as e:  # noqa: BLE001
+            if attempt >= retries:
+                log.debug("查询「%s/%s」失败（已重试）：%s: %s",
+                          keyword, area, type(e).__name__, e)
+                return []
+            time.sleep(1.5 * (attempt + 1))   # 退避：被限流时等一会儿再试
+    else:
+        return []
+    out: list[dict] = []
+    for it in items:
+        title = (it.get("bulletinName") or it.get("title")
+                 or it.get("businessObjectName") or "")
+        if not title:
+            continue
+        out.append({
+            "title": str(title),
+            "industry": it.get("industryName") or it.get("industry"),
+            "region": AREA_CODES.get(area) or it.get("areaName"),
+            "platform": it.get("transactionPlatfName") or it.get("platfName"),
+            "publish_at": str(it.get("bulletinIssnTime") or it.get("publishTime") or "")[:10],
+            "deadline": str(it.get("bulletinEndTime") or "")[:10],
+        })
+    return out
+
+
+#: 用来覆盖"税务服务标"的关键词。
 #:
 #: 覆盖三类：①通用服务名（税务服务/税务咨询）②具体业务（汇算清缴/转让定价/
-#: 税务尽调）③交付形态（税务筹划/税务审计/税务合规）。词越多覆盖越全，但
-#: 耗时线性增长 —— 20 个词约 5-6 分钟，每天跑一次可接受。
+#: 税务尽调）③交付形态（税务筹划/税务审计/税务合规）。
+#: 与 31 个地区编码做笛卡尔积 = 620 次查询，每次约 0.1 秒。
 SEARCH_KEYWORDS: list[str] = [
     "税务服务", "税务咨询", "汇算清缴", "涉税服务", "税务代理",
     "税务尽调", "税务顾问", "涉税鉴证", "税务筹划", "转让定价",
@@ -173,35 +259,56 @@ def to_tender_row(row: dict) -> dict:
 
 
 def collect(conn, *, keywords: list[str] | None = None,
-            sleep_between: float = 2.0) -> dict:
-    """采集主流程：逐关键词查询 → 去重 → 入库。"""
+            areas: dict[str, str] | None = None,
+            sleep_between: float = 0.5) -> dict:
+    """采集主流程：**地区 × 关键词**组合，全部走 API 直调。
+
+    为什么按地区遍历：官方接口**只能拿第 1 页**（翻页要 vaptcha token），
+    而每个「地区+关键词」组合都是独立的第 1 页查询 —— 31 省 × 20 词 = 620 次
+    查询约 1-2 分钟，能把全国约 500 条税务标覆盖掉大部分。
+
+    ``areas={}`` 表示只查全国（不带地区筛选，20 次）。
+    """
+    import httpx
+
     from .. import tender as tmod
 
     tmod.ensure_table(conn)
     kws = keywords or SEARCH_KEYWORDS
-    stats = {"keywords": 0, "fetched": 0, "new": 0, "updated": 0,
+    # areas 为 None → 遍历 31 省；传 {} → 只查全国
+    area_map: dict[str, str] = AREA_CODES if areas is None else areas
+    stats = {"queries": 0, "fetched": 0, "new": 0, "updated": 0,
              "duplicates": 0, "failed": 0}
-    for kw in kws:
-        rows = search(kw)
-        stats["keywords"] += 1
-        if not rows:
-            stats["failed"] += 1
-            log.warning("关键词「%s」无结果", kw)
-            continue
-        for r in rows:
-            row = to_tender_row(r)
-            stats["fetched"] += 1
-            # 去重：先看自己是否存在，不存在再按标题找重复
-            self_exists = conn.execute(
-                "SELECT 1 FROM tender WHERE doc_uid = ?", (row["doc_uid"],)).fetchone()
-            if not self_exists:
-                dup = tmod.find_duplicate(conn, row["title"], row.get("purchaser"))
-                if dup:
-                    stats["duplicates"] += 1
-                    row["doc_uid"] = dup
-            _, is_new = tmod.upsert(conn, row)
-            stats["new" if is_new else "updated"] += 1
-        conn.commit()
-        log.info("关键词「%s」：%d 条，累计新增 %d", kw, len(rows), stats["new"])
-        time.sleep(sleep_between)
+    with httpx.Client(headers=_API_HEADERS, timeout=30,
+                      follow_redirects=True) as client:
+        # 先查一次全国（不带地区），拿到不受地区归属影响的全量首页
+        tasks: list[tuple[str, str]] = [("", "")] if area_map else []
+        tasks += [(code, name) for code, name in area_map.items()]
+        for area_code, area_name in tasks:
+            for kw in kws:
+                rows = api_search(client, kw, area_code)
+                stats["queries"] += 1
+                if not rows:
+                    continue
+                for r in rows:
+                    row = to_tender_row(r)
+                    if area_name and not row.get("region"):
+                        row["region"] = area_name
+                    stats["fetched"] += 1
+                    # 去重：先看自己是否存在，不存在再按标题找重复
+                    self_exists = conn.execute(
+                        "SELECT 1 FROM tender WHERE doc_uid = ?",
+                        (row["doc_uid"],)).fetchone()
+                    if not self_exists:
+                        dup = tmod.find_duplicate(conn, row["title"],
+                                                  row.get("purchaser"))
+                        if dup:
+                            stats["duplicates"] += 1
+                            row["doc_uid"] = dup
+                    _, is_new = tmod.upsert(conn, row)
+                    stats["new" if is_new else "updated"] += 1
+                conn.commit()
+                time.sleep(sleep_between)
+    log.info("官方源采集完成：%d 次查询 / 抓 %d 条 / 新增 %d",
+             stats["queries"], stats["fetched"], stats["new"])
     return stats
