@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block title %}{% if row %}{{ row.title }}{% else %}招标公告{% endif %} · 税务智能知识助手{% endblock %}
+{% block body %}
+
+{% if not row %}
+<p class="empty" data-zh="没有找到这条公告（可能已被清理）。" data-en="Notice not found.">没有找到这条公告（可能已被清理）。</p>
+<p><a href="/tenders" data-zh="← 返回招标列表" data-en="← Back to tenders">← 返回招标列表</a></p>
+{% else %}
+
+<p class="crumb"><a href="/tenders" data-zh="← 招标列表" data-en="← Tenders">← 招标列表</a></p>
+
+<h1>{{ row.title }}</h1>
+
+<table class="tender-meta">
+  {% if row.project_no %}
+  <tr><th data-zh="项目编号" data-en="Reference no.">项目编号</th><td>{{ row.project_no }}</td></tr>
+  {% endif %}
+  <tr><th data-zh="公告类型" data-en="Notice type">公告类型</th>
+      <td>{{ notice_types.get(row.notice_type, row.notice_type or '—') }}</td></tr>
+  {% if row.purchaser %}
+  <tr><th data-zh="采购人" data-en="Buyer">采购人</th><td>{{ row.purchaser }}</td></tr>
+  {% endif %}
+  {% if row.agency %}
+  <tr><th data-zh="代理机构" data-en="Agency">代理机构</th><td>{{ row.agency }}</td></tr>
+  {% endif %}
+  {% if row.budget %}
+  <tr><th data-zh="预算金额" data-en="Budget">预算金额</th>
+      <td>{{ '%.2f'|format(row.budget / 10000) }} 万元</td></tr>
+  {% endif %}
+  {% if row.deadline %}
+  <tr><th data-zh="投标截止" data-en="Deadline">投标截止</th><td>{{ row.deadline }}</td></tr>
+  {% endif %}
+  <tr><th data-zh="发布时间" data-en="Published">发布时间</th><td>{{ row.publish_at or '—' }}</td></tr>
+  {% if row.region %}
+  <tr><th data-zh="地区" data-en="Region">地区</th><td>{{ row.region }}</td></tr>
+  {% endif %}
+  {% if row.tax_hits %}
+  <tr><th data-zh="命中关键词" data-en="Matched keywords">命中关键词</th><td>{{ row.tax_hits }}</td></tr>
+  {% endif %}
+  <tr><th data-zh="数据来源" data-en="Source">数据来源</th>
+      <td>{{ row.source }}
+        {% if row.url %} · <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer"
+             data-zh="查看原文" data-en="Original">查看原文</a>{% endif %}
+      </td></tr>
+</table>
+
+{% if row.content %}
+<h2 data-zh="公告正文" data-en="Notice text">公告正文</h2>
+<div class="tender-content">{{ row.content }}</div>
+{% else %}
+<p class="sub"
+   data-zh="这条公告只抓了列表级信息（标题/类型/日期）。点击上方「查看原文」到发布站看全文。"
+   data-en="Only list-level info was captured for this notice. Use “Original” above to read the full text on the source site.">
+  这条公告只抓了列表级信息（标题/类型/日期）。点击上方「查看原文」到发布站看全文。</p>
+{% endif %}
+
+{% endif %}
+
+<style>
+.crumb { margin: 0 0 8px; font-size: 14px; }
+.tender-meta { border-collapse: collapse; margin: 12px 0 20px; font-size: 14px; }
+.tender-meta th, .tender-meta td { padding: 5px 10px; border-bottom: 1px solid var(--line, #eee); text-align: left; vertical-align: top; }
+.tender-meta th { white-space: nowrap; color: var(--muted, #666); font-weight: 500; width: 110px; }
+.tender-content { white-space: pre-wrap; line-height: 1.75; font-size: 14px; }
+.empty { padding: 24px 0; color: var(--muted, #888); }
+</style>
+{% endblock %}

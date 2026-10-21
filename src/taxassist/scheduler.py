@@ -28,6 +28,8 @@ from . import effect, pipeline, writelock
 log = logging.getLogger(__name__)
 
 DAILY_JOB_ID = "taxassist_daily"
+#: 招标采集的独立任务 id（与日更分开，见 start() 里为什么）
+TENDERS_JOB_ID = "taxassist_tenders"
 
 #: 日更等写库锁的上限（秒）。见 run_daily 里那段说明 —— 取 30 分钟是为了
 #: 覆盖 auto_workflow 单个步骤的长度，能在步骤之间的空隙里拿到锁。
@@ -293,9 +295,36 @@ def start_background_scheduler(hour: int = 7, minute: int = 30):
         misfire_grace_time=3600,      # 错过 1 小时内仍执行（笔记本睡眠常见）
         coalesce=True,                # 多次错过只补跑一次
     )
+    # 招标公告：**独立任务**，放在日更之后一小时（09:30 左右调，避开 07:30 的日更）。
+    # 为什么独立：它走真浏览器（CCGP 直接 HTTP 返回 403），一趟 5-10 分钟，
+    # 塞进日更会把"政策日更"也拖成十几分钟。失败只记日志，不影响日更。
+    sched.add_job(
+        _job_tenders, CronTrigger(hour=(hour + 2) % 24, minute=minute),
+        id=TENDERS_JOB_ID, replace_existing=True,
+        misfire_grace_time=3600, coalesce=True,
+    )
     sched.start()
-    log.info("后台调度已启动：每日 %02d:%02d 执行日更，启动时已补抓", hour, minute)
+    log.info("后台调度已启动：每日 %02d:%02d 执行日更、%02d:%02d 抓招标公告，启动时已补抓",
+             hour, minute, (hour + 2) % 24, minute)
     return sched
+
+
+def _job_tenders() -> None:
+    """抓招标公告。异常必须记录，不能让它静默杀掉调度线程。"""
+    try:
+        from . import tender as tmod
+        from .collect import ccgp
+
+        conn = dbmod.connect()
+        try:
+            tmod.ensure_table(conn)
+            stats = ccgp.collect(conn, days=3, max_pages=60)
+        finally:
+            conn.close()
+        log.info("招标采集完成：列表 %d 条 / 新增 %d / 税务 %d / 详情 %d",
+                 stats["listed"], stats["new"], stats["tax"], stats["details"])
+    except Exception:
+        log.exception("招标采集失败（不影响政策日更，请查看日志）")
 
 
 def _job_run_daily() -> None:

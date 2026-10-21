@@ -58,6 +58,12 @@ def build_parser() -> argparse.ArgumentParser:
     c.add_argument("--max-pages", type=int, default=None, help="每个窗口最多抓几页（调试用）")
     c.add_argument("--no-archive", action="store_true", help="不归档原始响应（不建议）")
 
+    td = sub.add_parser("tenders", help="抓取招标公告（中国政府采购网，走浏览器）")
+    td.add_argument("--days", type=int, default=3, help="往回抓几天（默认 3，重叠防漏）")
+    td.add_argument("--max-pages", type=int, default=60, help="每个源最多翻几页")
+    td.add_argument("--detail-limit", type=int, default=None,
+                    help="最多抓几条详情（调试用；默认不限制税务相关的全部）")
+
     s = sub.add_parser("status", help="抓取日志与库统计")
     s.add_argument("--limit", type=int, default=15, help="显示最近多少条抓取记录")
 
@@ -188,6 +194,41 @@ def cmd_initdb(args) -> int:
     print(f"数据库已就绪：{dbmod.DB_PATH}")
     print(f"SQLite {dbmod.sqlite_version(conn)}，全文检索分词器 {fts}，现有政策 {total} 条")
     return 0
+
+
+def cmd_tenders(args) -> int:
+    """抓取招标公告（CCGP）。走真浏览器 —— 直接 HTTP 请求会被 403。
+
+    只对**命中税务关键词**的条目抓详情（补预算/截止/正文），其余只存列表级
+    信息：CCGP 每天新增数千条，全抓详情要数小时，而税务师只关心其中很小一部分。
+    """
+    from . import tender as tmod
+    from .collect import ccgp
+
+    conn = dbmod.connect()
+    try:
+        _ensure_tender(conn, tmod)
+        print(f"开始抓取招标公告：回溯 {args.days} 天，每源最多 {args.max_pages} 页")
+        stats = ccgp.collect(conn, days=args.days, max_pages=args.max_pages,
+                             detail_limit=args.detail_limit)
+    finally:
+        conn.close()
+    print(f"完成：翻页 {stats['pages']} 页 / 列表 {stats['listed']} 条 / "
+          f"新增 {stats['new']} · 更新 {stats['updated']} / 税务相关 {stats['tax']} / "
+          f"抓详情 {stats['details']} 条 / 失败 {stats['failed']}")
+    for src, d in stats["by_source"].items():
+        print(f"  {src}: 页 {d['pages']} 列表 {d['listed']} "
+              f"新增 {d['new']} 更新 {d['updated']} 税务 {d['tax']}")
+    return 0
+
+
+def _ensure_tender(conn, tmod) -> None:
+    """建 tender 表（幂等）。PG 下 `dbmod.init_db` 不建它（那个只建政策库表）。"""
+    try:
+        tmod.ensure_table(conn)
+    except Exception as e:  # noqa: BLE001 - 建表失败要显式报出来，别静默
+        print(f"建 tender 表失败：{type(e).__name__}: {e}")
+        raise
 
 
 def cmd_collect(args) -> int:
@@ -954,6 +995,7 @@ def main(argv: list[str] | None = None) -> int:
     handlers = {
         "initdb": cmd_initdb,
         "collect": cmd_collect,
+        "tenders": cmd_tenders,
         "provincial": cmd_provincial,
         "enrich": cmd_enrich,
         "attach": cmd_attach,

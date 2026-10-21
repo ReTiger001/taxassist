@@ -81,12 +81,15 @@ def create_app(require_auth: bool = False, auth_mode: str = "page") -> FastAPI:
     from .customer_routes import register as _register_customer
     from .middleware import register as _register_middleware
     from .review_routes import register as _register_review
+    from .tender_routes import register as _register_tender
 
     # 中间件最先接上：它们包裹整个应用
     _register_middleware(app, require_auth=require_auth,
                          auth_mode=auth_mode)
     _register_assistant(app, ctx=ctx, templates=templates)
     _register_browse(app, ctx=ctx, templates=templates)
+    # 招标信息（/tenders）—— 商机聚合，与政策库是两套数据（见 tender.py 的说明）
+    _register_tender(app, ctx=ctx, templates=templates)
     # 审校台（/review）—— 机器判定与人工结论并排放。**只读不写**：
     # 人工判定的录入走 scripts/import_review.py，避免"谁改的、何时改的"
     # 变成答不上来的问题。

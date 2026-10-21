@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}招标信息 · 税务智能知识助手{% endblock %}
+{% block body %}
+
+<h1 data-zh="税务服务招标" data-en="Tax Service Tenders">税务服务招标</h1>
+<p class="sub"
+   data-zh="聚合公开招标公告。默认只看「税务服务」相关，可切换查看全部。点击标题看公告详情。"
+   data-en="Aggregated public tender notices. By default only tax-service related items are shown; switch to view all. Click a title for details.">
+  聚合公开招标公告。默认只看「税务服务」相关，可切换查看全部。点击标题看公告详情。</p>
+
+<form method="get" action="/tenders" class="filters">
+  <div class="f-row">
+    <label>
+      <span data-zh="关键词" data-en="Keyword">关键词</span>
+      <input type="search" name="q" value="{{ q or '' }}"
+             data-ph-zh="项目名称 / 项目编号" data-ph-en="Project / reference no."
+             placeholder="项目名称 / 项目编号">
+    </label>
+    <label>
+      <span data-zh="地区" data-en="Region">地区</span>
+      <select name="region">
+        <option value="" data-zh="全部" data-en="All">全部</option>
+        {% for r in regions %}
+        <option value="{{ r }}" {% if r == region %}selected{% endif %}>{{ r }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span data-zh="公告类型" data-en="Notice type">公告类型</span>
+      <select name="notice_type">
+        <option value="" data-zh="全部" data-en="All">全部</option>
+        {% for t in types %}
+        <option value="{{ t }}" {% if t == notice_type %}selected{% endif %}>
+          {{ notice_types.get(t, t) }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    <label>
+      <span data-zh="发布时间" data-en="Published within">发布时间</span>
+      <select name="days">
+        <option value="7" {% if days == '7' %}selected{% endif %} data-zh="近 7 天" data-en="Last 7 days">近 7 天</option>
+        <option value="30" {% if days == '30' %}selected{% endif %} data-zh="近 30 天" data-en="Last 30 days">近 30 天</option>
+        <option value="90" {% if days == '90' %}selected{% endif %} data-zh="近 90 天" data-en="Last 90 days">近 90 天</option>
+        <option value="0" {% if days == '0' %}selected{% endif %} data-zh="不限" data-en="Any time">不限</option>
+      </select>
+    </label>
+    <label class="chk">
+      <input type="checkbox" name="tax_only" value="1" {% if tax_only == '1' %}checked{% endif %}>
+      <span data-zh="只看税务服务类" data-en="Tax services only">只看税务服务类</span>
+    </label>
+    <button type="submit" data-zh="筛选" data-en="Filter">筛选</button>
+  </div>
+</form>
+
+<p class="sub">
+  <span data-zh="共" data-en="Total">共</span> <strong>{{ total }}</strong>
+  <span data-zh="条" data-en="notices">条</span>
+  {% if total > 0 %}
+  · <span data-zh="第" data-en="Page">第</span> {{ page }} / {{ pages }}
+  <span data-zh="页" data-en="">页</span>
+  {% endif %}
+</p>
+
+{% if not_found %}
+<p class="empty"
+   data-zh="没有符合条件的招标公告。可以关掉「只看税务服务类」，或放宽发布时间。"
+   data-en="No tender notices match. Try turning off “Tax services only” or widening the date range.">
+  没有符合条件的招标公告。可以关掉「只看税务服务类」，或放宽发布时间。</p>
+{% else %}
+<table class="tenders">
+  <thead>
+    <tr>
+      <th data-zh="公告标题" data-en="Title">公告标题</th>
+      <th data-zh="类型" data-en="Type">类型</th>
+      <th data-zh="采购人" data-en="Buyer">采购人</th>
+      <th data-zh="预算" data-en="Budget">预算</th>
+      <th data-zh="截止" data-en="Deadline">截止</th>
+      <th data-zh="发布" data-en="Published">发布</th>
+    </tr>
+  </thead>
+  <tbody>
+  {% for r in rows %}
+    <tr>
+      <td>
+        <a href="/tender/{{ r.doc_uid }}">{{ r.title }}</a>
+        {% if r.is_tax %}<span class="tag tax" data-zh="税务" data-en="tax">税务</span>{% endif %}
+        {% if r.project_no %}<div class="meta">{{ r.project_no }}</div>{% endif %}
+      </td>
+      <td>{{ notice_types.get(r.notice_type, r.notice_type or '—') }}</td>
+      <td>{{ r.purchaser or '—' }}</td>
+      <td>{% if r.budget %}{{ '%.0f'|format(r.budget / 10000) }} 万{% else %}—{% endif %}</td>
+      <td>{{ r.deadline or '—' }}</td>
+      <td>{{ r.publish_at or '—' }}</td>
+    </tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+{% if pages > 1 %}
+<div class="pager">
+  {% if page > 1 %}<a href="{{ url_with(page=page-1) }}" data-zh="上一页" data-en="Prev">上一页</a>{% endif %}
+  <span>{{ page }} / {{ pages }}</span>
+  {% if page < pages %}<a href="{{ url_with(page=page+1) }}" data-zh="下一页" data-en="Next">下一页</a>{% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<style>
+.tenders { width: 100%; border-collapse: collapse; font-size: 14px; }
+.tenders th, .tenders td { padding: 6px 8px; border-bottom: 1px solid var(--line, #e5e5e5); text-align: left; vertical-align: top; }
+.tenders th { font-weight: 600; white-space: nowrap; }
+.tenders .meta { color: var(--muted, #888); font-size: 12px; margin-top: 2px; }
+.tag.tax { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: #e8f2ff; color: #1560bd; font-size: 12px; }
+.f-row { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; }
+.f-row label { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.pager { margin: 16px 0; display: flex; gap: 12px; align-items: center; }
+.empty { padding: 24px 0; color: var(--muted, #888); }
+</style>
+{% endblock %}
