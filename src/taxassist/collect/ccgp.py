@@ -170,7 +170,7 @@ def collect(conn, *, days: int = 2, max_pages: int = 60,
     cutoff = time.time() - days * 86400
 
     for source in LIST_SOURCES:
-        src_stats = {"pages": 0, "listed": 0, "new": 0, "tax": 0}
+        src_stats = {"pages": 0, "listed": 0, "new": 0, "updated": 0, "tax": 0}
         for page in range(1, max_pages + 1):
             try:
                 items = fetch_list_page(source, page)
