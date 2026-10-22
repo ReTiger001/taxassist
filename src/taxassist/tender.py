@@ -107,28 +107,51 @@ def ensure_table(conn) -> None:
     _add_column(conn, "tender", "ai_score", "INTEGER")
     _add_column(conn, "tender", "ai_reason", "TEXT")
     _add_column(conn, "tender", "ai_is_tax_service", "INTEGER")
+    # 2026-10-23：详情字段（来自知了标讯 get_bid_detail）。
+    # 用户反馈"展示不全 / 没有原文 / 没有联系方式和时间"，这些都在详情里。
+    _add_column(conn, "tender", "source_url", "TEXT")        # 原文链接
+    _add_column(conn, "tender", "contact_person", "TEXT")    # 联系人
+    _add_column(conn, "tender", "contact_phone", "TEXT")     # 联系电话（可能部分打码）
+    _add_column(conn, "tender", "signup_time", "TEXT")       # 报名时间
+    _add_column(conn, "tender", "tender_time", "TEXT")       # 投标/开标时间
+    _add_column(conn, "tender", "source_html", "TEXT")       # 正文（HTML）
+    _add_column(conn, "tender", "detail_fetched_at", "TEXT")
     conn.commit()
+
+
+def _column_exists(conn, table: str, column: str) -> bool:
+    """列是否存在。PG 走 information_schema，SQLite 走 PRAGMA。"""
+    try:
+        row = conn.execute(
+            "SELECT 1 AS x FROM information_schema.columns"
+            " WHERE table_name = ? AND column_name = ?",
+            (table, column)).fetchone()
+        return row is not None
+    except Exception:  # noqa: BLE001 - SQLite 没有 information_schema
+        try:
+            rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
+            return any(r["name"] == column for r in rows)
+        except Exception:  # noqa: BLE001
+            return False
 
 
 def _add_column(conn, table: str, column: str, ddl: str) -> None:
     """加列（幂等）。
 
-    **失败后必须 rollback**：PostgreSQL 与 SQLite 的关键差异 —— SQLite 的
-    "duplicate column" 只是单条语句失败，事务照常；而 PG 一旦某条语句出错，
-    整个事务进入 aborted 状态，**后续所有语句被静默丢弃**（不抛错）。
-
-    2026-10-22 踩到的就是这个：`_add_column` 吞掉异常但没 rollback，结果
-    同一连接上后续的 `UPDATE ... bid_process` 全部无效，表现为「采集显示
-    更新 100 条、数据库里阶段字段仍是空」——而且不报任何错。
+    **先查存在再加**：直接 ALTER 让"已存在"抛错虽然能被吞掉，但 PG 里一次失败
+    会把事务置为 aborted，后续 ALTER 全部静默失效 —— 这正是 2026-10-22/23
+    两次"字段加不上、查询报字段不存在"的根因。先查再改从根上避免失败。
     """
+    if _column_exists(conn, table, column):
+        return
     try:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
         conn.commit()
         log.info("已新增列 %s.%s", table, column)
-    except Exception as e:  # noqa: BLE001 - 已存在是常态
-        log.debug("加列 %s.%s 跳过（多半已存在）：%s", table, column, e)
+    except Exception as e:  # noqa: BLE001
+        log.debug("加列 %s.%s 失败：%s", table, column, e)
         try:
-            conn.rollback()   # ← 关键：清掉 PG 的 aborted 事务状态
+            conn.rollback()
         except Exception:  # noqa: BLE001
             pass
 
@@ -291,6 +314,12 @@ def upsert(conn, row: dict) -> tuple[str, bool]:
         "tax_hits": ",".join(row.get("tax_hits") or []),
         "updated_at": now,
     }
+    # **详情字段只在 row 明确带上时才写**：列表采集每轮都会 upsert，如果这里
+    # 无条件把 detail 字段写成 None，会把之前抓到的正文/联系方式/原文链接全部抹掉。
+    for k in ("source_url", "contact_person", "contact_phone", "signup_time",
+              "tender_time", "source_html", "detail_fetched_at"):
+        if k in row:
+            fields[k] = row[k]
     if exists:
         sets = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE tender SET {sets} WHERE doc_uid = ?",

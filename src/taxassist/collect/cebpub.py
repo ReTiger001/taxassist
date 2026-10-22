@@ -114,13 +114,23 @@ def api_search(client, keyword: str, area: str = "",
                  or it.get("businessObjectName") or "")
         if not title:
             continue
+        # **发布时间字段叫 receiveTime**（不是 bulletinIssnTime）—— 2026-10-23
+        # 实测：用错字段名导致 78% 的条目 publish_at 为空。
+        pub = (it.get("receiveTime") or it.get("bulletinIssnTime")
+               or it.get("publishTime") or "")
         out.append({
             "title": str(title),
-            "industry": it.get("industryName") or it.get("industry"),
-            "region": AREA_CODES.get(area) or it.get("areaName"),
+            "industry": it.get("industriesType") or it.get("industryName"),
+            "region": AREA_CODES.get(area) or it.get("regionName"),
             "platform": it.get("transactionPlatfName") or it.get("platfName"),
-            "publish_at": str(it.get("bulletinIssnTime") or it.get("publishTime") or "")[:10],
+            "publish_at": str(pub)[:10],
             "deadline": str(it.get("bulletinEndTime") or "")[:10],
+            # 详情页参数：businessId + schemaVersion 是 showDetails 的必需项，
+            # 存下来才能构造「查看原文」链接（点开由浏览器过验证码，无需程序抓）
+            "business_id": it.get("businessId"),
+            "schema_version": it.get("schemaVersion"),
+            "project_code": it.get("tenderProjectCode"),
+            "platform_code": it.get("transactionPlatfCode"),
         })
     return out
 

@@ -75,6 +75,10 @@ def build_parser() -> argparse.ArgumentParser:
     ta.add_argument("--limit", type=int, default=None,
                     help="最多评估几条（默认全部未评的）")
 
+    tdd = sub.add_parser("tender-detail", help="补齐招标详情（正文/原文/联系方式/时间）")
+    tdd.add_argument("--limit", type=int, default=None,
+                     help="最多补几条（每次调用消耗一次知了标讯免费额度）")
+
     s = sub.add_parser("status", help="抓取日志与库统计")
     s.add_argument("--limit", type=int, default=15, help="显示最近多少条抓取记录")
 
@@ -285,6 +289,29 @@ def cmd_tender_ai(args) -> int:
     print(f"完成：评估 {stats['judged']} 条，失败 {stats['failed']}，"
           f"其中判定非税务服务 {stats['not_tax']} 条")
     print(f"  分数分布：{dict(sorted(stats['by_score'].items(), reverse=True))}")
+    return 0
+
+
+def cmd_tender_detail(args) -> int:
+    """补齐招标详情：正文、原文链接、联系方式、报名/开标时间。
+
+    走知了标讯 ``get_bid_detail``，**每次调用消耗一次免费额度**（自动注册送 100 次）。
+    只补 ``detail_fetched_at IS NULL`` 的条目，可断点续跑。
+    """
+    from . import tender as tmod
+    from .collect import zlbx
+
+    conn = dbmod.connect()
+    try:
+        _ensure_tender(conn, tmod)
+        print("开始补详情（每条约 2-3 秒，消耗 1 次额度）…")
+        stats = zlbx.fetch_details(
+            conn, limit=args.limit,
+            progress=lambda i, n: print(f"  [{i}/{n}]", flush=True))
+    finally:
+        conn.close()
+    print(f"完成：补到 {stats['fetched']}/{stats['total']} 条，"
+          f"失败 {stats['failed']}，其中无联系方式 {stats['no_contact']}")
     return 0
 
 
@@ -1054,6 +1081,7 @@ def main(argv: list[str] | None = None) -> int:
         "collect": cmd_collect,
         "tenders": cmd_tenders,
         "tender-ai": cmd_tender_ai,
+        "tender-detail": cmd_tender_detail,
         "provincial": cmd_provincial,
         "enrich": cmd_enrich,
         "attach": cmd_attach,

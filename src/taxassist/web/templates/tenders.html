@@ -79,7 +79,8 @@
       <th data-zh="阶段" data-en="Stage">阶段</th>
       <th data-zh="采购人" data-en="Buyer">采购人</th>
       <th data-zh="预算" data-en="Budget">预算</th>
-      <th data-zh="截止" data-en="Deadline">截止</th>
+      <th data-zh="报名截止" data-en="Sign-up">报名截止</th>
+      <th data-zh="投标截止" data-en="Deadline">投标截止</th>
       <th data-zh="发布" data-en="Published">发布</th>
     </tr>
   </thead>
@@ -89,6 +90,8 @@
       <td>
         <a href="/tender/{{ r.doc_uid }}">{{ r.title }}</a>
         {% if r.is_tax %}<span class="tag tax" data-zh="税务" data-en="tax">税务</span>{% endif %}
+        {% if r.source_url %}<a class="tag src" href="{{ r.source_url }}" target="_blank"
+             rel="noopener noreferrer" title="查看招标方原文">原文</a>{% endif %}
         {% if r.project_no %}<div class="meta">{{ r.project_no }}</div>{% endif %}
       </td>
       <td>
@@ -108,6 +111,7 @@
       </td>
       <td>{{ r.purchaser or '—' }}</td>
       <td>{% if r.budget %}{{ '%.0f'|format(r.budget / 10000) }} 万{% else %}—{% endif %}</td>
+      <td>{% if r.signup_time %}{{ r.signup_time[:10] }}{% else %}—{% endif %}</td>
       <td>
         {% if r.days_left is not none %}
           {% if r.days_left < 0 %}<span class="closed">已截止</span>
@@ -136,6 +140,7 @@
 .tenders th, .tenders td { padding: 6px 8px; border-bottom: 1px solid var(--line, #e5e5e5); text-align: left; vertical-align: top; }
 .tenders th { font-weight: 600; white-space: nowrap; }
 .tenders .meta { color: var(--muted, #888); font-size: 12px; margin-top: 2px; }
+.tag.src { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: #eef7ee; color: #1a7f37; font-size: 11px; text-decoration: none; }
 .tag.tax { display: inline-block; margin-left: 6px; padding: 0 5px; border-radius: 3px; background: #e8f2ff; color: #1560bd; font-size: 12px; }
 .tag.live { display: inline-block; padding: 0 5px; border-radius: 3px; background: #e7f7ec; color: #1a7f37; font-size: 12px; white-space: nowrap; }
 .tag.done { display: inline-block; padding: 0 5px; border-radius: 3px; background: #f0f0f0; color: #888; font-size: 12px; white-space: nowrap; text-decoration: line-through; }

@@ -28,6 +28,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import os
+import re
 import socket
 import subprocess
 import time
@@ -140,6 +141,105 @@ def search_bids(key: str, keywords: list[str], *, days: int = 7,
                    json=payload, timeout=45)
     r.raise_for_status()
     return r.json()
+
+
+def get_bid_detail(key: str, bid_id) -> dict | None:
+    """调 ``get_bid_detail`` 拿单条完整详情。
+
+    返回的 ``data`` 里有用户要的三样东西（2026-10-23 实测）：
+    - ``source``：正文 HTML
+    - ``source_url``：原文链接（ctbpsp.com 的详情页）
+    - ``caller_contact`` / ``caller_person``：联系方式与联系人
+      （**可能部分打码**，例如 ``057*****6187``；平台对匿名用户做了脱敏）
+    - ``signup_time`` / ``tender_time``：报名/投标时间
+
+    **每次调用消耗一次额度**（免费 100 次），所以只在需要时调、且不重复调。
+    """
+    try:
+        r = httpx.post(f"{API_BASE}/get_bid_detail",
+                       headers={"X-API-Key": key, "Content-Type": "application/json"},
+                       json={"bid_id": int(bid_id) if str(bid_id).isdigit() else bid_id},
+                       timeout=60)
+        r.raise_for_status()
+        j = r.json()
+        return j.get("data") if j.get("success") else None
+    except Exception as e:  # noqa: BLE001
+        log.warning("get_bid_detail 失败 %s：%s: %s", bid_id, type(e).__name__, e)
+        return None
+
+
+def html_to_text(html: str) -> str:
+    """把正文 HTML 转成朴素文本（保留段落换行）。"""
+    if not html:
+        return ""
+    s = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
+    s = re.sub(r"<style.*?</style>", " ", s, flags=re.S | re.I)
+    s = re.sub(r"</(?:p|div|tr|br|li|h\d)>", "\n", s, flags=re.I)
+    s = re.sub(r"<br\s*/?>", "\n", s, flags=re.I)
+    s = re.sub(r"</t[dh]>", " | ", s, flags=re.I)
+    s = re.sub(r"<[^>]+>", "", s)
+    s = s.replace("&nbsp;", " ").replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+    s = re.sub(r"[ \t]+", " ", s)
+    s = re.sub(r"\n\s*\n+", "\n", s)
+    return s.strip()
+
+
+def fetch_details(conn, *, limit: int | None = None, progress=None) -> dict:
+    """给 zlbx 来源的条目补详情（正文 / 原文链接 / 联系方式 / 时间）。
+
+    **额度意识**：每次 get_bid_detail 消耗一次免费调用。默认只补还没补过的
+    （``detail_fetched_at IS NULL``），可断点续跑。
+    """
+    from .. import tender as tmod
+
+    tmod.ensure_table(conn)
+    key = ensure_key()
+    if not key:
+        raise RuntimeError("没有可用的知了标讯 API Key")
+
+    sql = ("SELECT doc_uid, title FROM tender"
+           " WHERE source = 'zlbx' AND detail_fetched_at IS NULL"
+           " ORDER BY publish_at DESC")
+    if limit:
+        sql += f" LIMIT {int(limit)}"
+    rows = [dict(r) for r in conn.execute(sql).fetchall()]
+    total = len(rows)
+    stats = {"total": total, "fetched": 0, "failed": 0, "no_contact": 0}
+
+    for i, row in enumerate(rows, 1):
+        bid_id = str(row["doc_uid"]).split(":", 1)[-1]
+        data = get_bid_detail(key, bid_id)
+        if not data:
+            stats["failed"] += 1
+            continue
+        body = html_to_text(str(data.get("source") or ""))
+        phone = (data.get("caller_contact") or data.get("agency_contact") or "")
+        person = (data.get("caller_person") or data.get("agency_person") or "")
+        if not phone and not person:
+            stats["no_contact"] += 1
+        tmod.upsert(conn, {
+            "doc_uid": row["doc_uid"],
+            "source": "zlbx",
+            "title": row["title"],
+            "is_tax": 1,
+            "source_url": data.get("source_url") or data.get("url"),
+            "contact_person": person or None,
+            "contact_phone": phone or None,
+            "signup_time": data.get("signup_time") or None,
+            "tender_time": data.get("tender_time") or None,
+            "source_html": body or None,
+            # 详情里若带了更准的时间/采购人，顺手补上
+            "publish_at": (data.get("pub_time") or "")[:10] or None,
+            "purchaser": data.get("caller_name") or None,
+            "agency": data.get("agency_name") or None,
+            "detail_fetched_at": date.today().isoformat(),
+        })
+        conn.commit()   # 每条即时提交：额度是按次消耗的，进程被杀不能丢成果
+        stats["fetched"] += 1
+        if progress and (i % 10 == 0 or i == total):
+            progress(i, total)
+        time.sleep(0.3)
+    return stats
 
 
 def _rows_from_items(items: list[dict]) -> list[dict]:

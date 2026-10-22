@@ -42,6 +42,22 @@
   {% if row.deadline %}
   <tr><th data-zh="投标截止" data-en="Deadline">投标截止</th><td>{{ row.deadline }}</td></tr>
   {% endif %}
+  {% if row.signup_time %}
+  <tr><th data-zh="报名时间" data-en="Registration">报名时间</th><td>{{ row.signup_time }}</td></tr>
+  {% endif %}
+  {% if row.tender_time %}
+  <tr><th data-zh="开标时间" data-en="Bid opening">开标时间</th><td>{{ row.tender_time }}</td></tr>
+  {% endif %}
+  {% if row.contact_person or row.contact_phone %}
+  <tr><th data-zh="联系方式" data-en="Contact">联系方式</th>
+      <td>
+        {% if row.contact_person %}{{ row.contact_person }}{% endif %}
+        {% if row.contact_phone %} · <strong>{{ row.contact_phone }}</strong>{% endif %}
+        {% if row.contact_phone and '*' in row.contact_phone %}
+        <span class="sub">（平台对匿名访问做了部分脱敏，完整号码需登录原平台查看）</span>
+        {% endif %}
+      </td></tr>
+  {% endif %}
   <tr><th data-zh="发布时间" data-en="Published">发布时间</th><td>{{ row.publish_at or '—' }}</td></tr>
   {% if row.region %}
   <tr><th data-zh="地区" data-en="Region">地区</th><td>{{ row.region }}</td></tr>
@@ -62,19 +78,24 @@
   {% endif %}
   <tr><th data-zh="数据来源" data-en="Source">数据来源</th>
       <td>{{ row.source }}
-        {% if row.url %} · <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer"
+        {% if row.source_url %} · <a href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer"
+             data-zh="查看原文（招标方发布页）" data-en="Original notice">查看原文（招标方发布页）</a>
+        {% elif row.url %} · <a href="{{ row.url }}" target="_blank" rel="noopener noreferrer"
              data-zh="查看原文" data-en="Original">查看原文</a>{% endif %}
       </td></tr>
 </table>
 
-{% if row.content %}
+{% if row.source_html %}
+<h2 data-zh="公告正文" data-en="Notice text">公告正文</h2>
+<div class="tender-content">{{ row.source_html }}</div>
+{% elif row.content %}
 <h2 data-zh="公告正文" data-en="Notice text">公告正文</h2>
 <div class="tender-content">{{ row.content }}</div>
 {% else %}
 <p class="sub"
-   data-zh="这条公告只抓了列表级信息（标题/类型/日期）。点击上方「查看原文」到发布站看全文。"
-   data-en="Only list-level info was captured for this notice. Use “Original” above to read the full text on the source site.">
-  这条公告只抓了列表级信息（标题/类型/日期）。点击上方「查看原文」到发布站看全文。</p>
+   data-zh="这条公告只抓了列表级信息（标题/类型/日期）。{% if row.source_url or row.url %}点击上方「查看原文」到发布站看全文。{% endif %}"
+   data-en="Only list-level info was captured for this notice.{% if row.source_url or row.url %} Use “Original” above for the full text.{% endif %}">
+  这条公告只抓了列表级信息（标题/类型/日期）。{% if row.source_url or row.url %}点击上方「查看原文」到发布站看全文。{% endif %}</p>
 {% endif %}
 
 {% endif %}
