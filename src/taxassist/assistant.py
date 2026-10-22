@@ -80,7 +80,7 @@ log = logging.getLogger(__name__)
 #: **每次请求都重新加载（25-38s）**，连 num_ctx 降到 4096 也一样 —— 那是显存
 #: 溢出导致的反复换入换出，不是 KV cache 的问题。而 qwen3:14b 实测整块驻留
 #: （13.39GB），热态响应 1-3 秒。
-DEFAULT_MODEL = "qwen3:14b"
+DEFAULT_MODEL = "qwen3.8:27b-ud-q3"
 
 #: **分级模型**：日常问答用快的，深度分析用强的。用户在页面上自选。
 #:
@@ -90,8 +90,8 @@ DEFAULT_MODEL = "qwen3:14b"
 #:     单次回答 **30-60 秒**；只有在需要长链条推理（多条件适用判断、条款冲突）
 #:     时才值得等
 #: 外部客户为主时默认快档，避免"打开页面就要等一分钟"。
-MODEL_FAST = "qwen3:14b"
-MODEL_DEEP = "qwen3.8:27b-q4_K_M"
+MODEL_FAST = "qwen3.8:27b-ud-q3"
+MODEL_DEEP = "qwen3.8:27b-ud-q3"
 #: 前端传来的 tier → 实际模型。未知 tier 一律回退快档（**不要因为拼错参数就慢十倍**）。
 TIERS: dict[str, str] = {"fast": MODEL_FAST, "deep": MODEL_DEEP}
 

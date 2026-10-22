@@ -28,7 +28,7 @@ import httpx
 log = logging.getLogger(__name__)
 
 OLLAMA_API = "http://127.0.0.1:11434/api/generate"
-DEFAULT_MODEL = "hunyuan-mt"
+DEFAULT_MODEL = "qwen3.8:27b-ud-q3"
 
 # 提示词用**官方模板**，不是自己编的。
 # 出处：tencent/Hunyuan-MT-7B 模型卡 —— ZH⇔XX 的写法是
@@ -36,7 +36,10 @@ DEFAULT_MODEL = "hunyuan-mt"
 # 另一条实测教训：这个模型**没有默认 system prompt**，且模板不对时
 # system 会被静默丢弃 —— 所以术语约束必须写进送去的文本里，不能只放在
 # Modelfile 的 SYSTEM 段指望它生效。
-PROMPT = "把下面的文本翻译成英文，不要额外解释。\n\n{text}"
+PROMPT = ("Translate the following Chinese tax policy into professional legal English. "
+          "Rules: use 'shall' for 应当/应/必须; keep official names, article numbers, "
+          "dates and amounts exact; do not omit or add anything; output only the "
+          "translation.\n\n{text}")
 
 # 模型卡给的官方采样参数（此前我用的 0.1/0.9 是自拟，与官方不符）
 SAMPLING = {
@@ -102,6 +105,12 @@ def translate(text: str, *, model: str = DEFAULT_MODEL, timeout: int = 600,
             "model": model,
             "prompt": body,
             "stream": False,
+            # **必须关思考**：2026-10-23 从 hunyuan-mt 换成 Qwen3.8 后，模型默认
+            # 开启 thinking，把推理过程（"We need answer user's request..."）连同
+            # 中文原文一起写进译文 —— 实测输出 16744 字符、耗时 211 秒，整条译文
+            # 报废。加 think=False 后恢复为纯译文。这是 Qwen3 系列的已知行为
+            # （见 assistant.py / ai_review.py 的 THINK 注释）。
+            "think": False,
             # num_predict 放前面，让 sampling 能连它也一起覆盖
             "options": {**SAMPLING, "num_predict": 4096, **(sampling or {})},
         },

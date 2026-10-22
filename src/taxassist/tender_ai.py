@@ -27,7 +27,7 @@ import httpx
 
 log = logging.getLogger(__name__)
 
-MODEL = "qwen3:14b"
+MODEL = "qwen3.8:27b-ud-q3"
 OLLAMA = "http://127.0.0.1:11434/api/generate"
 TIMEOUT = 180
 

@@ -75,8 +75,8 @@ from taxassist import db as dbmod  # noqa: E402
 #:     这是最容易"改出新错"的环节，值得用更强的模型、多等一会儿
 #:
 #: 预计整体从约 4 天压到约 1.5 天。
-MODEL_AUDIT = "qwen3:14b"
-MODEL_FIX = "qwen3.8:27b-q4_K_M"
+MODEL_AUDIT = "qwen3.8:27b-ud-q3"
+MODEL_FIX = "qwen3.8:27b-ud-q3"
 #: 兼容旧引用：审核记录里"纯判定"的条目标这个模型名。
 MODEL = MODEL_AUDIT
 OLLAMA = "http://127.0.0.1:11434/api/generate"
