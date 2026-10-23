@@ -40,14 +40,16 @@ PLATFORMS: dict[str, dict] = {
         "name": "湖北联投电子采购平台",
         "base": "https://www.ltzxgl.com.cn",
         "site_id": "725",
-        # 221=招标公告（256 条，实测）
-        "categories": {"221": "招标公告"},
+        # 221=招标公告（256 条）；225=采购公告（14983 条，量大）；
+        # 227=变更公告（1201 条，可能含新项目）。
+        # 222/223/226 是中标/候选人/结果类，**不收**（用户只要还能投的）。
+        "categories": {"221": "招标公告", "225": "采购公告", "227": "变更公告"},
     },
     "psbc": {
         "name": "中国邮政储蓄银行邮银易采平台",
         "base": "https://cg.psbc.com",
         "site_id": "725",
-        # 223=公开招标（10022 条）；222=武装押运等专项；226=其他采购
+        # 223=公开招标（10022 条）；226=其他采购（2263 条）
         "categories": {"223": "招标公告", "226": "采购公告"},
     },
 }
@@ -80,6 +82,37 @@ def _strip(html: str) -> str:
 _PHONE_RE = re.compile(
     r"(?:(?:0\d{2,3}[-\s]?\d{7,8}(?:[-\s]?\d{1,5})?)|(?:1[3-9]\d{9})|(?:400[-\s]?\d{3}[-\s]?\d{4}))")
 _PERSON_RE = re.compile(r"(?:联系人|项目联系人|采购联系人)\s*[:：]\s*([\u4e00-\u9fa5]{2,4})")
+
+#: **平台客服电话**：这些号码出现在每一条公告的页脚里，不是项目联系人。
+#: 2026-10-23 实测：湖北联投每条抓到的都是 4001276998（平台客服），必须排除。
+_PLATFORM_SERVICE_PHONES = ("4001276998", "400-127-6998")
+
+
+def _pick_contact(text: str) -> tuple[str | None, str | None]:
+    """从正文里挑**项目**联系人/电话。
+
+    优先级：
+    1. 「联系人：张三」旁边的电话（真正的项目联系人）
+    2. 任意非平台客服的号码
+    客服号（400 开头且等于平台已知号码）一律排除。
+    """
+    persons = list(dict.fromkeys(_PERSON_RE.findall(text or "")))
+
+    # 在「联系人」出现位置之后 120 字内找电话（公告里联系人+电话通常相邻）
+    cand_phones: list[str] = []
+    for m in _PERSON_RE.finditer(text or ""):
+        seg = (text or "")[m.start():m.start() + 160]
+        cand_phones += _PHONE_RE.findall(seg)
+    if not cand_phones:
+        cand_phones = _PHONE_RE.findall(text or "")
+
+    def ok(p: str) -> bool:
+        digits = re.sub(r"[^\d]", "", p)
+        # 400 号段是平台客服，招标公告的项目联系人几乎不用 400 号
+        return not digits.startswith("400")
+
+    phones = [p for p in dict.fromkeys(cand_phones) if ok(p)]
+    return (persons[0] if persons else None), (phones[0] if phones else None)
 
 
 def fetch_list(platform_key: str, category_id: str, page: int = 1,
@@ -124,12 +157,11 @@ def fetch_detail(platform_key: str, rel_url: str, timeout: int = 25) -> dict:
         if r.status_code != 200:
             return {}
         text = _strip(r.text)
-        persons = list(dict.fromkeys(_PERSON_RE.findall(text)))
-        phones = list(dict.fromkeys(_PHONE_RE.findall(text)))
+        person, phone = _pick_contact(text)
         return {
             "source_html": text,
-            "contact_person": persons[0] if persons else None,
-            "contact_phone": phones[0] if phones else None,
+            "contact_person": person,
+            "contact_phone": phone,
             "detail_url": url,
         }
     except Exception as e:  # noqa: BLE001
