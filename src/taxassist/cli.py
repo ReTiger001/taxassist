@@ -79,6 +79,10 @@ def build_parser() -> argparse.ArgumentParser:
     tdd.add_argument("--limit", type=int, default=None,
                      help="最多补几条（每次调用消耗一次知了标讯免费额度）")
 
+    tn = sub.add_parser("tender-notify", help="发送「即将截止的税务标」邮件提醒")
+    tn.add_argument("--days", type=int, default=3, help="未来几天内到期的（默认 3）")
+    tn.add_argument("--dry-run", action="store_true", help="只打印不发信，用于验证")
+
     s = sub.add_parser("status", help="抓取日志与库统计")
     s.add_argument("--limit", type=int, default=15, help="显示最近多少条抓取记录")
 
@@ -312,6 +316,28 @@ def cmd_tender_detail(args) -> int:
         conn.close()
     print(f"完成：补到 {stats['fetched']}/{stats['total']} 条，"
           f"失败 {stats['failed']}，其中无联系方式 {stats['no_contact']}")
+    return 0
+
+
+def cmd_tender_notify(args) -> int:
+    """发送截止日邮件提醒。
+
+    配置方式见 `src/taxassist/notice.py` 文件头：环境变量 TAXASSIST_SMTP_*
+    或 data/mail_config.json。没配置会明确报错，不会静默失败。
+    """
+    from . import notice
+
+    conn = dbmod.connect()
+    try:
+        res = notice.notify(conn, days=args.days, dry_run=args.dry_run)
+    finally:
+        conn.close()
+    if res["sent"]:
+        print(f"已发送：{res['count']} 条即将截止的标")
+    elif args.dry_run:
+        print(f"[dry-run] {res['count']} 条（未发送）")
+    else:
+        print(f"没有即将截止的标（未来 {args.days} 天）")
     return 0
 
 
@@ -1082,6 +1108,7 @@ def main(argv: list[str] | None = None) -> int:
         "tenders": cmd_tenders,
         "tender-ai": cmd_tender_ai,
         "tender-detail": cmd_tender_detail,
+        "tender-notify": cmd_tender_notify,
         "provincial": cmd_provincial,
         "enrich": cmd_enrich,
         "attach": cmd_attach,

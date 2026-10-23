@@ -30,6 +30,8 @@ log = logging.getLogger(__name__)
 DAILY_JOB_ID = "taxassist_daily"
 #: 招标采集的独立任务 id（与日更分开，见 start() 里为什么）
 TENDERS_JOB_ID = "taxassist_tenders"
+#: 截止日邮件提醒的任务 id
+NOTIFY_JOB_ID = "taxassist_tender_notify"
 
 #: 日更等写库锁的上限（秒）。见 run_daily 里那段说明 —— 取 30 分钟是为了
 #: 覆盖 auto_workflow 单个步骤的长度，能在步骤之间的空隙里拿到锁。
@@ -303,6 +305,12 @@ def start_background_scheduler(hour: int = 7, minute: int = 30):
         id=TENDERS_JOB_ID, replace_existing=True,
         misfire_grace_time=3600, coalesce=True,
     )
+    # 截止日邮件提醒：每天 09:00（在日更和招标采集之后，数据已是最新）
+    sched.add_job(
+        _job_tender_notify, CronTrigger(hour=9, minute=0),
+        id=NOTIFY_JOB_ID, replace_existing=True,
+        misfire_grace_time=3600, coalesce=True,
+    )
     sched.start()
     log.info("后台调度已启动：每日 %02d:%02d 执行日更、%02d:%02d 抓招标公告，启动时已补抓",
              hour, minute, (hour + 2) % 24, minute)
@@ -329,6 +337,25 @@ def _job_tenders() -> None:
                  stats["fetched"], stats["new"], stats["duplicates"])
     except Exception:
         log.exception("招标采集失败（不影响政策日更，请查看日志）")
+
+
+def _job_tender_notify() -> None:
+    """每天发「即将截止的税务标」邮件。没配 SMTP 时跳过而不是报错刷日志。"""
+    try:
+        from . import notice
+
+        conn = dbmod.connect()
+        try:
+            cfg = notice.load_config()
+            if not cfg:
+                log.info("邮件提醒跳过：未配置 SMTP（TAXASSIST_SMTP_* 或 data/mail_config.json）")
+                return
+            res = notice.notify(conn, days=3)
+        finally:
+            conn.close()
+        log.info("邮件提醒完成：%d 条即将截止", res["count"])
+    except Exception:
+        log.exception("邮件提醒失败（不影响其他任务）")
 
 
 def _job_run_daily() -> None:
