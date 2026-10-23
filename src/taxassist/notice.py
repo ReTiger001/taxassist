@@ -74,7 +74,10 @@ def load_config() -> dict | None:
         }
     try:
         if CONFIG_FILE.exists():
-            j = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+            # **用 utf-8-sig**：Windows PowerShell 的 `Set-Content -Encoding UTF8`
+            # 会写入 BOM（EF BB BF），json.loads 不认 BOM 会抛 "Unexpected UTF-8 BOM"。
+            # utf-8-sig 有 BOM 就去掉、没有也能正常读。
+            j = json.loads(CONFIG_FILE.read_text(encoding="utf-8-sig"))
             if j.get("smtp_host") and j.get("smtp_user") and j.get("smtp_pass") and j.get("to"):
                 j.setdefault("smtp_port", 465)
                 if isinstance(j["to"], str):
