@@ -180,7 +180,20 @@ def register(app, *, ctx, templates) -> None:
             row = _one("SELECT * FROM tender WHERE doc_uid = ?", (doc_uid,))
         except Exception as e:  # noqa: BLE001
             log.warning("招标详情查询失败 %s：%s", doc_uid, e)
+        # 把 bid_guide（JSON 串）解析成 dict，模板里直接按段渲染。
+        # 抽不到时为 {}，模板会走「只抓到列表信息」的提示分支。
+        guide = {}
+        if row:
+            try:
+                from ..bid_guide import guide_of, platform_url
+
+                guide = guide_of(row)
+                # 平台网址：数据里没存时现场按平台名再查一次（映射表可能已更新）
+                if not row.get("platform_url"):
+                    row["platform_url"] = platform_url(row.get("agency"))
+            except Exception as e:  # noqa: BLE001
+                log.debug("解析投标指引失败 %s：%s", doc_uid, e)
         return templates.TemplateResponse(
             request=request, name="tender_detail.html",
-            context=ctx(request, row=row,
+            context=ctx(request, row=row, guide=guide,
                         notice_types=tmod.NOTICE_TYPES), status_code=200)

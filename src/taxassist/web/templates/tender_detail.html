@@ -85,6 +85,65 @@
       </td></tr>
 </table>
 
+<h2 data-zh="如何投标" data-en="How to bid">如何投标</h2>
+
+{% set has_howto = guide or row.contact_phone or row.contact_email or row.contact_person
+   or row.signup_time or row.tender_time %}
+{% if has_howto %}
+<table class="bid-howto">
+  {% if row.platform_url %}
+  <tr><th data-zh="发布平台" data-en="Platform">发布平台</th>
+      <td>
+        <a href="{{ row.platform_url }}" target="_blank" rel="noopener noreferrer">
+          {{ row.agency or row.platform_url }} ↗</a>
+        <div class="meta" data-zh="报名、下载招标文件、递交投标文件通常都在这个平台完成"
+             data-en="Registration, tender documents and submission usually happen on this platform">
+          报名、下载招标文件、递交投标文件通常都在这个平台完成</div>
+      </td></tr>
+  {% elif row.agency %}
+  <tr><th data-zh="发布平台" data-en="Platform">发布平台</th>
+      <td>{{ row.agency }}
+        <div class="meta" data-zh="该平台网址暂未收录，请在浏览器搜索平台名进入"
+             data-en="Platform URL not catalogued yet — search the platform name">该平台网址暂未收录，请在浏览器搜索平台名进入</div>
+      </td></tr>
+  {% endif %}
+  {% if row.signup_time %}
+  <tr><th data-zh="报名时间" data-en="Registration">报名时间</th><td>{{ row.signup_time }}</td></tr>
+  {% endif %}
+  {% if row.tender_time %}
+  <tr><th data-zh="开标时间" data-en="Bid opening">开标时间</th><td>{{ row.tender_time }}</td></tr>
+  {% endif %}
+  {% if row.contact_person or row.contact_phone or row.contact_email %}
+  <tr><th data-zh="联系人与方式" data-en="Contact">联系人与方式</th>
+      <td>
+        {% if row.contact_person %}<div>联系人：{{ row.contact_person }}</div>{% endif %}
+        {% if row.contact_phone %}<div>电话：<a href="tel:{{ row.contact_phone }}">{{ row.contact_phone }}</a></div>{% endif %}
+        {% if row.contact_email %}<div>邮箱：<a href="mailto:{{ row.contact_email }}">{{ row.contact_email }}</a></div>{% endif %}
+      </td></tr>
+  {% endif %}
+  {% for label, text in guide.items() %}
+  <tr><th>{{ label }}</th><td>{{ text }}</td></tr>
+  {% endfor %}
+</table>
+{% else %}
+<div class="bid-warn">
+  <strong data-zh="这条公告只抓到了列表信息" data-en="Only list-level info captured">这条公告只抓到了列表信息</strong>
+  <p data-zh="我们拿到了标题、截止时间、地区、发布平台，但没有拿到完整公告正文和报名方式——发布方的详情页有图形验证码，程序无法抓取。"
+     data-en="We have the title, deadline, region and platform, but not the full notice or registration method — the publisher's detail page is CAPTCHA-protected.">
+    我们拿到了标题、截止时间、地区、发布平台，但没有拿到完整公告正文和报名方式——发布方的详情页有图形验证码，程序无法抓取。</p>
+  <p>
+    {% if row.platform_url %}
+    <a class="btn-howto" href="{{ row.platform_url }}" target="_blank" rel="noopener noreferrer"
+       data-zh="去发布平台查看完整公告 ↗" data-en="Open the publishing platform ↗">去发布平台查看完整公告 ↗</a>
+    {% endif %}
+    {% if row.source_url %}
+    <a class="btn-howto" href="{{ row.source_url }}" target="_blank" rel="noopener noreferrer"
+       data-zh="按标题在官方平台搜索 ↗" data-en="Search the official portal ↗">按标题在官方平台搜索 ↗</a>
+    {% endif %}
+  </p>
+</div>
+{% endif %}
+
 {% if row.source_html %}
 <h2 data-zh="公告正文" data-en="Notice text">公告正文</h2>
 <div class="tender-content">{{ row.source_html }}</div>
@@ -101,6 +160,17 @@
 {% endif %}
 
 <style>
+.bid-howto { width: 100%; border-collapse: collapse; margin: 8px 0 16px; }
+.bid-howto th { text-align: left; width: 130px; padding: 8px 10px; vertical-align: top;
+  background: #f8fafc; border: 1px solid #e5e7eb; font-weight: 600; }
+.bid-howto td { padding: 8px 10px; border: 1px solid #e5e7eb; vertical-align: top; }
+.bid-warn { margin: 8px 0 16px; padding: 12px 14px; border-radius: 6px;
+  background: #fffbea; border: 1px solid #f0d98c; }
+.bid-warn p { margin: 6px 0; font-size: 13px; color: #555; }
+.btn-howto { display: inline-block; margin: 4px 8px 4px 0; padding: 6px 12px;
+  border-radius: 4px; background: #1a7f37; color: #fff; text-decoration: none; font-size: 13px; }
+.btn-howto:hover { background: #146c2e; }
+
 .crumb { margin: 0 0 8px; font-size: 14px; }
 .tender-meta { border-collapse: collapse; margin: 12px 0 20px; font-size: 14px; }
 .tender-meta th, .tender-meta td { padding: 5px 10px; border-bottom: 1px solid var(--line, #eee); text-align: left; vertical-align: top; }

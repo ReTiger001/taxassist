@@ -120,6 +120,13 @@ def ensure_table(conn) -> None:
     _add_column(conn, "tender", "tender_time", "TEXT")       # 投标/开标时间
     _add_column(conn, "tender", "source_html", "TEXT")       # 正文（HTML）
     _add_column(conn, "tender", "detail_fetched_at", "TEXT")
+    # 2026-10-24：为「看得到标却不知道怎么投标」补的三列。
+    _add_column(conn, "tender", "contact_email", "TEXT")     # 邮箱（从正文提取）
+    _add_column(conn, "tender", "bid_guide", "TEXT")         # 投标指引（JSON：报名/文件获取/资质）
+    _add_column(conn, "tender", "platform_url", "TEXT")      # 原始发布平台的网址（映射表）
+    # 标记「投标指引已尝试提取过」—— 提取不到时 bid_guide 仍是 NULL，没有这个
+    # 标记会导致 backfill 每次重跑都处理同一批（白跑）。
+    _add_column(conn, "tender", "guide_filled_at", "TEXT")
     conn.commit()
     # B12：把老的 REAL 列迁到 NUMERIC（只对 PG 有意义；SQLite 会忽略类型）。
     # 必须单独 try —— PG 上重复迁移会报错，不能让它影响建表流程。
@@ -162,7 +169,11 @@ def _add_column(conn, table: str, column: str, ddl: str) -> None:
     if _column_exists(conn, table, column):
         return
     try:
-        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+        # **必须带 column**：原来写成 `ADD COLUMN {ddl}`（只有类型），生成的 SQL 是
+        # `ALTER TABLE tender ADD COLUMN TEXT` → PG 报「语法错误 在输入的末尾」，
+        # 被下面的 except 吞掉。之前的列（source_url 等）都是手动 ALTER 补上的，
+        # 所以这个 bug 一直藏着；2026-10-24 新增 4 列时才暴露。
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
         conn.commit()
         log.info("已新增列 %s.%s", table, column)
     except Exception as e:  # noqa: BLE001
