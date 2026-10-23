@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -22,6 +23,39 @@ from taxassist.repo import relation as R_rel
 from taxassist.repo import translation as R_tr
 
 PG_TEST_DSN = os.environ.get("TAXASSIST_PG_TEST_DSN")
+
+#: SQLite 真库路径。**2026-10 已退役删除**（生产全面切 PG）。
+#:
+#: 下面三个 ``*_matches_legacy`` 测试比对的是「legacy 直连」与「仓储层」在同一份
+#: **真实数据**上的结果，需要 5400+ 条政策才测得有意义。
+#:
+#: **判断依据必须是「有数据」而不是「文件存在」**：`conftest.py` 把测试后端设为
+#: sqlite，而测试里 `db.connect()` 不带路径 → SQLite 会在 `data/` 下**自动创建
+#: 一个空库**。只查文件存在会让 skip 失效，然后测试在两个空库上「0 == 0」假通过。
+_REAL_DB = Path(__file__).resolve().parent.parent / "data" / "taxassist.db"
+
+
+def _real_db_has_data() -> bool:
+    """真库存在且 policy 表有数据（空库不算）。"""
+    if not _REAL_DB.exists():
+        return False
+    try:
+        import sqlite3
+
+        c = sqlite3.connect(f"file:{_REAL_DB}?mode=ro", uri=True)
+        try:
+            return c.execute("SELECT COUNT(*) FROM policy").fetchone()[0] > 0
+        finally:
+            c.close()
+    except Exception:  # noqa: BLE001 - 表不存在/文件损坏都当"没有"
+        return False
+
+
+_no_real_db = pytest.mark.skipif(
+    not _real_db_has_data(),
+    reason="SQLite 真库已退役（2026-10 切 PG），且 data/ 下只有测试自动建的空库；"
+           "等价比对需要真实数据，无可比内容")
+
 
 
 @pytest.fixture()
@@ -69,6 +103,7 @@ def test_sql_translates_placeholder_only_on_pg(monkeypatch):
 # ------------------------------------------------------------------ 与现有 SQL 等价
 
 
+@_no_real_db
 def test_policy_count_matches_legacy():
     legacy = db.connect()
     rconn = rc.connect()
@@ -80,6 +115,7 @@ def test_policy_count_matches_legacy():
         rconn.close()
 
 
+@_no_real_db
 def test_policy_row_identical_to_legacy():
     """整行逐列相等 —— 仓储层返回的行形状不能与现有代码有任何差别。"""
     legacy = db.connect()
@@ -95,6 +131,7 @@ def test_policy_row_identical_to_legacy():
         rconn.close()
 
 
+@_no_real_db
 def test_policy_page_matches_legacy():
     legacy = db.connect()
     rconn = rc.connect()

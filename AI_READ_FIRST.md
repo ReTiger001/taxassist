@@ -52,8 +52,9 @@
 | 计费 / 账号 | `src/taxassist/billing.py`、`auth.py` |
 
 **连接层是理解全局的钥匙**：`src/taxassist/repo/conn.py` 是**全项目唯一知道
-底层是 SQLite 还是 PostgreSQL 的地方**。设 `TAXASSIST_BACKEND=pg` 即切到 PG，
-默认仍是 SQLite。
+底层是 SQLite 还是 PostgreSQL 的地方**。**生产当前跑 PostgreSQL**
+（`DEFAULT_BACKEND = "pg"`，2026-10 完成迁移，旧 SQLite 库已退役删除）。
+设 `TAXASSIST_BACKEND=sqlite` 可临时回退（测试/排障用）。
 
 ---
 

@@ -268,14 +268,17 @@ def now_iso() -> str:
 def connect(path: str | Path | None = None):
     """建立连接（自动建目录）。
 
-    默认仍是 SQLite —— 生产正在它上面跑，改造期间行为不能变。
-    设 ``TAXASSIST_BACKEND=pg`` 则返回 PostgreSQL 的**兼容包装**：占位符 ``?``
-    与 ``IFNULL`` 由连接层自动翻译，行对象同时支持 ``row[0]`` 与
-    ``row["列名"]``，所以既有的三百多处 SQL 原样就能跑在两个引擎上。
+    **生产跑 PostgreSQL**（`DEFAULT_BACKEND = "pg"`）。三个条件同时满足时返回
+    PostgreSQL 的**兼容包装**：``path`` 为 None、``DB_PATH`` 仍是默认生产路径、
+    后端为 pg。否则按 `path` 打开 SQLite（测试与工具用 monkeypatch 改 `DB_PATH`
+    来隔离库，所以必须同时检查前两个条件）。
 
-    为什么用兼容层而不是逐处改写 SQL：300+ 处调用逐处改写既不可能也不必要，
-    差异由一层吸收，改动的风险面小得多（仓储层照旧存在、继续收拢，那是目标
-    架构；但迁移不再依赖它先完工，两者解耦各自推进）。
+    兼容包装让占位符 ``?`` 与 ``IFNULL`` 自动翻译、行对象同时支持 ``row[0]`` 与
+    ``row["列名"]``，既有三百多处 SQL 原样跑在两个引擎上。
+
+    为什么保留兼容层而不是逐处改写 SQL：300+ 处调用逐处改写既不可能也不必要，
+    差异由一层吸收，风险面小得多。旧 SQLite 库已于 2026-10 退役删除；
+    ``TAXASSIST_BACKEND=sqlite`` 仍可用于临时回退测试。
     """
     from .repo import conn as _rc
 

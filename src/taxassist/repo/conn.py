@@ -2,8 +2,11 @@
 
 ## 为什么要这一层
 
-生产现在跑在 SQLite 上（翻译工作流还在写库），不能中途换引擎把生产打断；
-而目标是把所有直接 SQL 收进仓储层，**切换时只改这里一个文件**。
+生产**跑在 PostgreSQL 上**（`DEFAULT_BACKEND = "pg"`，2026-10 完成迁移，
+SQLite 旧库已退役删除）。这一层保留的价值不再是"迁移过渡"，而是：
+
+* 让同一句 SQL 在两个引擎上都能跑 —— 回退排查、本地测试仍可能切 SQLite；
+* 方言差异（占位符、`IFNULL`、事务语义）只在这一个文件里吸收，业务代码不感知。
 
 ## 写 SQL 的规矩（仓储层其余模块必须遵守）
 
@@ -24,7 +27,9 @@
     set TAXASSIST_BACKEND=pg
     set TAXASSIST_PG_DSN=host=127.0.0.1 dbname=taxassist user=taxassist
 
-不设 ``TAXASSIST_BACKEND`` 则仍是 SQLite，与今天的行为完全一致。
+不设 ``TAXASSIST_BACKEND`` 时用 ``DEFAULT_BACKEND``（当前 = ``"pg"``）。
+临时回退 SQLite：``set TAXASSIST_BACKEND=sqlite``（测试/排障用；旧库文件已删，
+回退前需要先有数据源）。
 """
 from __future__ import annotations
 
