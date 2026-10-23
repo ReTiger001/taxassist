@@ -307,7 +307,7 @@ def start_background_scheduler(hour: int = 7, minute: int = 30):
     )
     # 截止日邮件提醒：每天 09:00（在日更和招标采集之后，数据已是最新）
     sched.add_job(
-        _job_tender_notify, CronTrigger(hour=9, minute=0),
+        _job_tender_notify, CronTrigger(hour=(hour + 2) % 24, minute=minute + 5),
         id=NOTIFY_JOB_ID, replace_existing=True,
         misfire_grace_time=3600, coalesce=True,
     )

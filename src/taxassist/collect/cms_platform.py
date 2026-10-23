@@ -68,7 +68,7 @@ _FINISHED_WORDS = ("中标候选人", "中标结果", "成交结果", "结果公
 def _strip(html: str) -> str:
     s = re.sub(r"<script.*?</script>", " ", html or "", flags=re.S | re.I)
     s = re.sub(r"<style.*?</style>", " ", s, flags=re.S | re.I)
-    s = re.sub(r"</(?:p|div|tr|li|h\d)}>", "\n", s, flags=re.I)
+    s = re.sub(r"</(?:p|div|tr|li|h\d)>", "\n", s, flags=re.I)
     s = re.sub(r"<br\s*/?>", "\n", s, flags=re.I)
     s = re.sub(r"</t[dh]>", " ", s, flags=re.I)
     s = re.sub(r"<[^>]+>", "", s)
@@ -244,6 +244,9 @@ def collect(conn, *, platforms: list[str] | None = None,
                         dup = tmod.find_duplicate(conn, title, row.get("purchaser"))
                         if dup:
                             row["doc_uid"] = dup
+                    # 审计 B4：重定向后 row["source"] 仍是"来方"，会覆盖原记录的
+                    # 源归属（10 条 zlbx 因此被标成 cebpub，导致按源补详情漏抓）。
+                    row.pop("source", None)
                     _, is_new = tmod.upsert(conn, row)
                     stats["new" if is_new else "updated"] += 1
                     time.sleep(0.3)

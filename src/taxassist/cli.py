@@ -237,7 +237,7 @@ def cmd_tenders(args) -> int:
                 from .collect import cebpub
 
                 st = cebpub.collect(conn)
-                print(f"  关键词 {st['keywords']} / 抓 {st['fetched']} 条 / "
+                print(f"  查询 {st['queries']} 次 / 抓 {st['fetched']} 条 / "
                       f"新增 {st['new']} · 更新 {st['updated']} / "
                       f"重复 {st['duplicates']} / 失败 {st['failed']}")
             elif src == "zlbx":

@@ -295,31 +295,37 @@ def upsert(conn, row: dict) -> tuple[str, bool]:
     uid = row["doc_uid"]
     exists = conn.execute("SELECT 1 FROM tender WHERE doc_uid = ?", (uid,)).fetchone()
     now = _now()
-    fields = {
-        "source": row.get("source"),
-        "notice_type": row.get("notice_type"),
-        "bid_process": _clean(row.get("bid_process")),
-        "title": _clean(row.get("title")),
-        "project_no": _clean(row.get("project_no")),
-        "purchaser": _clean(row.get("purchaser")),
-        "agency": _clean(row.get("agency")),
-        "budget": _money(row.get("budget")) if row.get("budget") else None,
-        "region": _clean(row.get("region")),
-        "publish_at": _clean(row.get("publish_at")),
-        "deadline": _clean(row.get("deadline")),
-        "url": row.get("url"),
-        "content": row.get("content"),
-        "summary": _clean(row.get("summary")),
-        "is_tax": 1 if row.get("is_tax") else 0,
-        "tax_hits": ",".join(row.get("tax_hits") or []),
-        "updated_at": now,
-    }
-    # **详情字段只在 row 明确带上时才写**：列表采集每轮都会 upsert，如果这里
-    # 无条件把 detail 字段写成 None，会把之前抓到的正文/联系方式/原文链接全部抹掉。
-    for k in ("source_url", "contact_person", "contact_phone", "signup_time",
-              "tender_time", "source_html", "detail_fetched_at"):
+    # **白名单化：只写 row 里确实出现的键**。
+    #
+    # 原实现把所有列表字段写死成 `row.get(...)`，没传就是 None。后果（审计 B1，
+    # 已在生产数据里发生）：`zlbx.fetch_details()` / `detail_fetch.fetch_all_pending()`
+    # 只传几个详情字段，一调就把该记录已有的 notice_type/bid_process/region/
+    # project_no/url/summary/budget 全部抹成 NULL —— 68 条 zlbx 记录中招。
+    #
+    # 列表采集传的是完整 row，行为不变；详情链路传半个 row，现在只更新它自己
+    # 带的字段，其余保持原值。
+    _CLEAN = ("bid_process", "title", "project_no", "purchaser", "agency",
+              "region", "publish_at", "deadline", "summary")
+    _DETAIL = ("source_url", "contact_person", "contact_phone", "signup_time",
+               "tender_time", "source_html", "detail_fetched_at")
+
+    fields: dict = {}
+    for k in ("source", "notice_type", "url", "content"):
         if k in row:
             fields[k] = row[k]
+    for k in _CLEAN:
+        if k in row:
+            fields[k] = _clean(row.get(k))
+    if "budget" in row:
+        fields["budget"] = _money(row.get("budget")) if row.get("budget") else None
+    if "is_tax" in row:
+        fields["is_tax"] = 1 if row.get("is_tax") else 0
+    if "tax_hits" in row:
+        fields["tax_hits"] = ",".join(row.get("tax_hits") or [])
+    for k in _DETAIL:
+        if k in row:
+            fields[k] = row[k]
+    fields["updated_at"] = now
     if exists:
         sets = ", ".join(f"{k} = ?" for k in fields)
         conn.execute(f"UPDATE tender SET {sets} WHERE doc_uid = ?",

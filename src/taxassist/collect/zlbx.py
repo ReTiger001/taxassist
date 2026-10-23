@@ -227,6 +227,11 @@ def fetch_details(conn, *, limit: int | None = None, progress=None) -> dict:
             "contact_phone": phone or None,
             "signup_time": data.get("signup_time") or None,
             "tender_time": data.get("tender_time") or None,
+            # **deadline 必须回填**：列表 API 没有 deadline 字段，导致 101 条 zlbx
+            # 全部空 → notice.due_tenders() 硬性要求 deadline 非空 → **企业税务标
+            # （最该提醒的那类）一条都进不了截止日邮件**。审计 B3。
+            # 用投标/开标时间近似投标截止日（可在邮件里注明）。
+            "deadline": (str(data.get("tender_time") or "")[:10] or None),
             "source_html": body or None,
             # 详情里若带了更准的时间/采购人，顺手补上
             "publish_at": (data.get("pub_time") or "")[:10] or None,
