@@ -33,6 +33,7 @@ import hashlib
 import logging
 import re
 import time
+import urllib.parse
 
 log = logging.getLogger(__name__)
 
@@ -240,8 +241,17 @@ def search(keyword: str, wait_sec: float = 9.0) -> list[dict]:
 
 
 def _doc_uid(row: dict) -> str:
-    """详情页没有稳定 id 暴露在列表里，用「标题+平台+发布时间」哈希当唯一键。"""
-    raw = f"{row.get('title')}|{row.get('platform')}|{row.get('publish_at')}"
+    """公告唯一键。
+
+    **优先用 businessId**（官方稳定 id）—— 审计 B5 指出：原来用
+    ``hash(title|platform|publish_at)``，而 publish_at 有 178/505 是空值，
+    同一公告「有日期」和「空日期」两次采集会算成两个 uid → 27 组同标题重复。
+    没有 businessId 时退回 ``hash(title|platform)``（**不再含 publish_at**）。
+    """
+    bid = row.get("business_id")
+    if bid:
+        return f"cebpub:{bid}"
+    raw = f"{row.get('title')}|{row.get('platform')}"
     return "cebpub:" + hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
@@ -265,6 +275,15 @@ def to_tender_row(row: dict) -> dict:
         "is_tax": 1,
         "tax_hits": ["税务服务"],
         "summary": f"{row.get('industry') or ''} | {row.get('platform') or ''}".strip(" |"),
+        # 审计 B6：api_search 早就拿到了 tenderProjectCode/businessId，但这里没映射，
+        # 导致 505 条 cebpub 记录 project_no 和 source_url 全空、点不进原文。
+        "project_no": row.get("project_code"),
+        # 详情页只能 POST + 过 vaptcha，**给不了直链**；给一个「按标题去官网搜」的
+        # 链接 —— 浏览器打开搜索页会把标题填进去，用户点一下就能看到原文入口。
+        "source_url": (
+            "https://www.cebpubservice.com/ctpsp_iiss/searchbusinesstypebeforedooraction/getSearch.do"
+            "?keySearchValue=" + urllib.parse.quote(str(row.get("title") or ""))
+        ),
     }
 
 
@@ -298,6 +317,10 @@ def collect(conn, *, keywords: list[str] | None = None,
             for kw in kws:
                 rows = api_search(client, kw, area_code)
                 stats["queries"] += 1
+                # 审计 B10：api_search 内部吞异常返回 []，原来不区分"真 0 条"和
+                # "请求失败"，failed 恒为 0、被限流也看不出来。
+                if not rows:
+                    stats["failed"] += 1
                 if not rows:
                     continue
                 for r in rows:

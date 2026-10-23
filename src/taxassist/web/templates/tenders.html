@@ -45,8 +45,8 @@
       </select>
     </label>
     <label class="chk">
-      <input type="checkbox" name="tax_only" value="1" {% if tax_only == '1' %}checked{% endif %}>
-      <span data-zh="只看税务服务类" data-en="Tax services only">只看税务服务类</span>
+      <input type="checkbox" name="all_tax" value="1" {% if all_tax == '1' %}checked{% endif %}>
+      <span data-zh="看全部（含非税务）" data-en="All (incl. non-tax)">看全部（含非税务）</span>
     </label>
     <label>
       <span data-zh="投递窗口" data-en="Window">投递窗口</span>
@@ -56,6 +56,10 @@
         <option value="180" {% if recent == '180' %}selected{% endif %} data-zh="近半年" data-en="Last 6 months">近半年</option>
         <option value="all" {% if recent == 'all' %}selected{% endif %} data-zh="全部（含历史）" data-en="All (incl. history)">全部（含历史）</option>
       </select>
+    </label>
+    <label class="chk">
+      <input type="checkbox" name="ai_all" value="1" {% if ai_all == '1' %}checked{% endif %}>
+      <span data-zh="含 AI 判为非税务的" data-en="Include non-tax (AI)">含 AI 判为非税务的</span>
     </label>
     <label class="chk">
       <input type="checkbox" name="show_finished" value="1" {% if show_finished == '1' %}checked{% endif %}>

@@ -60,14 +60,16 @@ def build_parser() -> argparse.ArgumentParser:
 
     td = sub.add_parser("tenders", help="抓取税务服务招标公告")
     td.add_argument("--source", action="append", dest="source",
-                    choices=["cebpub", "zlbx", "ccgp"],
+                    choices=["cebpub", "zlbx", "ccgp", "cms", "csg", "ggzy"],
                     help="来源：cebpub=中国招标投标公共服务平台（官方上游，默认，"
                          "覆盖全国企业平台、无额度限制）；zlbx=知了标讯 API"
                          "（有预算金额等字段，100 次免费额度）；ccgp=中国政府采购网"
-                         "（命中率低）；可重复")
+                         "（命中率低）；cms=同款 CMS 平台（邮储+湖北联投，含正文/电话）；"
+                         "csg=南方电网（静态 HTML，含正文）；ggzy=全国公共资源交易平台"
+                         "（31 省政采/工程聚合，参数来自 BidRadar）；可重复")
     td.add_argument("--days", type=int, default=7, help="往回抓几天（zlbx 用）")
     td.add_argument("--max-pages", type=int, default=2,
-                    help="zlbx 最多翻几页（每页消耗一次免费额度，默认 2 = 100 条）")
+                    help="各源最多翻几页（zlbx 每页消耗一次额度；cms/csg/ggzy 默认分别 120/30/5）")
     td.add_argument("--detail-limit", type=int, default=None,
                     help="CCGP 源专用：最多抓几条详情（调试用）")
 
@@ -78,6 +80,10 @@ def build_parser() -> argparse.ArgumentParser:
     tdd = sub.add_parser("tender-detail", help="补齐招标详情（正文/原文/联系方式/时间）")
     tdd.add_argument("--limit", type=int, default=None,
                      help="最多补几条（每次调用消耗一次知了标讯免费额度）")
+
+    tda = sub.add_parser("tender-detail-all",
+                         help="通用详情补全：对有 source_url 的条目用浏览器抓正文（免费）")
+    tda.add_argument("--limit", type=int, default=None, help="最多补几条")
 
     tn = sub.add_parser("tender-notify", help="发送「即将截止的税务标」邮件提醒")
     tn.add_argument("--days", type=int, default=3, help="未来几天内到期的（默认 3）")
@@ -257,6 +263,30 @@ def cmd_tenders(args) -> int:
                 print(f"  翻页 {st['pages']} / 列表 {st['listed']} 条 / "
                       f"新增 {st['new']} · 更新 {st['updated']} / "
                       f"税务相关 {st['tax']} / 详情 {st['details']}")
+            elif src == "cms":
+                # 同款 CMS 的两个平台（邮储 + 湖北联投）。审计 B13：这个模块
+                # 之前只有手工脚本调用，没进 CLI/调度，属于"孤儿模块"。
+                from .collect import cms_platform
+
+                st = cms_platform.collect(conn, max_pages=args.max_pages or 120)
+                print(f"  平台 {st['platforms']} / 页 {st['pages']} / 列表 {st['listed']} 条 / "
+                      f"匹配 {st['matched']} / 新增 {st['new']} · 更新 {st['updated']} / "
+                      f"详情 {st['details']}")
+            elif src == "csg":
+                from .collect import csg
+
+                st = csg.collect(conn, max_pages=args.max_pages or 30)
+                print(f"  页 {st['pages']} / 列表 {st['listed']} 条 / "
+                      f"匹配 {st['matched']} / 新增 {st['new']} · 更新 {st['updated']} / "
+                      f"详情 {st['details']}")
+            elif src == "ggzy":
+                # 全国公共资源交易平台（31 省政采/工程聚合）。参数来自开源项目 BidRadar。
+                from .collect import ggzy
+
+                st = ggzy.collect(conn, max_pages=args.max_pages or 5)
+                print(f"  请求 {st['requests']} / 扫描 {st['records']} 条 / "
+                      f"匹配 {st['matched']} / 新增 {st['new']} · 更新 {st['updated']} / "
+                      f"详情 {st['details']} / 限流 {st['restricted']}")
     finally:
         conn.close()
     print("完成。")
@@ -338,6 +368,26 @@ def cmd_tender_notify(args) -> int:
         print(f"[dry-run] {res['count']} 条（未发送）")
     else:
         print(f"没有即将截止的标（未来 {args.days} 天）")
+    return 0
+
+
+def cmd_tender_detail_all(args) -> int:
+    """通用详情补全：对已有 source_url 的条目用浏览器抓正文/联系方式。
+
+    免费（不消耗 API 额度），但每条要 10-20 秒（浏览器渲染）。
+    """
+    from . import tender as tmod
+    from .collect import detail_fetch
+
+    conn = dbmod.connect()
+    try:
+        _ensure_tender(conn, tmod)
+        st = detail_fetch.fetch_all_pending(
+            conn, limit=args.limit,
+            progress=lambda i, n: print(f"  [{i}/{n}]", flush=True))
+    finally:
+        conn.close()
+    print(f"完成：抓取 {st['fetched']}/{st['total']} 条，失败 {st['failed']}，无联系方式 {st['no_contact']}")
     return 0
 
 
@@ -1109,6 +1159,7 @@ def main(argv: list[str] | None = None) -> int:
         "tender-ai": cmd_tender_ai,
         "tender-detail": cmd_tender_detail,
         "tender-notify": cmd_tender_notify,
+        "tender-detail-all": cmd_tender_detail_all,
         "provincial": cmd_provincial,
         "enrich": cmd_enrich,
         "attach": cmd_attach,

@@ -182,7 +182,13 @@ def fetch_all_pending(conn, *, limit: int | None = None, progress=None) -> dict:
             stats["failed"] += 1
         else:
             got["doc_uid"] = row["doc_uid"]
-            got["source"] = "cebpub" if not row["doc_uid"].startswith("zlbx:") else "zlbx"
+            # 审计 B11：原来按 uid 前缀猜 source（cms:*/csg:* 全被标成 cebpub）。
+            # 改成**从数据库读真实 source**，查不到才退回前缀猜测。
+            real = conn.execute(
+                "SELECT source FROM tender WHERE doc_uid = ?", (row["doc_uid"],)
+            ).fetchone()
+            got["source"] = (real["source"] if real and real["source"]
+                             else ("zlbx" if row["doc_uid"].startswith("zlbx:") else "cebpub"))
             got["title"] = row["title"]
             got["is_tax"] = 1
             if not got.get("contact_phone"):

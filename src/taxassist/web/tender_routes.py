@@ -48,17 +48,17 @@ def register(app, *, ctx, templates) -> None:
                      q: str = Query("", max_length=80),
                      region: str = "",
                      notice_type: str = "",
-                     tax_only: str = "1",
+                     all_tax: str = "0",
+                     ai_all: str = "0",
                      show_finished: str = "0",
                      recent: str = "90",
-                     ai_only: str = "1",
                      days: str = "30",
                      page: int = Query(1, ge=1),
                      limit: int = Query(30, ge=1, le=100)):
         """招标列表。
 
-        ``tax_only=1``（默认）只看判为税务服务的条目 —— 用户明确要"默认只显示
-        税务类，可切换看全部"。
+        **默认只看税务类**（用户要求）；``all_tax=1`` 可切到"看全部"。
+        ``ai_all=1`` 可把 AI 判为非税务的也显示出来。
 
         ``recent``（默认 90）：只看**近 N 天发布，且未截止**的标。
         为什么默认开：CMS 平台（邮储/湖北联投）按时间倒序也混着几个月前的历史标，
@@ -72,12 +72,14 @@ def register(app, *, ctx, templates) -> None:
 
         where: list[str] = []
         params: list = []
-        if tax_only == "1":
+        # **反向语义**：checkbox 未勾选时不传参，若用 `tax_only=1` 作默认值就永远
+        # 关不掉（审计 B8）。所以用 `all_tax=1` 表示「看全部（含非税务）」。
+        if all_tax != "1":
             where.append("t.is_tax = 1")
             # **AI 服务类型过滤**：关键词会把「税务局买食堂/工程/系统开发」也收进来
             # （标题含"税务局""服务"就命中）。AI 评估已判定它们不是税务专业服务。
             # 未评估的**保留**（宁多勿漏），只挡掉 AI 明确判为"非税务服务"的。
-            if ai_only == "1":
+            if ai_all != "1":
                 where.append("(t.ai_is_tax_service IS NULL OR t.ai_is_tax_service = 1)")
         # **默认只看还能投的阶段**：中标结果/中标候选人/合同意味着项目已经定标，
         # 再去投是白费力气。用户看不出"候选供应商征集"（还能投）和"中标候选人
@@ -148,8 +150,8 @@ def register(app, *, ctx, templates) -> None:
         def url_with(**kw) -> str:
             """保留其它筛选条件的翻页/筛选链接（与 browse_routes 同一手法）。"""
             cur = {"q": q, "region": region, "notice_type": notice_type,
-                   "tax_only": tax_only, "show_finished": show_finished,
-                   "recent": recent, "ai_only": ai_only, "days": days, "page": page, "limit": limit}
+                   "show_finished": show_finished,
+                   "recent": recent, "all_tax": all_tax, "ai_all": ai_all, "days": days, "page": page, "limit": limit}
             cur.update(kw)
             qs = "&".join(f"{k}={v}" for k, v in cur.items() if v not in (None, ""))
             return f"/tenders?{qs}"
@@ -158,8 +160,8 @@ def register(app, *, ctx, templates) -> None:
             request=request, name="tenders.html",
             context=ctx(request,
                         q=q, region=region, notice_type=notice_type,
-                        tax_only=tax_only, show_finished=show_finished,
-                        recent=recent, ai_only=ai_only, days=days, page=page, limit=limit,
+                        show_finished=show_finished,
+                        recent=recent, all_tax=all_tax, ai_all=ai_all, days=days, page=page, limit=limit,
                         pages=pages, total=total, rows=rows,
                         regions=regions, types=types,
                         notice_types=tmod.NOTICE_TYPES,

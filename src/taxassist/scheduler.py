@@ -323,20 +323,68 @@ def _job_tenders() -> None:
     它覆盖全国所有企业招标平台且无额度限制（走「首次查询免验证」，不碰验证码）。
     知了标讯作为补充（有预算金额字段，但有 100 次免费额度）。
     """
-    try:
-        from . import tender as tmod
-        from .collect import cebpub
+    from . import tender as tmod
 
-        conn = dbmod.connect()
+    conn = dbmod.connect()
+    try:
+        tmod.ensure_table(conn)
+    finally:
+        conn.close()
+
+    # **每个源独立 try**：一个源挂了不能影响其他源。审计 B13 指出 cms/csg
+    # 之前完全没进调度（孤儿模块，只有手工跑过）。
+    tasks = [
+        ("官方上游(cebpub)", _collect_cebpub),
+        ("同款CMS(邮储+湖北联投)", _collect_cms),
+        ("南方电网", _collect_csg),
+    ]
+    for name, fn in tasks:
         try:
-            tmod.ensure_table(conn)
-            stats = cebpub.collect(conn)
-        finally:
-            conn.close()
-        log.info("招标采集完成（官方源）：抓 %d 条 / 新增 %d / 重复 %d",
-                 stats["fetched"], stats["new"], stats["duplicates"])
-    except Exception:
-        log.exception("招标采集失败（不影响政策日更，请查看日志）")
+            stats = fn()
+            log.info("招标采集完成（%s）：%s", name, stats)
+        except Exception:
+            log.exception("招标采集失败（%s），继续其他源", name)
+
+
+def _collect_cebpub() -> str:
+    from . import tender as tmod
+    from .collect import cebpub
+
+    conn = dbmod.connect()
+    try:
+        tmod.ensure_table(conn)
+        st = cebpub.collect(conn)
+    finally:
+        conn.close()
+    return f"抓 {st['fetched']} 条 / 新增 {st['new']} / 重复 {st['duplicates']}"
+
+
+def _collect_cms() -> str:
+    """同款 CMS 平台（邮储 + 湖北联投）。"""
+    from . import tender as tmod
+    from .collect import cms_platform
+
+    conn = dbmod.connect()
+    try:
+        tmod.ensure_table(conn)
+        st = cms_platform.collect(conn, max_pages=120)
+    finally:
+        conn.close()
+    return f"页 {st['pages']} / 匹配 {st['matched']} / 新增 {st['new']} / 详情 {st['details']}"
+
+
+def _collect_csg() -> str:
+    """南方电网（静态 HTML）。"""
+    from . import tender as tmod
+    from .collect import csg
+
+    conn = dbmod.connect()
+    try:
+        tmod.ensure_table(conn)
+        st = csg.collect(conn, max_pages=30)
+    finally:
+        conn.close()
+    return f"页 {st['pages']} / 匹配 {st['matched']} / 新增 {st['new']} / 详情 {st['details']}"
 
 
 def _job_tender_notify() -> None:

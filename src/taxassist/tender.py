@@ -12,7 +12,11 @@
 **项目编号**，去重键就用它；``doc_uid`` 仍按"源 + 公告 id"唯一，因为不同公告
 的正文都要保留（更正公告里的截止日期才是最新的）。
 
-真正的"同一个标"由 ``project_no`` 关联，列表页按它聚合成一条展示最新阶段。
+    # **project_no 的语义（审计 B15 更正）**：各源往里放的 id 并不统一
+    # （zlbx 放 bid_id、cms 放 contentId、cebpub 放 tenderProjectCode、ggzy 放
+    # 记录 id），只作为「来源侧唯一标识」留档，**不做跨阶段聚合** —— 原文档
+    # 承诺的「按 project_no 聚合成一条展示最新阶段」从未实现，已删掉这个承诺。
+    # 真要做聚合，应先统一各源的 project_no 语义（同一项目的不同公告要能对上）。
 
 ## 为什么要 ``is_tax`` 标记
 
@@ -74,7 +78,7 @@ CREATE TABLE IF NOT EXISTS tender (
     project_no    TEXT,
     purchaser     TEXT,
     agency        TEXT,
-    budget        REAL,
+    budget        NUMERIC(16,2),
     region        TEXT,
     publish_at    TEXT,
     deadline      TEXT,
@@ -117,6 +121,19 @@ def ensure_table(conn) -> None:
     _add_column(conn, "tender", "source_html", "TEXT")       # 正文（HTML）
     _add_column(conn, "tender", "detail_fetched_at", "TEXT")
     conn.commit()
+    # B12：把老的 REAL 列迁到 NUMERIC（只对 PG 有意义；SQLite 会忽略类型）。
+    # 必须单独 try —— PG 上重复迁移会报错，不能让它影响建表流程。
+    try:
+        conn.execute(
+            "ALTER TABLE tender ALTER COLUMN budget TYPE NUMERIC(16,2)"
+            " USING budget::numeric(16,2)")
+        conn.commit()
+        log.info("已将 tender.budget 迁移为 NUMERIC(16,2)")
+    except Exception:  # noqa: BLE001 - 已是 NUMERIC 或 SQLite
+        try:
+            conn.rollback()
+        except Exception:  # noqa: BLE001
+            pass
 
 
 def _column_exists(conn, table: str, column: str) -> bool:
@@ -170,14 +187,23 @@ def is_biddable(process: str | None) -> bool:
 
 
 def _normalize_title(title: str | None) -> str:
-    """规范化标题用于**去重比对**（不改存储值）。
+    r"""规范化标题用于**去重比对**（不改存储值）。
 
     知了标讯会把同一公告以带不同编号前缀的形式重复收录：
-    「10中国建设银行…」「7中国建设银行…」——正文完全相同，只差开头 1-2 位数字。
-    这里去掉**开头 1-2 位数字 + 可选标点**。为什么只去 1-2 位：4 位通常是年份
-    （"2026年度企业所得税汇算清缴"），去掉就把不同年份的标混成一类了。
+    「10中国建设银行…」「7中国建设银行…」—— 正文完全相同，只差开头 1-2 位数字。
+
+    **只削 1-2 位编号前缀，4 位年份必须保留**（审计 B17）：原实现用
+    ``^[\s\d]{1,2}[.、,，\s]*``，「2026年度企业所得税汇算清缴」会被削成
+    「26年度…」——「2」「0」被当编号吃掉，调试时看到的值全是错的。
+    现在分两步：先削「数字+分隔符」，再削「1-2 位数字 + 后面不是数字/年」，
+    且整串以 4 位数字开头时直接跳过第二步（保护年份）。
     """
-    t = re.sub(r"^[\s\d]{1,2}[.、,，\s]*", "", title or "")
+    t = title or ""
+    # ① 「1.」「2、」「3，」这类明确编号（必须有分隔符才削，最安全）
+    t = re.sub(r"^\s*\d{1,2}[.、,，]\s*", "", t)
+    # ② 「10建行」这种无分隔符前缀；但整串以 4 位年份开头时不动
+    if not re.match(r"^\s*\d{4}", t):
+        t = re.sub(r"^\s*\d{1,2}(?!\d)", "", t)
     return re.sub(r"\s+", "", t).strip()
 
 
