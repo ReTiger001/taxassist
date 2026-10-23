@@ -244,9 +244,15 @@ def collect(conn, *, platforms: list[str] | None = None,
                         dup = tmod.find_duplicate(conn, title, row.get("purchaser"))
                         if dup:
                             row["doc_uid"] = dup
-                    # 审计 B4：重定向后 row["source"] 仍是"来方"，会覆盖原记录的
-                    # 源归属（10 条 zlbx 因此被标成 cebpub，导致按源补详情漏抓）。
-                    row.pop("source", None)
+                            # 审计 B4：重定向后 row["source"] 仍是"来方"，会覆盖原记录的
+                            # 源归属（10 条 zlbx 因此被标成 cebpub，导致按源补详情漏抓）。
+                            # 正确做法是**改回原记录的 source** —— 注意不能直接删掉：
+                            # upsert 走 INSERT 时 source 为 NULL 会触发 NOT NULL 约束。
+                            orig = conn.execute(
+                                "SELECT source FROM tender WHERE doc_uid = ?",
+                                (dup,)).fetchone()
+                            if orig:
+                                row["source"] = orig["source"]
                     _, is_new = tmod.upsert(conn, row)
                     stats["new" if is_new else "updated"] += 1
                     time.sleep(0.3)
